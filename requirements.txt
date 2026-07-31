@@ -1,0 +1,22 @@
+# --- Sinyal & fitur HRV ---
+neurokit2
+numpy
+scipy
+pandas
+
+# --- RAG + LLM ---
+google-generativeai        # Gemini 2.5 Flash + embedding text-embedding-004
+chromadb                   # vector store lokal
+python-dotenv              # baca GEMINI_API_KEY dari .env
+# Catatan: TIDAK memakai llama-index/langchain. Sesuai CLAUDE.md, retrieval
+# ditulis manual (cosine similarity) karena KB hanya ~15 chunk dan kode manual
+# jauh lebih mudah dipertanggungjawabkan baris per baris saat sidang.
+
+# --- Evaluasi & visualisasi ---
+scikit-learn               # accuracy, macro-F1, confusion matrix, Cohen's Kappa
+matplotlib
+seaborn
+
+# --- Backend ---
+fastapi
+uvicorn

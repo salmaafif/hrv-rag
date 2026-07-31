@@ -1,0 +1,14 @@
+#.env
+
+# Dataset
+data/raw/
+data/processed/
+outputs/
+arsip/
+
+# Python
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+venv/
+.venv/
