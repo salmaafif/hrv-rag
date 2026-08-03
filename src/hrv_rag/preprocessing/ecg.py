@@ -1,10 +1,10 @@
 """
-ecg.py — Cabang pra-pemrosesan ECG (modalitas acuan / gold standard).
+ecg.py — ECG preprocessing branch (the reference / gold-standard modality).
 
-Yang khas ECG dan TIDAK berlaku untuk PPG:
-  - Pita 0,5-40 Hz, karena kompleks QRS punya komponen tajam sampai ~40 Hz
-  - Notch 50 Hz, karena elektroda ECG menangkap interferensi jala-jala
-  - Deteksi puncak R (bukan puncak sistolik), bentuknya sempit dan tinggi
+What is specific to ECG and does NOT apply to PPG:
+  - A 0.5-40 Hz band, because the QRS complex has sharp components up to ~40 Hz
+  - A 50 Hz notch, because ECG electrodes pick up mains interference
+  - R-peak detection (not systolic-peak detection); R peaks are narrow and tall
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ from .base import BasePreprocessor
 
 
 class ECGPreprocessor(BasePreprocessor):
-    """Sinyal ECG mentah -> deret RR bersih."""
+    """Raw ECG signal -> clean RR series."""
 
     modality = Modality.ECG
 
@@ -32,13 +32,13 @@ class ECGPreprocessor(BasePreprocessor):
 
     def filter_signal(self, raw: np.ndarray) -> np.ndarray:
         """
-        Bandpass Butterworth orde 2 (0,5-40 Hz) + notch 50 Hz.
+        Order-2 Butterworth bandpass (0.5-40 Hz) plus a 50 Hz notch.
 
-        Kenapa filtfilt, bukan lfilter? filtfilt menyaring maju lalu mundur,
-        sehingga pergeseran fasenya saling meniadakan. Ini bukan detail
-        kosmetik: filter biasa menggeser posisi puncak R beberapa milidetik,
-        dan karena RMSSD dihitung dari selisih antar interval, pergeseran
-        sekecil itu langsung mencemari fitur utama sistem ini.
+        Why filtfilt rather than lfilter? filtfilt runs the filter forward and then
+        backward, so the phase shifts cancel out. This is not a cosmetic detail: an
+        ordinary filter displaces R-peak positions by a few milliseconds, and since
+        RMSSD is computed from differences between intervals, a shift that small
+        contaminates the system's primary feature directly.
         """
         cfg = self.filter_cfg
         nyq = 0.5 * self.fs
@@ -55,11 +55,11 @@ class ECGPreprocessor(BasePreprocessor):
 
     def detect_peaks(self, filtered: np.ndarray) -> np.ndarray:
         """
-        Deteksi puncak R memakai NeuroKit2 (varian Pan-Tompkins).
+        Detect R peaks using NeuroKit2 (a Pan-Tompkins variant).
 
-        Dipakai pustaka mapan, bukan implementasi sendiri, karena deteksi
-        QRS adalah masalah yang sudah lama terpecahkan dan tervalidasi luas.
-        Nilai tambah TA ini ada di tahap RAG, bukan di menulis ulang detektor.
+        An established library is used rather than a hand-written detector, because
+        QRS detection is a long-solved and extensively validated problem. This
+        thesis contributes at the RAG stage, not by reimplementing a detector.
         """
         _, info = nk.ecg_peaks(filtered, sampling_rate=self.fs)
         return np.asarray(info["ECG_R_Peaks"])

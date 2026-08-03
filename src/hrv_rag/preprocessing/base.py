@@ -1,18 +1,17 @@
 """
-base.py — Kontrak bersama cabang pra-pemrosesan ECG dan PPG.
+base.py — Shared contract for the ECG and PPG preprocessing branches.
 
-CLAUDE.md mewajibkan kedua modalitas ditulis di berkas terpisah, bukan satu
-berkas dengan percabangan `if`. Alasannya nyata: pita filter, algoritma
-deteksi puncak, dan kebutuhan pembuangan artefak gerakan memang berbeda.
+CLAUDE.md requires the two modalities to live in separate files rather than one
+file with `if` branching. The reason is real: filter bands, peak detection
+algorithms, and motion-artefact handling genuinely differ.
 
-Namun ada bagian yang IDENTIK untuk keduanya — koreksi ektopik dan
-pemeriksaan kualitas bekerja pada deret interval, bukan pada bentuk
-gelombang. Bagian itu ditaruh di sini agar tidak ditulis dua kali dan
-tidak berisiko menyimpang satu sama lain.
+Some steps are IDENTICAL for both, however — ectopic correction and quality
+checking operate on the interval series, not on the waveform. Those live here so
+they are written once and cannot drift apart between the two branches.
 
-Pembagian tanggung jawab:
-    kelas induk  : quality check, koreksi ektopik, perakitan RRSeries
-    kelas anak   : filter dan deteksi puncak khas modalitasnya
+Division of responsibility:
+    parent class  : quality check, ectopic correction, assembling RRSeries
+    subclass      : filtering and peak detection specific to its modality
 """
 
 from __future__ import annotations
@@ -26,7 +25,7 @@ from ..core.types import Modality, Phase, QualityReport, RRSeries
 
 
 class BasePreprocessor(ABC):
-    """Kerangka pra-pemrosesan: sinyal mentah -> RRSeries bersih."""
+    """Preprocessing skeleton: raw signal -> clean RRSeries."""
 
     modality: Modality
 
@@ -35,23 +34,23 @@ class BasePreprocessor(ABC):
         self.fs = sampling_rate
         self.quality_cfg = quality or settings.quality
 
-    # =================================================== wajib diisi anak
+    # ================================================ subclass must provide
     @abstractmethod
     def filter_signal(self, raw: np.ndarray) -> np.ndarray:
-        """Bersihkan sinyal sesuai karakter modalitasnya."""
+        """Clean the signal according to its modality's characteristics."""
 
     @abstractmethod
     def detect_peaks(self, filtered: np.ndarray) -> np.ndarray:
-        """Kembalikan indeks sampel tiap puncak denyut."""
+        """Return the sample indices of each beat's peak."""
 
-    # ========================================================== alur utama
+    # ============================================================ main flow
     def run(self, raw: np.ndarray, subject: str, phase: Phase) -> RRSeries:
         """
-        Jalankan seluruh rantai pra-pemrosesan.
+        Run the whole preprocessing chain.
 
-        Urutannya tetap untuk kedua modalitas:
-            quality check -> filter -> deteksi puncak -> deret interval
-            -> koreksi ektopik
+        The order is the same for both modalities:
+            quality check -> filter -> peak detection -> interval series
+            -> ectopic correction
         """
         report = self.check_quality(raw)
         filtered = self.filter_signal(raw)
@@ -65,35 +64,35 @@ class BasePreprocessor(ABC):
             is_outlier=is_outlier,
         )
 
-    # ==================================================== langkah bersama
+    # ========================================================= shared steps
     def check_quality(self, raw: np.ndarray) -> QualityReport:
         """
-        Pemeriksaan kualitas pada sinyal MENTAH, sebelum difilter.
+        Inspect the RAW signal, before any filtering.
 
-        Harus dilakukan sebelum filter, karena filter justru menyamarkan
-        kerusakan: sinyal yang datar akibat elektroda lepas akan tampak
-        "wajar" setelah dibandpass, padahal tidak mengandung informasi.
+        This must happen before filtering, because filtering disguises damage: a
+        flat stretch caused by a detached electrode looks perfectly reasonable
+        after a bandpass, even though it carries no information at all.
 
-        Dua cacat yang dideteksi:
-        1. Clipping — sampel menempel di batas jangkauan ADC. Puncak yang
-           terpotong menggeser posisi puncak dan merusak interval.
-        2. Flat-line — jendela tanpa variasi sama sekali; menandakan
-           elektroda/sensor lepas.
+        Two defects are detected:
+        1. Clipping — samples pinned at the limits of the ADC range. Truncated
+           peaks shift the apparent peak position and corrupt the intervals.
+        2. Flat-line — windows with no variation whatsoever, indicating a
+           detached electrode or sensor.
         """
         notes: list[str] = []
 
-        # --- clipping: proporsi sampel di nilai ekstrem ---
+        # --- clipping: fraction of samples at the extremes ---
         lo, hi = float(np.min(raw)), float(np.max(raw))
         span = hi - lo
         if span == 0:
-            return QualityReport(0.0, 1.0, False, ["sinyal konstan total"])
-        # Toleransi 0,1% dari rentang, mengantisipasi derau kuantisasi.
+            return QualityReport(0.0, 1.0, False, ["signal is entirely constant"])
+        # Allow 0.1% of the range as tolerance for quantisation noise.
         tol = 0.001 * span
         clipping_ratio = float(
             np.mean((raw >= hi - tol) | (raw <= lo + tol))
         )
 
-        # --- flat-line: jendela berturut-turut tanpa variasi ---
+        # --- flat-line: consecutive windows with no variation ---
         win = max(1, int(self.quality_cfg.flatline_window_sec * self.fs))
         n_win = raw.size // win
         if n_win > 0:
@@ -104,9 +103,9 @@ class BasePreprocessor(ABC):
             flatline_ratio = 0.0
 
         if clipping_ratio > self.quality_cfg.max_clipping_ratio:
-            notes.append(f"clipping {clipping_ratio:.1%} melebihi ambang")
+            notes.append(f"clipping {clipping_ratio:.1%} exceeds threshold")
         if flatline_ratio > self.quality_cfg.max_flatline_ratio:
-            notes.append(f"flat-line {flatline_ratio:.1%} melebihi ambang")
+            notes.append(f"flat-line {flatline_ratio:.1%} exceeds threshold")
 
         return QualityReport(
             clipping_ratio=clipping_ratio,
@@ -118,11 +117,11 @@ class BasePreprocessor(ABC):
     def peaks_to_intervals(self, peaks: np.ndarray
                            ) -> tuple[np.ndarray, np.ndarray]:
         """
-        Ubah indeks puncak menjadi deret interval (ms) beserta waktunya.
+        Convert peak indices into an interval series (ms) plus their timestamps.
 
-        Waktu tiap interval ditempatkan pada puncak KEDUA dari tiap pasangan,
-        karena interval itu baru selesai terukur di titik tersebut. Ini yang
-        dipakai sebagai acuan saat segmentasi.
+        Each interval is timestamped at the SECOND peak of its pair, because that
+        is the moment the interval finished being measured. This timestamp is what
+        segmentation later uses.
         """
         if peaks.size < 2:
             return np.array([]), np.array([])
@@ -133,33 +132,29 @@ class BasePreprocessor(ABC):
     def correct_ectopic(self, rr_ms: np.ndarray
                         ) -> tuple[np.ndarray, np.ndarray]:
         """
-        Tandai dan perbaiki denyut ektopik / salah-deteksi.
+        Flag and repair ectopic or misdetected beats.
 
-        Dua kriteria sesuai CLAUDE.md:
-        1. Di luar batas fisiologis 0,3-2,0 detik (200 bpm sampai 30 bpm).
-        2. Berselisih lebih dari 20% terhadap interval sebelumnya.
+        Two criteria per CLAUDE.md:
+        1. Outside the physiological range 0.3-2.0 seconds (200 bpm to 30 bpm).
+        2. Differing by more than 20% from the immediately preceding interval.
 
-        Kriteria kedua dihitung terhadap interval TEPAT SEBELUMNYA, dan
-        seluruh perbandingan memakai nilai ASLI (belum terkoreksi). Dua hal
-        ini penting:
+        The second criterion is evaluated against the ORIGINAL (uncorrected)
+        values throughout. Two consequences matter:
 
-        - Memakai nilai asli membuat penandaan tidak merembet: keputusan
-          untuk denyut ke-i tidak bergantung pada hasil koreksi denyut
-          sebelumnya.
-        - Satu denyut ektopik lazimnya menghasilkan dua interval menyimpang
-          (satu memendek, lalu satu memanjang sebagai kompensasi). Kriteria
-          ini menandai keduanya, dan itu memang perilaku yang diinginkan.
+        - Using original values stops flagging from cascading: the decision for
+          beat i does not depend on how beat i-1 was corrected.
+        - A single ectopic beat normally produces two deviant intervals (one short,
+          then a compensatory long one). This criterion flags both, which is
+          exactly the desired behaviour.
 
-        Catatan: versi awal kode ini membandingkan terhadap "interval
-        terakhir yang diterima" dengan maksud mencegah perembetan. Cara itu
-        keliru — nilai acuannya bisa membeku dan menolak denyut secara
-        beruntun (terukur 59,5% pada S2 kondisi tertekan, padahal kriteria
-        harfiah hanya 1,5%).
+        Historical note: an earlier version of this code compared against "the last
+        accepted interval" in an attempt to prevent cascading. That was wrong — the
+        reference value could freeze and reject beats in a long chain (measured at
+        59.5% on S2 under stress, where the literal criterion gives only 1.5%).
 
-        Nilai yang ditandai diganti lewat interpolasi linear dari denyut
-        valid di sekitarnya. Interpolasi dipilih daripada penghapusan agar
-        sumbu waktu tetap utuh — menghapus denyut akan memendekkan segmen
-        secara diam-diam.
+        Flagged values are replaced by linear interpolation from the valid beats
+        around them. Interpolation is preferred over deletion so the time axis stays
+        intact; deleting beats would silently shorten the segment.
         """
         n = rr_ms.size
         if n == 0:
@@ -169,17 +164,17 @@ class BasePreprocessor(ABC):
         rr = rr_ms.astype(float).copy()
         is_outlier = np.zeros(n, dtype=bool)
 
-        # --- Kriteria 1: batas fisiologis ---
+        # --- Criterion 1: physiological bounds ---
         lo_ms, hi_ms = cfg.rr_min_sec * 1000.0, cfg.rr_max_sec * 1000.0
         is_outlier |= (rr < lo_ms) | (rr > hi_ms)
 
-        # --- Kriteria 2: lompatan >20% terhadap interval sebelumnya ---
-        # Dihitung sekaligus pada array asli, bukan dalam loop, agar tidak
-        # ada nilai terkoreksi yang ikut jadi pembanding.
+        # --- Criterion 2: >20% jump from the preceding interval ---
+        # Computed in one pass over the original array rather than in a loop, so no
+        # corrected value can ever become a reference.
         rel_diff = np.abs(np.diff(rr_ms)) / rr_ms[:-1]
         is_outlier[1:] |= rel_diff > cfg.max_rel_diff
 
-        # --- Perbaikan lewat interpolasi ---
+        # --- Repair by interpolation ---
         n_bad = int(is_outlier.sum())
         if 0 < n_bad < n:
             idx = np.arange(n)

@@ -27,6 +27,9 @@ Sudah disepakati, tidak perlu dibahas ulang kecuali ada alasan baru.
 | K9 | Antisipasi diukur **di tingkat sesi**, bukan per pertanyaan | Jendela 5–10 dtk di bawah resolusi segmen 60 dtk — tidak terukur |
 | K10 | Subjek WESAD dibagi **5 pengembangan / 10 pengujian**, per subjek (bukan per segmen) | (a) 10 subjek uji → satu subjek bernilai 10%, angka utama cukup stabil; dengan 5 subjek satu orang bernilai 20% dan F1 jadi rapuh. (b) 5 subjek cukup untuk menyetel prompt tanpa memboroskan panggilan API. (c) Pembagian per segmen akan membocorkan informasi karena baseline dihitung per subjek |
 | K11 | Jeda pemulihan 60 dtk **hanya untuk pertanyaan sulit** | 60 dtk adalah lantai keras (= panjang segmen); memberlakukannya ke semua pertanyaan membuat sesi terlalu panjang. Pertanyaan biasa tetap dapat reaktivitas, hanya pemulihannya tidak dilaporkan |
+| K15 | **Seluruh kode, KB, kueri, dan prompt berbahasa Inggris**; keluaran LLM untuk pengguna tetap Bahasa Indonesia | Kueri Inggris terhadap KB Indonesia menurunkan skor retrieval 0,03–0,08 dan sempat membuat satu kueri jatuh di bawah ambang sehingga mengembalikan nol chunk. Satu bahasa menghilangkan variabel tak terkendali itu |
+| K13 | **Tanpa vector store** — 23 chunk disimpan sebagai matriks numpy | Perpanjangan K3. Indeks pencarian baru berguna di puluhan ribu dokumen; di sini hanya menambah dependensi. Pencarian = satu perkalian matriks |
+| K14 | Embedding **`gemini-embedding-001`**, SDK **`google-genai`** | Bukan pilihan: `text-embedding-004` mengembalikan 404, dan `google-generativeai` sudah usang serta tidak terpasang |
 | K12 | OOP hanya pada dua sumbu variasi nyata: **modalitas** dan **dataset** | Abstraksi di tempat yang memang bervariasi; sisanya fungsi biasa agar tetap mudah dijelaskan baris per baris |
 
 ---
@@ -52,7 +55,7 @@ Sudah disepakati, tidak perlu dibahas ulang kecuali ada alasan baru.
 | T0.4 | `.gitignore` untuk `.env`, `data/raw`, `data/processed`, `outputs` | selesai |
 | T0.5 | ~~Hapus dokumen kembar di OneDrive~~ — diputuskan **tidak perlu dihapus** | selesai |
 | T0.6 | `git init` + commit awal — **ditunda atas permintaan** | belum |
-| T0.7 | Buat `.env` berisi `GEMINI_API_KEY` (jangan commit) | belum |
+| T0.7 | `.env` berisi `GEMINI_API_KEY` — **ada dan terverifikasi bekerja**. `.gitignore` sudah mengabaikannya kembali | selesai |
 
 ---
 
@@ -117,30 +120,39 @@ Dipisah karena dipakai bersama oleh Tahap 4, 5, dan 9.
 KB bukan bahan yang sudah jadi — ia **produk kerja TA ini**. Kualitas RAG dibatasi
 kualitas KB, jadi ini dikerjakan sebelum `kb_index.py`.
 
-Kondisi sekarang: 15 chunk isi + 1 bagian Sumber (terverifikasi 31 Juli 2026).
+**Status `kb_v2.0` (3 Agustus 2026):** knowledge base diterjemahkan ke Bahasa Inggris
+(keputusan K15) agar retrieval satu bahasa. Isi, ID chunk, dan rujukannya tidak berubah
+dari `kb_v1.1` — hanya bahasanya. Skor retrieval naik 0,03–0,08 di semua kueri uji.
+
+**Status `kb_v1.1` (versi Indonesia, digantikan):** 23 chunk (naik dari 15), rerata 92 kata,
+rentang 80–108 kata, simpangan baku 8 kata. Semua chunk punya ID unik. Versi lama
+diarsipkan di `kb/versi/knowledge_base_HRV_v1.0.md`.
+
+Delapan chunk baru: `KB-LFHF-02`, `KB-RECOV-02`, `KB-CONF-02`, `KB-COGN-01`,
+`KB-AROUS-01`, `KB-MODAL-01`, `KB-MODAL-02`, `KB-INTERP-02`.
 
 **Lubang cakupan yang sudah teridentifikasi:**
 
 | ID | Tugas | Status |
 |---|---|---|
-| T3a.1 | **Chunk PPG/PRV vs ECG** — KB sekarang **tidak punya satu kalimat pun** soal ini, padahal Aturan Wajib #5 menyuruh LLM menyesuaikan keyakinan berdasarkan modalitas. Tanpa chunk ini, LLM tidak punya dasar untuk melakukannya | belum |
-| T3a.2 | **Chunk beban kognitif** — dibutuhkan K6; CLAUDE.md sendiri memperkirakan SWELL akan gagal justru karena KB terlalu bias ke stres sosial-evaluatif | belum |
-| T3a.3 | **Chunk arousal vs valensi** — dibutuhkan indeks arousal (T2.10); alasan amusement dikecualikan sekarang hanya ada di CLAUDE.md, tidak di KB | belum |
-| T3a.4 | **Chunk kuantifikasi pemulihan** — chunk pemulihan sekarang kualitatif; butuh dasar untuk T2.7 | belum |
-| T3a.5 | Lengkapi bagian **Sumber** — sekarang masih tertulis "(Lengkapi dengan rujukan dari kajian pustaka proposalmu.)", baru 3 rujukan nyata | belum |
-| T3a.6 | Beri **ID stabil tiap chunk** (mis. `KB-RMSSD-01`) — wajib untuk mengisi field `rujukan` di keluaran LLM dan untuk gold standard T3b.4 | belum |
-| T3a.7 | Samakan panjang chunk — sekarang timpang (4–8 baris); chunk terlalu pendek buruk saat retrieval | belum |
-| T3a.8 | **Versi KB** (mis. `kb_v1.0`) dicap ke tiap keluaran — hasil berubah kalau KB berubah, jadi hasil tanpa versi KB tidak bisa direproduksi | belum |
-| T3a.10 | **Chunk pengaruh berbicara terhadap HRV** — lubang yang baru ketahuan dari L9. KB sekarang menyebut "ritme pernapasan" sebagai faktor pengganggu, tapi tidak menjelaskan bahwa TUGAS BERBICARA itu sendiri mengubah pola napas dan dapat menaikkan HF/RMSSD. Tanpa chunk ini, LLM tidak punya dasar menjelaskan subjek berpola terbalik | belum |
-| T3a.9 | Tiap klaim di KB harus punya rujukan — kalau tidak, LLM meneruskan klaim tak bersumber dan faithfulness (T5.6) jadi tak bermakna | belum |
+| T3a.1 | **Chunk PPG/PRV vs ECG** — KB sekarang **tidak punya satu kalimat pun** soal ini, padahal Aturan Wajib #5 menyuruh LLM menyesuaikan keyakinan berdasarkan modalitas. Tanpa chunk ini, LLM tidak punya dasar untuk melakukannya | selesai |
+| T3a.2 | **Chunk beban kognitif** — dibutuhkan K6; CLAUDE.md sendiri memperkirakan SWELL akan gagal justru karena KB terlalu bias ke stres sosial-evaluatif | selesai |
+| T3a.3 | **Chunk arousal vs valensi** — dibutuhkan indeks arousal (T2.10); alasan amusement dikecualikan sekarang hanya ada di CLAUDE.md, tidak di KB | selesai |
+| T3a.4 | **Chunk kuantifikasi pemulihan** — chunk pemulihan sekarang kualitatif; butuh dasar untuk T2.7 | selesai |
+| T3a.5 | Sumber diperluas dari 3 → 14 rujukan. **11 rujukan baru bertanda ⚠ BELUM DIVERIFIKASI** — Salma wajib membuka tiap sumber dan memastikan isinya mendukung klaim chunk yang menyitasinya | jalan |
+| T3a.6 | Beri **ID stabil tiap chunk** (mis. `KB-RMSSD-01`) — wajib untuk mengisi field `rujukan` di keluaran LLM dan untuk gold standard T3b.4 | selesai |
+| T3a.7 | Samakan panjang chunk — sekarang timpang (4–8 baris); chunk terlalu pendek buruk saat retrieval | selesai |
+| T3a.8 | **Versi KB** (mis. `kb_v1.0`) dicap ke tiap keluaran — hasil berubah kalau KB berubah, jadi hasil tanpa versi KB tidak bisa direproduksi | selesai |
+| T3a.10 | **Chunk pengaruh berbicara terhadap HRV** — lubang yang baru ketahuan dari L9. KB sekarang menyebut "ritme pernapasan" sebagai faktor pengganggu, tapi tidak menjelaskan bahwa TUGAS BERBICARA itu sendiri mengubah pola napas dan dapat menaikkan HF/RMSSD. Tanpa chunk ini, LLM tidak punya dasar menjelaskan subjek berpola terbalik | selesai |
+| T3a.9 | Tiap chunk kini punya baris **Rujukan** eksplisit di bawah ID-nya. Ketepatan isinya menunggu verifikasi T3a.5 | jalan |
 
 ## Tahap 3b — `kb_index.py`
 
 | ID | Tugas | Status |
 |---|---|---|
-| T3b.1 | Potong KB per heading `##` | belum |
-| T3b.2 | Embedding Gemini `text-embedding-004` | belum |
-| T3b.3 | Simpan ke Chroma lokal | belum |
+| T3b.1 | Potong KB per heading `##` | selesai |
+| T3b.2 | Embedding `gemini-embedding-001` (3072 dim, batch, `task_type` dibedakan dokumen/kueri). `text-embedding-004` **404 — tidak tersedia** | selesai |
+| T3b.3 | ~~Chroma~~ → `vectors.npy` + `meta.json` di `data/processed/kb_index/`. Keputusan K13 | selesai |
 | T3b.4 | **Gold-standard mapping**: kondisi fitur → chunk yang *seharusnya* terambil (dasar Precision@k/Recall@k/MRR di T5.5). Dibuat manual oleh Salma, sebelum melihat hasil retrieval, supaya tidak bias | belum |
 
 ---
@@ -340,5 +352,7 @@ Bukan bug — ini yang harus jujur disebut dan hampir pasti ditanya penguji.
 | Q6 | **Terjawab: setuju 5/10.** Alasan tercatat di K10 |
 | Q7 | **Terjawab.** Draft lubang KB disusun Claude, diperiksa & disitasi Salma |
 | Q8 | **Terjawab.** Gambar pipeline dibuatkan |
+| T3b.5 | **Ambang kemiripan dikalibrasi ulang untuk Inggris**: 0,65 → 0,60. Tak relevan 0,527–0,561; agak relevan 0,661; sangat relevan 0,807 | selesai |
+| T3b.6 | **Peringatan mutu retrieval**: skor sangat berdempet (kueri 1: tiga teratas hanya berjarak 0,009). Pada 2 dari 5 kueri, chunk paling tepat kalah tipis — `KB-COGN-01` kalah 0,002 dari `KB-RECOV-02`. Perlu diukur di T3b.4 | belum |
 | Q10 | Pemulihan & ketahanan tidak bisa diuji dengan WESAD (tidak ada fase jeda). Pilihan: (a) uji dengan data sintetis di U1 saja, (b) pakai WESAD label 4 (meditation) sebagai fase jeda — tapi urutan protokolnya berbeda antar subjek sehingga maknanya tidak setara. Rekomendasi: (a) |
 | Q9 | **Terjawab: semua ablasi U3.1–U3.6 masuk laporan** |

@@ -1,10 +1,10 @@
 """
-wesad.py — Pemuat dataset WESAD.
+wesad.py — WESAD dataset loader.
 
-Peran WESAD di TA ini (CLAUDE.md): jangkar utama. TSST adalah stresor
-sosial-evaluatif yang paling mirip wawancara kerja, dan WESAD satu-satunya
-dataset yang menyediakan ECG dan PPG dari SUBJEK YANG SAMA — dasar
-perbandingan modalitas berpasangan (ICC, Bland-Altman) di Tahap 6.
+WESAD's role in this thesis (CLAUDE.md): the primary anchor. TSST is the
+social-evaluative stressor closest to a real job interview, and WESAD is the only
+dataset providing ECG and PPG from THE SAME SUBJECTS — the basis for the paired
+modality comparison (ICC, Bland-Altman) in Stage 6.
 """
 
 from __future__ import annotations
@@ -21,22 +21,21 @@ from .base import BaseDatasetLoader
 
 class WESADLoader(BaseDatasetLoader):
     """
-    Pemuat satu subjek WESAD.
+    Loader for a single WESAD subject.
 
-    Pemetaan label -> fase:
-        label 1 (baseline) -> Phase.CALIBRATION  -> jadi baseline personal
-        label 2 (TSST)     -> Phase.QUESTION     -> jadi kondisi tertekan
-        label 3 (amusement)-> DIKECUALIKAN
+    Label -> phase mapping:
+        label 1 (baseline)  -> Phase.CALIBRATION  -> becomes the personal baseline
+        label 2 (TSST)      -> Phase.QUESTION     -> the stressed condition
+        label 3 (amusement) -> EXCLUDED
 
-    Amusement dikecualikan karena itu arousal POSITIF, bukan tekanan.
-    Memasukkannya akan mencampur dua hal berbeda ke dalam satu skala dan
-    membuat label "tinggi" kehilangan makna. (Keputusan K7: tidak dipakai
-    sama sekali, termasuk sebagai kontrol negatif.)
+    Amusement is excluded because it is POSITIVE arousal, not pressure. Including
+    it would mix two different things into one scale and rob the "high" label of
+    meaning. (Decision K7: not used at all, not even as a negative control.)
     """
 
     name = "WESAD"
 
-    # Kode label mentah di berkas .pkl
+    # Raw label codes inside the .pkl file
     _LABEL_BASELINE = 1
     _LABEL_STRESS = 2
 
@@ -45,10 +44,10 @@ class WESADLoader(BaseDatasetLoader):
         Phase.QUESTION: _LABEL_STRESS,
     }
 
-    # Frekuensi sampling menurut spesifikasi WESAD.
+    # Sampling rates per the WESAD specification.
     _FS = {
-        Modality.ECG: 700,   # RespiBAN, sabuk dada
-        Modality.PPG: 64,    # Empatica E4, pergelangan (kanal BVP)
+        Modality.ECG: 700,   # RespiBAN, chest strap
+        Modality.PPG: 64,    # Empatica E4, wrist (BVP channel)
     }
 
     _SIGNAL_KEY = {
@@ -59,14 +58,14 @@ class WESADLoader(BaseDatasetLoader):
     def __init__(self, subject: str) -> None:
         self.subject = subject
         self._path = self._locate(subject)
-        self._data: dict | None = None       # dimuat malas (lazy)
+        self._data: dict | None = None       # loaded lazily
 
-    # ------------------------------------------------------------- lokasi
+    # ------------------------------------------------------------ location
     @staticmethod
     def _locate(subject: str) -> Path:
         """
-        Cari berkas SX.pkl. Urutan: data/raw dalam repo dulu, baru lokasi
-        cadangan di Documents/WESAD.
+        Find the SX.pkl file. Tries data/raw inside the repo first, then falls back
+        to the copy in Documents/WESAD.
         """
         candidates = [
             DATA_RAW / "wesad" / subject / f"{subject}.pkl",
@@ -77,30 +76,30 @@ class WESADLoader(BaseDatasetLoader):
             if path.exists():
                 return path
         raise FileNotFoundError(
-            f"Berkas {subject}.pkl tidak ditemukan. Dicari di:\n  "
+            f"{subject}.pkl not found. Looked in:\n  "
             + "\n  ".join(str(c) for c in candidates)
         )
 
-    # -------------------------------------------------------------- muat
+    # ---------------------------------------------------------------- load
     @property
     def data(self) -> dict:
         """
-        Isi berkas .pkl, dimuat sekali lalu disimpan (lazy loading).
+        Contents of the .pkl file, loaded once and cached (lazy loading).
 
-        Satu berkas WESAD berukuran ratusan MB, jadi jangan dimuat ulang
-        tiap kali sinyal diminta.
+        A single WESAD file is hundreds of megabytes, so it must not be re-read
+        every time a signal is requested.
 
-        encoding='latin1' WAJIB: berkas ini di-pickle dengan Python 2.
+        encoding='latin1' is MANDATORY: the file was pickled under Python 2.
         """
         if self._data is None:
             with open(self._path, "rb") as f:
                 self._data = pickle.load(f, encoding="latin1")
         return self._data
 
-    # ------------------------------------------------------- kontrak base
+    # -------------------------------------------------------- base contract
     @property
     def subjects(self) -> tuple[str, ...]:
-        """Seluruh subjek WESAD. Perhatikan: S1 dan S12 memang tidak ada."""
+        """All WESAD subjects. Note that S1 and S12 genuinely do not exist."""
         return tuple(f"S{i}" for i in range(2, 18) if i != 12)
 
     @property
@@ -113,28 +112,28 @@ class WESADLoader(BaseDatasetLoader):
     def load_phase_signal(self, subject: str, phase: Phase,
                           modality: Modality) -> np.ndarray:
         """
-        Ambil sinyal satu fase sebagai array 1-D.
+        Extract one phase's signal as a 1-D array.
 
-        Catatan penting soal PPG: array label mengikuti laju cacah sinyal
-        dada (700 Hz), sedangkan BVP direkam 64 Hz. Maka indeks label harus
-        DISKALAKAN dulu ke laju BVP — kalau tidak, potongan yang terambil
-        akan meleset jauh.
+        Important note about PPG: the label array follows the chest sampling rate
+        (700 Hz), whereas BVP is recorded at 64 Hz. Label indices must therefore be
+        RESCALED to the BVP rate — without that, the extracted slice lands in
+        completely the wrong place.
         """
         if phase not in self._PHASE_TO_LABEL:
             raise ValueError(
-                f"WESAD tidak menyediakan fase {phase.value}. "
-                f"Tersedia: {[p.value for p in self._PHASE_TO_LABEL]}"
+                f"WESAD does not provide phase {phase.value}. "
+                f"Available: {[p.value for p in self._PHASE_TO_LABEL]}"
             )
 
         group, key = self._SIGNAL_KEY[modality]
         signal = np.asarray(self.data["signal"][group][key]).reshape(-1)
         labels = np.asarray(self.data["label"]).reshape(-1)
 
-        # Rentang menyambung terpanjang, dihitung pada laju label (700 Hz).
+        # Longest contiguous run, computed at the label rate (700 Hz).
         mask = labels == self._PHASE_TO_LABEL[phase]
         start, end = self.longest_contiguous_run(mask)
 
-        # Skalakan ke laju sinyal yang diminta.
+        # Rescale to the requested signal's sampling rate.
         scale = signal.size / labels.size
         start = int(round(start * scale))
         end = int(round(end * scale))

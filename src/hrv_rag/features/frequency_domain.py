@@ -1,29 +1,29 @@
 """
-frequency_domain.py — Fitur HRV domain frekuensi, DUA metode berdampingan.
+frequency_domain.py — Frequency-domain HRV features, computed TWO ways.
 
-Masalah dasarnya: analisis spektrum klasik mensyaratkan sampel berjarak
-tetap, sedangkan deret RR justru tidak — jarak antar sampelnya adalah RR itu
-sendiri (800 ms, lalu 750 ms, lalu 820 ms).
+The underlying problem: classical spectral analysis assumes evenly spaced samples,
+but an RR series is not evenly spaced — the gap between samples IS the RR interval
+itself (800 ms, then 750 ms, then 820 ms).
 
-Ada dua jalan keluar, dan keputusan K2 memakai keduanya lalu membandingkan:
+There are two ways out, and decision K2 uses both and compares them:
 
-  (a) Welch setelah interpolasi ke 4 Hz
-      Deret RR "diluruskan" dulu jadi sampel tiap 0,25 detik memakai
-      interpolasi cubic-spline. Cara paling lazim dan paling mudah disitasi.
-      Kelemahan: interpolasi menebak nilai di antara denyut, dan tebakan itu
-      menyumbang energi yang sebenarnya tidak ada di data.
+  (a) Welch after resampling to 4 Hz
+      The RR series is first "straightened" onto a grid with one sample every
+      0.25 s using cubic-spline interpolation. This is the most common and most
+      citable approach. Weakness: interpolation invents values between beats, and
+      those invented values contribute energy that is not in the data.
 
-  (b) Lomb-Scargle langsung pada deret tak seragam
-      Tidak menebak apa pun. Kelemahan: lebih jarang dipakai di literatur
-      HRV sehingga pembandingnya sedikit.
+  (b) Lomb-Scargle directly on the uneven series
+      Invents nothing. Weakness: less common in the HRV literature, so there are
+      fewer published results to compare against.
 
-Kalau keduanya sepakat, itu bukti fiturnya kokoh. Kalau berbeda jauh, itu
-temuan yang layak dibahas di sidang.
+If the two agree, that is evidence the features are robust. If they diverge
+markedly, that is a finding worth discussing at the defence.
 
-PERINGATAN yang berlaku untuk KEDUA metode: pada segmen 60 detik, pita LF
-(0,04-0,15 Hz) kurang stabil karena satu siklus LF terlama saja memakan 25
-detik — hanya muat dua kali dalam jendela. Perlakukan LF/HF sebagai
-pendukung, bukan penentu.
+A WARNING that applies to BOTH methods: on 60-second segments the LF band
+(0.04-0.15 Hz) is unstable, because a single slow LF cycle takes 25 seconds and
+therefore fits only twice inside the window. Treat LF/HF as supporting evidence,
+never as the deciding factor.
 """
 
 from __future__ import annotations
@@ -34,19 +34,20 @@ from scipy.signal import lombscargle, welch
 
 from ..config.settings import FrequencyConfig, settings
 
-#: Nama fitur yang dihasilkan modul ini.
+#: Names of the features produced by this module.
 FREQ_FEATURES = ("lf_welch", "hf_welch", "lf_hf_welch",
                  "lf_ls", "hf_ls", "lf_hf_ls")
 
-#: Denyut minimum agar spektrum masih masuk akal dihitung.
+#: Minimum number of beats for a spectrum to be meaningful at all.
 _MIN_BEATS = 20
 
 
 def _beat_times(rr_ms: np.ndarray) -> np.ndarray:
     """
-    Waktu kumulatif tiap denyut (detik), dipakai sebagai sumbu-x.
+    Cumulative time of each beat (seconds), used as the x-axis.
 
-    Deret RR adalah selisih waktu, jadi waktu kejadiannya = jumlah kumulatif.
+    An RR series is a sequence of time differences, so the moment each beat occurs
+    is the running sum of those differences.
     """
     return np.cumsum(rr_ms) / 1000.0
 
@@ -54,10 +55,10 @@ def _beat_times(rr_ms: np.ndarray) -> np.ndarray:
 def _band_power(freq: np.ndarray, psd: np.ndarray,
                 band: tuple[float, float]) -> float:
     """
-    Daya pada satu pita = luas di bawah kurva PSD pada rentang itu.
+    Power in one band = the area under the PSD curve across that range.
 
-    Dihitung dengan aturan trapesium. Batas bawah inklusif, batas atas
-    eksklusif, supaya pita LF dan HF tidak berbagi titik di 0,15 Hz.
+    Computed with the trapezoidal rule. The lower bound is inclusive and the upper
+    bound exclusive, so the LF and HF bands do not both claim the point at 0.15 Hz.
     """
     lo, hi = band
     mask = (freq >= lo) & (freq < hi)
@@ -69,21 +70,21 @@ def _band_power(freq: np.ndarray, psd: np.ndarray,
 def welch_bands(rr_ms: np.ndarray,
                 cfg: FrequencyConfig | None = None) -> dict[str, float]:
     """
-    Metode (a): interpolasi ke 4 Hz, lalu periodogram Welch.
+    Method (a): resample to 4 Hz, then compute a Welch periodogram.
 
-    Kenapa 4 Hz? Pita tertinggi yang diminati adalah HF sampai 0,4 Hz.
-    Kaidah Nyquist menuntut minimal 0,8 Hz; 4 Hz memberi kelonggaran besar
-    tanpa memboroskan perhitungan, dan sudah jadi kelaziman di literatur HRV.
+    Why 4 Hz? The highest band of interest is HF up to 0.4 Hz. Nyquist demands at
+    least 0.8 Hz; 4 Hz leaves generous headroom without wasting computation, and it
+    is the customary choice in the HRV literature.
 
-    Kenapa cubic-spline, bukan interpolasi linear? Sinyal HRV bervariasi
-    mulus. Interpolasi linear menciptakan patahan tajam di tiap denyut, dan
-    patahan itu menyumbang energi palsu di frekuensi tinggi — persis pita
-    HF yang mau diukur.
+    Why cubic spline rather than linear interpolation? The HRV signal varies
+    smoothly. Linear interpolation introduces a sharp corner at every beat, and
+    those corners inject spurious energy at high frequencies — precisely the HF
+    band being measured.
 
-    Catatan: `nperseg` diambil sepanjang data (satu jendela). Membagi 60
-    detik menjadi beberapa sub-jendela memang menurunkan ragam, tapi
-    sekaligus memperburuk resolusi frekuensi sampai pita LF tak lagi
-    terwakili. Untuk segmen sependek ini, resolusi lebih berharga.
+    Note: `nperseg` is set to the full data length (a single window). Splitting
+    60 seconds into sub-windows would reduce variance but degrade frequency
+    resolution until the LF band was no longer represented. For segments this
+    short, resolution is the more valuable property.
     """
     cfg = cfg or settings.frequency
     if rr_ms.size < _MIN_BEATS:
@@ -91,7 +92,7 @@ def welch_bands(rr_ms: np.ndarray,
 
     t = _beat_times(rr_ms)
 
-    # Grid waktu seragam sepanjang rentang data.
+    # Uniform time grid spanning the data.
     n_samples = int((t[-1] - t[0]) * cfg.resample_hz)
     if n_samples < 8:
         return {"lf_welch": np.nan, "hf_welch": np.nan, "lf_hf_welch": np.nan}
@@ -99,9 +100,9 @@ def welch_bands(rr_ms: np.ndarray,
 
     rr_uniform = CubicSpline(t, rr_ms)(t_uniform)
 
-    # detrend="linear" membuang tren lurus (mis. RR memanjang perlahan
-    # sepanjang segmen). Tanpa ini, tren tersebut muncul sebagai energi
-    # semu di frekuensi sangat rendah dan mencemari pita LF.
+    # detrend="linear" removes a straight-line trend (for example RR lengthening
+    # gradually across the segment). Without it, that trend appears as spurious
+    # energy at very low frequencies and contaminates the LF band.
     freq, psd = welch(
         rr_uniform, fs=cfg.resample_hz,
         nperseg=len(rr_uniform), detrend="linear",
@@ -119,17 +120,17 @@ def welch_bands(rr_ms: np.ndarray,
 def lombscargle_bands(rr_ms: np.ndarray,
                       cfg: FrequencyConfig | None = None) -> dict[str, float]:
     """
-    Metode (b): periodogram Lomb-Scargle, langsung pada deret tak seragam.
+    Method (b): Lomb-Scargle periodogram, computed directly on uneven samples.
 
-    Lomb-Scargle mencocokkan gelombang sinus-cosinus ke data pada tiap
-    frekuensi uji, tanpa peduli sampelnya berjarak tetap atau tidak. Itulah
-    sebabnya interpolasi tidak diperlukan.
+    Lomb-Scargle fits sine and cosine waves to the data at each trial frequency
+    without caring whether the samples are evenly spaced. That is precisely why no
+    interpolation is required.
 
-    Soal satuan: keluaran mentah `scipy.signal.lombscargle` tidak berada pada
-    skala ms^2/Hz seperti Welch. Di sini dipakai penskalaan Parseval —
-    seluruh spektrum diskalakan agar total dayanya sama dengan ragam deret
-    RR. Dengan begitu daya LF dan HF kedua metode bisa dibandingkan langsung.
-    Rasio LF/HF sendiri tidak terpengaruh penskalaan apa pun.
+    About the units: the raw output of `scipy.signal.lombscargle` is not on the same
+    ms^2/Hz scale as Welch. A Parseval scaling is applied here — the whole spectrum
+    is scaled so its total power equals the variance of the RR series. That makes LF
+    and HF power comparable between the two methods. The LF/HF ratio itself is
+    unaffected by any scaling.
     """
     cfg = cfg or settings.frequency
     nan = {"lf_ls": np.nan, "hf_ls": np.nan, "lf_hf_ls": np.nan}
@@ -137,15 +138,15 @@ def lombscargle_bands(rr_ms: np.ndarray,
         return nan
 
     t = _beat_times(rr_ms)
-    x = rr_ms - np.mean(rr_ms)          # buang komponen DC
+    x = rr_ms - np.mean(rr_ms)          # remove the DC component
     if np.allclose(x, 0):
         return nan
 
-    # Grid frekuensi rapat sepanjang pita yang diminati.
+    # Dense frequency grid spanning the bands of interest.
     freq = np.linspace(cfg.lf_band[0], cfg.hf_band[1], 512)
     pgram = lombscargle(t, x, 2.0 * np.pi * freq, precenter=True)
 
-    # Penskalaan Parseval: total luas kurva dibuat sama dengan ragam sinyal.
+    # Parseval scaling: force the total area to equal the signal variance.
     area = np.trapezoid(pgram, freq)
     if area <= 0:
         return nan
@@ -162,5 +163,5 @@ def lombscargle_bands(rr_ms: np.ndarray,
 
 def frequency_features(rr_ms: np.ndarray,
                        cfg: FrequencyConfig | None = None) -> dict[str, float]:
-    """Hitung kedua metode sekaligus untuk satu segmen."""
+    """Compute both methods for one segment."""
     return {**welch_bands(rr_ms, cfg), **lombscargle_bands(rr_ms, cfg)}

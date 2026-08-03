@@ -1,14 +1,14 @@
 """
-conftest.py — Penyiapan bersama seluruh uji.
+conftest.py — Shared setup for the whole test suite.
 
-Berisi jalur impor dan beberapa pabrik data buatan. Prinsip pengujian di
-proyek ini: **uji dengan masukan yang jawabannya sudah diketahui lebih
-dulu**, bukan dengan data WESAD. Kalau diuji memakai data nyata, kita hanya
-bisa melihat "hasilnya masuk akal" — bukan membuktikan hitungannya benar.
+Holds the import path and a few synthetic-data factories. The testing principle in
+this project: **test with inputs whose answers are known in advance**, not with
+WESAD data. Testing against real data only shows that results "look plausible" — it
+cannot prove the arithmetic is correct.
 
-Ini penting karena Aturan Wajib #1 menempatkan KODE sebagai sumber kebenaran
-angka. Kalau kodenya salah hitung, seluruh klaim TA ikut runtuh dan LLM
-tidak bisa disalahkan.
+That matters because Mandatory Rule #1 makes the CODE the source of truth for every
+number. If the code miscomputes, the whole thesis claim collapses and the LLM
+cannot be blamed for it.
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ from hrv_rag.core.types import (Modality, Phase,  # noqa: E402
 
 @pytest.fixture
 def clean_quality() -> QualityReport:
-    """Laporan mutu yang lolos, untuk uji yang tidak menyoal mutu sinyal."""
+    """A passing quality report, for tests that are not about signal quality."""
     return QualityReport(clipping_ratio=0.0, flatline_ratio=0.0,
                          is_acceptable=True)
 
@@ -35,11 +35,10 @@ def clean_quality() -> QualityReport:
 @pytest.fixture
 def make_series(clean_quality):
     """
-    Pabrik `RRSeries` buatan.
+    Factory for synthetic `RRSeries` objects.
 
-    Secara bawaan menghasilkan denyut tepat 1000 ms, sehingga waktu tiap
-    denyut jatuh persis di detik bulat — memudahkan menghitung jumlah
-    segmen yang seharusnya dihasilkan.
+    By default it produces beats of exactly 1000 ms, so each beat lands on a whole
+    second — which makes the expected number of segments easy to work out by hand.
     """
     def _make(n_beats: int = 181, rr_value: float = 1000.0,
               outlier_mask: np.ndarray | None = None,
@@ -49,7 +48,7 @@ def make_series(clean_quality):
         mask = (outlier_mask if outlier_mask is not None
                 else np.zeros(n_beats, dtype=bool))
         return RRSeries(rr_ms=rr, t_sec=t, modality=Modality.ECG,
-                        subject="UJI", phase=phase,
+                        subject="TEST", phase=phase,
                         quality=clean_quality, is_outlier=mask)
     return _make
 
@@ -58,14 +57,14 @@ def synth_modulated_rr(freq_hz: float, duration_sec: float = 120.0,
                        mean_rr: float = 800.0, amplitude: float = 50.0
                        ) -> np.ndarray:
     """
-    Bangun deret RR yang termodulasi sinus pada frekuensi tertentu.
+    Build an RR series modulated by a sine wave at a chosen frequency.
 
-    Dipakai menguji analisis spektrum: kalau deret RR bergoyang pada 0,25 Hz,
-    daya spektrumnya HARUS muncul di pita HF (0,15-0,40 Hz). Ini cara
-    membuktikan kode frekuensi benar tanpa perlu membandingkan ke pustaka lain.
+    Used to test the spectral analysis: if the RR series oscillates at 0.25 Hz, its
+    spectral power MUST appear in the HF band (0.15-0.40 Hz). This proves the
+    frequency code is correct without comparing against another library.
 
-    Waktu tiap denyut dibangun bertahap karena panjang RR itu sendirilah yang
-    menentukan kapan denyut berikutnya terjadi.
+    Beat times are built up iteratively because the length of each RR interval is
+    itself what determines when the next beat occurs.
     """
     t, values = 0.0, []
     while t < duration_sec:

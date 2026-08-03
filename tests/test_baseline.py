@@ -1,9 +1,9 @@
 """
-U1.6 — Uji baseline personal dan reaktivitas.
+U1.6 — Personal baseline and reactivity.
 
-Uji terpenting di berkas ini: segmen yang nilainya sama persis dengan
-baseline HARUS menghasilkan reaktivitas 0%. Kalau tidak, seluruh angka
-reaktivitas di proyek ini bergeser secara sistematis.
+The most important test in this file: a segment whose values match the baseline
+exactly MUST yield 0% reactivity. If it does not, every reactivity figure in the
+project is systematically shifted.
 """
 
 import numpy as np
@@ -14,11 +14,11 @@ from hrv_rag.features.baseline import BaselineProfile
 
 
 @pytest.fixture
-def kalibrasi() -> pd.DataFrame:
+def calibration() -> pd.DataFrame:
     """
-    Tabel fitur kalibrasi buatan dengan median yang mudah dihitung.
+    Synthetic calibration feature table with an easily computed median.
 
-    RMSSD = [40, 45, 50, 55, 60] -> median 50 (nilai tengah)
+    RMSSD = [40, 45, 50, 55, 60] -> median 50 (the middle value)
     """
     return pd.DataFrame({
         "rmssd": [40.0, 45.0, 50.0, 55.0, 60.0],
@@ -27,85 +27,85 @@ def kalibrasi() -> pd.DataFrame:
     })
 
 
-def test_baseline_memakai_median(kalibrasi):
-    profil = BaselineProfile.from_segments("UJI", kalibrasi)
-    assert profil.values["rmssd"] == pytest.approx(50.0)
+def test_baseline_uses_median(calibration):
+    profile = BaselineProfile.from_segments("TEST", calibration)
+    assert profile.values["rmssd"] == pytest.approx(50.0)
 
 
-def test_median_tahan_terhadap_pencilan(kalibrasi):
+def test_median_resists_outliers(calibration):
     """
-    Alasan memilih median, bukan rata-rata.
+    Why the median is used instead of the mean.
 
-    Satu segmen berisik dengan RMSSD 500 ms menggeser rata-rata dari 50 ke
-    125 — melenceng 150%. Median hanya bergeser dari 50 ke 52,5, yaitu 5%.
-    Karena semua angka reaktivitas dibagi dengan acuan ini, kestabilannya
-    menentukan kestabilan seluruh hasil.
+    One noisy segment with RMSSD 500 ms drags the mean from 50 to 125 — a 150%
+    distortion. The median only moves from 50 to 52.5, about 5%. Since every
+    reactivity figure is divided by this reference, its stability determines the
+    stability of every result downstream.
 
-    Nilai 52,5 muncul karena dengan enam data, median adalah rata-rata dua
-    nilai tengah: (50 + 55) / 2.
+    The value 52.5 arises because with six data points the median is the average of
+    the two middle values: (50 + 55) / 2.
     """
-    kotor = pd.concat([kalibrasi, pd.DataFrame({"rmssd": [500.0]})],
+    dirty = pd.concat([calibration, pd.DataFrame({"rmssd": [500.0]})],
                       ignore_index=True)
-    profil = BaselineProfile.from_segments("UJI", kotor)
-    assert profil.values["rmssd"] == pytest.approx(52.5)
-    assert kotor["rmssd"].mean() == pytest.approx(125.0)   # rata-rata rusak
+    profile = BaselineProfile.from_segments("TEST", dirty)
+    assert profile.values["rmssd"] == pytest.approx(52.5)
+    assert dirty["rmssd"].mean() == pytest.approx(125.0)   # the mean is ruined
 
 
-def test_reaktivitas_nol_bila_sama_dengan_baseline(kalibrasi):
-    """PEMERIKSAAN KEWARASAN UTAMA — nilai identik harus menghasilkan 0%."""
-    profil = BaselineProfile.from_segments("UJI", kalibrasi)
-    hasil = profil.reactivity({"rmssd": 50.0, "sdnn": 60.0, "mean_hr": 70.0})
-    assert hasil["delta_pct_rmssd"] == pytest.approx(0.0)
-    assert hasil["delta_pct_sdnn"] == pytest.approx(0.0)
+def test_reactivity_zero_when_equal_to_baseline(calibration):
+    """THE KEY SANITY CHECK — identical values must give 0%."""
+    profile = BaselineProfile.from_segments("TEST", calibration)
+    result = profile.reactivity({"rmssd": 50.0, "sdnn": 60.0, "mean_hr": 70.0})
+    assert result["delta_pct_rmssd"] == pytest.approx(0.0)
+    assert result["delta_pct_sdnn"] == pytest.approx(0.0)
 
 
-def test_reaktivitas_turun_bernilai_negatif(kalibrasi):
-    """RMSSD 25 terhadap acuan 50 = turun 50%."""
-    profil = BaselineProfile.from_segments("UJI", kalibrasi)
-    hasil = profil.reactivity({"rmssd": 25.0})
-    assert hasil["delta_pct_rmssd"] == pytest.approx(-50.0)
+def test_reactivity_negative_when_lower(calibration):
+    """RMSSD of 25 against a reference of 50 is a 50% drop."""
+    profile = BaselineProfile.from_segments("TEST", calibration)
+    result = profile.reactivity({"rmssd": 25.0})
+    assert result["delta_pct_rmssd"] == pytest.approx(-50.0)
 
 
-def test_reaktivitas_naik_bernilai_positif(kalibrasi):
-    profil = BaselineProfile.from_segments("UJI", kalibrasi)
-    hasil = profil.reactivity({"rmssd": 75.0})
-    assert hasil["delta_pct_rmssd"] == pytest.approx(50.0)
+def test_reactivity_positive_when_higher(calibration):
+    profile = BaselineProfile.from_segments("TEST", calibration)
+    result = profile.reactivity({"rmssd": 75.0})
+    assert result["delta_pct_rmssd"] == pytest.approx(50.0)
 
 
-def test_reaktivitas_tidak_menggabungkan_fitur(kalibrasi):
+def test_reactivity_does_not_fuse_features(calibration):
     """
-    Kode HANYA menghasilkan reaktivitas per fitur — tidak ada kolom skor
-    gabungan. Penggabungan adalah tugas LLM berbekal knowledge base; kalau
-    kode yang menggabungkan, LLM tinggal membaca ambang dan pendekatan RAG
-    kehilangan alasan keberadaannya.
+    The code produces reactivity PER FEATURE only — there is no combined score
+    column. Fusing them is the LLM's job, working from the knowledge base. If the
+    code did the fusing, the LLM would merely be reading a threshold and the RAG
+    approach would lose its reason to exist.
     """
-    profil = BaselineProfile.from_segments("UJI", kalibrasi)
-    hasil = profil.reactivity({"rmssd": 25.0, "sdnn": 30.0, "mean_hr": 90.0})
-    assert all(k.startswith("delta_pct_") for k in hasil)
+    profile = BaselineProfile.from_segments("TEST", calibration)
+    result = profile.reactivity({"rmssd": 25.0, "sdnn": 30.0, "mean_hr": 90.0})
+    assert all(k.startswith("delta_pct_") for k in result)
 
 
-def test_kalibrasi_kosong_ditolak():
+def test_empty_calibration_rejected():
     """
-    Tanpa segmen kalibrasi, baseline tidak dapat dibentuk dan seluruh
-    reaktivitas kehilangan makna. Lebih baik gagal terang-terangan daripada
-    diam-diam memakai angka asal.
+    Without calibration segments no baseline can be built, and every reactivity
+    figure becomes meaningless. Failing loudly beats silently using an arbitrary
+    number.
     """
-    with pytest.raises(ValueError, match="baseline tidak dapat dibentuk"):
-        BaselineProfile.from_segments("UJI", pd.DataFrame())
+    with pytest.raises(ValueError, match="no baseline can be built"):
+        BaselineProfile.from_segments("TEST", pd.DataFrame())
 
 
-def test_sebaran_menandai_baseline_goyah(kalibrasi):
+def test_spread_flags_unsteady_baseline(calibration):
     """
-    IQR relatif dipakai sebagai peringatan. Pada data WESAD nyata, S10
-    menghasilkan 52% — jauh di atas subjek lain (14-17%) — dan subjek itu
-    pula yang kemudian berpola terbalik.
+    Relative IQR serves as a warning flag. On the real WESAD data, S10 produced 52%
+    — far above the other subjects at 14-17% — and S10 was also the subject whose
+    response pattern turned out inverted.
     """
-    profil = BaselineProfile.from_segments("UJI", kalibrasi)
-    # RMSSD [40..60]: kuartil 45 dan 55 -> IQR 10, acuan 50 -> 20%
-    assert profil.relative_spread("rmssd") == pytest.approx(0.20)
+    profile = BaselineProfile.from_segments("TEST", calibration)
+    # RMSSD [40..60]: quartiles 45 and 55 -> IQR 10, reference 50 -> 20%
+    assert profile.relative_spread("rmssd") == pytest.approx(0.20)
 
 
-def test_fitur_nan_tidak_membuat_gagal(kalibrasi):
-    profil = BaselineProfile.from_segments("UJI", kalibrasi)
-    hasil = profil.reactivity({"rmssd": np.nan})
-    assert np.isnan(hasil["delta_pct_rmssd"])
+def test_nan_feature_does_not_crash(calibration):
+    profile = BaselineProfile.from_segments("TEST", calibration)
+    result = profile.reactivity({"rmssd": np.nan})
+    assert np.isnan(result["delta_pct_rmssd"])

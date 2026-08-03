@@ -1,13 +1,12 @@
 """
-base.py — Kontrak bersama semua loader dataset.
+base.py — Shared contract for every dataset loader.
 
-Kenapa ada kelas abstrak di sini? Karena proyek ini memakai tiga dataset
-dengan struktur berkas dan struktur label yang sama sekali berbeda, tetapi
-kode sesudahnya (pra-pemrosesan, fitur, RAG) harus bisa memperlakukan
-ketiganya seragam.
+Why an abstract class here? Because this project uses three datasets whose file
+layouts and label structures differ completely, while everything downstream
+(preprocessing, features, RAG) must treat all three uniformly.
 
-Dengan kontrak ini, menambah SWELL-KW atau UBFC-Phys nanti = menulis satu
-kelas turunan baru, TANPA menyentuh kode mana pun yang sudah jalan.
+With this contract, adding SWELL-KW or UBFC-Phys later means writing one new
+subclass and touching NONE of the code that already works.
 """
 
 from __future__ import annotations
@@ -21,67 +20,67 @@ from ..core.types import Modality, Phase
 
 class BaseDatasetLoader(ABC):
     """
-    Antarmuka baku pemuat dataset.
+    Standard interface for dataset loaders.
 
-    Turunan wajib menjawab tiga pertanyaan:
-      1. Siapa saja subjeknya?                       -> subjects
-      2. Modalitas apa yang tersedia?                -> available_modalities
-      3. Bagaimana mengambil sinyal satu fase?       -> load_phase_signal
+    Subclasses must answer three questions:
+      1. Which subjects exist?                    -> subjects
+      2. Which modalities are available?          -> available_modalities
+      3. How is one phase's signal extracted?     -> load_phase_signal
     """
 
-    #: Nama dataset, dipakai untuk penamaan berkas keluaran dan pelaporan
-    #: metrik per dataset (CLAUDE.md melarang menggabungkan antar dataset).
+    #: Dataset name, used for naming output files and for reporting metrics per
+    #: dataset (CLAUDE.md forbids pooling results across datasets).
     name: str = "base"
 
-    # ---------------------------------------------------------------- wajib
+    # ------------------------------------------------------------- required
     @property
     @abstractmethod
     def subjects(self) -> tuple[str, ...]:
-        """Daftar ID subjek yang tersedia."""
+        """List of available subject IDs."""
 
     @property
     @abstractmethod
     def available_modalities(self) -> tuple[Modality, ...]:
-        """Modalitas yang disediakan dataset ini."""
+        """Modalities this dataset provides."""
 
     @abstractmethod
     def sampling_rate(self, modality: Modality) -> int:
-        """Frekuensi sampling (Hz) untuk modalitas tertentu."""
+        """Sampling rate in Hz for the given modality."""
 
     @abstractmethod
     def load_phase_signal(self, subject: str, phase: Phase,
                           modality: Modality) -> np.ndarray:
         """
-        Ambil potongan sinyal mentah satu fase, satu subjek.
+        Extract the raw signal for one phase of one subject.
 
-        Turunan bertanggung jawab memetakan label dataset ke `Phase`.
+        Subclasses are responsible for mapping dataset labels onto `Phase`.
         """
 
-    # ------------------------------------------------------------- bersama
+    # -------------------------------------------------------------- shared
     @staticmethod
     def longest_contiguous_run(mask: np.ndarray) -> tuple[int, int]:
         """
-        Cari rentang True terpanjang yang menyambung pada `mask`.
+        Find the longest unbroken run of True values in `mask`.
 
-        Kenapa perlu? Kalau sinyal diambil dengan `sinyal[mask]` biasa,
-        potongan-potongan waktu yang terpisah akan tersambung begitu saja.
-        Titik sambungannya menciptakan lompatan tajam yang akan terbaca
-        sebagai puncak R palsu, lalu muncul sebagai interval RR yang salah.
-        Maka diambil satu rentang menyambung terpanjang saja.
+        Why this is needed: extracting with plain `signal[mask]` would splice
+        together stretches of time that were never adjacent. The splice point
+        creates an abrupt step that peak detection reads as a spurious R peak,
+        which then shows up as a bogus RR interval. Taking a single contiguous run
+        avoids that entirely.
 
-        Return: (indeks_awal, indeks_akhir) dengan akhir bersifat eksklusif.
+        Returns: (start_index, end_index) with the end exclusive.
         """
         if not mask.any():
-            raise ValueError("Mask kosong — fase yang diminta tidak ada.")
+            raise ValueError("Empty mask — the requested phase does not exist.")
 
-        # Selisih mask sebagai int menandai tepi naik (+1) dan tepi turun (-1).
+        # Differencing the mask as integers marks rising (+1) and falling (-1) edges.
         edges = np.diff(mask.astype(np.int8))
         starts = np.flatnonzero(edges == 1) + 1
         ends = np.flatnonzero(edges == -1) + 1
 
-        if mask[0]:                       # sudah True sejak sampel pertama
+        if mask[0]:                       # already True at the first sample
             starts = np.r_[0, starts]
-        if mask[-1]:                      # masih True sampai sampel terakhir
+        if mask[-1]:                      # still True at the last sample
             ends = np.r_[ends, mask.size]
 
         longest = int(np.argmax(ends - starts))

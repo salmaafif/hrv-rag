@@ -1,13 +1,13 @@
 """
-extractor.py — Perakit: RRSeries -> tabel fitur per segmen.
+extractor.py — Assembler: RRSeries -> per-segment feature table.
 
-Modul ini tidak menghitung apa-apa sendiri. Tugasnya hanya merangkai
-segmentasi, fitur domain waktu, dan fitur domain frekuensi menjadi satu
-tabel, lalu melekatkan kolom jejak (subjek, modalitas, fase, mutu sinyal).
+This module computes nothing of its own. Its job is to chain segmentation,
+time-domain features, and frequency-domain features into one table, then attach the
+provenance columns (subject, modality, phase, signal quality).
 
-Kolom jejak itu wajib (T2.4) karena CLAUDE.md melarang menggabungkan hasil
-antar dataset dan antar modalitas ke dalam satu perhitungan metrik. Tanpa
-kolom penanda, larangan itu mustahil ditegakkan saat evaluasi.
+Those provenance columns are mandatory (T2.4) because CLAUDE.md forbids pooling
+results across datasets and across modalities into a single metric. Without marker
+columns that prohibition would be impossible to enforce at evaluation time.
 """
 
 from __future__ import annotations
@@ -19,9 +19,9 @@ from .frequency_domain import frequency_features
 from .segmentation import SegmentationResult, segment_rr_series
 from .time_domain import time_domain_features
 
-#: Pemetaan nama atribut Python -> nama kolom untuk CSV dan laporan.
-#: Kode memakai snake_case sesuai PEP 8; tabel di laporan memakai notasi
-#: ilmiah yang dikenali penguji (RMSSD, pNN50, dan seterusnya).
+#: Mapping from Python attribute names to column names for CSV and reports.
+#: The code uses snake_case per PEP 8; tables in the thesis use the scientific
+#: notation the examiners will recognise (RMSSD, pNN50, and so on).
 DISPLAY_NAMES: dict[str, str] = {
     "mean_rr": "meanRR",
     "mean_hr": "meanHR",
@@ -39,25 +39,25 @@ DISPLAY_NAMES: dict[str, str] = {
 
 def extract_features(series: RRSeries) -> tuple[pd.DataFrame, SegmentationResult]:
     """
-    Ubah satu `RRSeries` menjadi tabel fitur, satu baris per segmen.
+    Turn one `RRSeries` into a feature table with one row per segment.
 
-    Dikembalikan juga `SegmentationResult` agar pemanggil bisa melaporkan
-    berapa jendela dibuang dan alasannya — informasi mutu ini ikut masuk
-    ke prompt supaya LLM dapat menyesuaikan skor keyakinan.
+    The `SegmentationResult` is returned as well so the caller can report how many
+    windows were dropped and why. That quality information also travels into the
+    prompt, allowing the LLM to adjust its confidence score.
     """
     result = segment_rr_series(series)
 
     rows = []
     for seg in result.segments:
         row: dict[str, object] = {
-            # --- kolom jejak (T2.4) ---
-            "subjek": series.subject,
-            "modalitas": series.modality.value,
-            "fase": series.phase.value,
-            "segmen": seg.index,
-            "mulai_dtk": round(seg.start_sec, 1),
-            "selesai_dtk": round(seg.end_sec, 1),
-            "n_denyut": seg.n_beats,
+            # --- provenance columns (T2.4) ---
+            "subject": series.subject,
+            "modality": series.modality.value,
+            "phase": series.phase.value,
+            "segment": seg.index,
+            "start_sec": round(seg.start_sec, 1),
+            "end_sec": round(seg.end_sec, 1),
+            "n_beats": seg.n_beats,
             "outlier_pct": round(seg.outlier_ratio * 100, 2),
         }
         row.update(time_domain_features(seg.rr_ms))
@@ -69,10 +69,10 @@ def extract_features(series: RRSeries) -> tuple[pd.DataFrame, SegmentationResult
 
 def to_display_columns(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Ganti nama kolom fitur ke notasi ilmiah, termasuk kolom reaktivitas.
+    Rename feature columns to scientific notation, including reactivity columns.
 
-    Dipakai hanya saat menulis CSV atau menampilkan tabel. Di dalam kode,
-    nama snake_case tetap dipakai supaya konsisten dengan PEP 8.
+    Used only when writing CSV or displaying a table. Inside the code the snake_case
+    names remain, so the source stays PEP 8 compliant.
     """
     mapping = dict(DISPLAY_NAMES)
     for attr, shown in DISPLAY_NAMES.items():

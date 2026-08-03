@@ -1,15 +1,15 @@
 """
-U1.4 & U1.5 — Uji segmentasi jendela geser dan gerbang mutu.
+U1.4 & U1.5 — Sliding-window segmentation and the quality gates.
 
-Jumlah jendela yang seharusnya dihasilkan bisa dihitung tangan:
+The expected number of windows can be worked out by hand:
 
-    n = floor((durasi - 60) / 30) + 1
+    n = floor((duration - 60) / 30) + 1
 
-Contoh, dengan denyut tepat 1000 ms:
-    181 denyut -> durasi 180 dtk -> floor(120/30) + 1 = 5 jendela
-    121 denyut -> durasi 120 dtk -> floor( 60/30) + 1 = 3 jendela
-     61 denyut -> durasi  60 dtk -> floor(  0/30) + 1 = 1 jendela
-     45 denyut -> durasi  44 dtk -> lebih pendek dari jendela -> 0
+With beats of exactly 1000 ms:
+    181 beats -> 180 s -> floor(120/30) + 1 = 5 windows
+    121 beats -> 120 s -> floor( 60/30) + 1 = 3 windows
+     61 beats ->  60 s -> floor(  0/30) + 1 = 1 window
+     45 beats ->  44 s -> shorter than one window -> 0
 """
 
 import numpy as np
@@ -24,87 +24,88 @@ from hrv_rag.features.segmentation import segment_rr_series
     (61, 1),
     (45, 0),
 ])
-def test_jumlah_jendela_sesuai_rumus(make_series, n_beats, expected):
-    hasil = segment_rr_series(make_series(n_beats=n_beats))
-    assert hasil.n_kept == expected
+def test_window_count_matches_formula(make_series, n_beats, expected):
+    result = segment_rr_series(make_series(n_beats=n_beats))
+    assert result.n_kept == expected
 
 
-def test_jendela_bergeser_30_detik(make_series):
+def test_windows_advance_by_30_seconds(make_series):
     """
-    Jendela ke-n harus mulai 30 detik setelah jendela sebelumnya, dan
-    panjangnya tetap 60 detik. Inilah inti "overlap 30 detik".
+    Window n must start 30 seconds after the previous one, while staying 60 seconds
+    long. That is what "30-second overlap" means in practice.
     """
-    hasil = segment_rr_series(make_series(n_beats=181))
-    mulai = [s.start_sec for s in hasil.segments]
-    assert np.allclose(np.diff(mulai), 30.0)
-    for seg in hasil.segments:
+    result = segment_rr_series(make_series(n_beats=181))
+    starts = [s.start_sec for s in result.segments]
+    assert np.allclose(np.diff(starts), 30.0)
+    for seg in result.segments:
         assert seg.end_sec - seg.start_sec == pytest.approx(60.0)
 
 
-def test_jendela_bertetangga_berbagi_data(make_series):
+def test_neighbouring_windows_share_data(make_series):
     """
-    Konsekuensi overlap yang harus disadari (BACKLOG L2): jendela
-    bertetangga berbagi separuh datanya, jadi segmen TIDAK saling bebas.
-    Uji ini mendokumentasikan sifat itu, bukan mengeluhkannya.
+    The consequence of overlapping that must stay visible (BACKLOG L2): neighbouring
+    windows share half their data, so segments are NOT independent. This test
+    documents that property rather than complaining about it.
     """
-    hasil = segment_rr_series(make_series(n_beats=181))
-    a, b = hasil.segments[0], hasil.segments[1]
-    assert a.end_sec > b.start_sec          # rentangnya tumpang tindih
+    result = segment_rr_series(make_series(n_beats=181))
+    a, b = result.segments[0], result.segments[1]
+    assert a.end_sec > b.start_sec          # the ranges overlap
 
 
-def test_sisa_ekor_dibuang(make_series):
+def test_trailing_remainder_discarded(make_series):
     """
-    Durasi 175 dtk -> floor(115/30)+1 = 4 jendela penuh, sisa 25 detik
-    di ekor dibuang. Segmen harus seragam 60 detik semua, karena fitur HRV
-    sangat sensitif terhadap panjang jendela.
+    A 175 s duration gives floor(115/30)+1 = 4 full windows, and the remaining 25
+    seconds are discarded. Every segment must be a uniform 60 seconds, because HRV
+    features are highly sensitive to window length.
     """
-    hasil = segment_rr_series(make_series(n_beats=176))
-    assert hasil.n_kept == 4
-    assert hasil.segments[-1].end_sec <= 175.0
+    result = segment_rr_series(make_series(n_beats=176))
+    assert result.n_kept == 4
+    assert result.segments[-1].end_sec <= 175.0
 
 
-# --------------------------------------------------------- gerbang mutu
-def test_segmen_terlalu_berisik_dibuang(make_series):
+# ------------------------------------------------------------ quality gates
+def test_too_noisy_segment_discarded(make_series):
     """
-    U1.4 — segmen dengan outlier > 10% harus DIBUANG, bukan dipakai.
+    U1.4 — segments with more than 10% outliers must be DISCARDED, not used.
 
-    Di sini 30% denyut ditandai outlier di seluruh deret, jadi semua jendela
-    harus gugur dan tercatat pada penghitung `n_dropped_noisy`.
+    Here about 33% of beats are flagged across the whole series, so every window
+    must fall and be recorded under `n_dropped_noisy`.
     """
     n = 181
     mask = np.zeros(n, dtype=bool)
-    mask[::3] = True                        # ~33% outlier
-    hasil = segment_rr_series(make_series(n_beats=n, outlier_mask=mask))
-    assert hasil.n_kept == 0
-    assert hasil.n_dropped_noisy == 5
+    mask[::3] = True                        # ~33% outliers
+    result = segment_rr_series(make_series(n_beats=n, outlier_mask=mask))
+    assert result.n_kept == 0
+    assert result.n_dropped_noisy == 5
 
 
-def test_outlier_sedikit_tetap_lolos(make_series):
-    """Outlier 5% masih di bawah ambang 10%, jendela tetap dipakai."""
+def test_few_outliers_still_pass(make_series):
+    """5% outliers is below the 10% threshold, so windows are kept."""
     n = 181
     mask = np.zeros(n, dtype=bool)
     mask[::20] = True                       # ~5%
-    hasil = segment_rr_series(make_series(n_beats=n, outlier_mask=mask))
-    assert hasil.n_kept == 5
-    assert hasil.n_dropped_noisy == 0
+    result = segment_rr_series(make_series(n_beats=n, outlier_mask=mask))
+    assert result.n_kept == 5
+    assert result.n_dropped_noisy == 0
 
 
-def test_denyut_terlalu_sedikit_dibuang(make_series):
+def test_too_few_beats_discarded(make_series):
     """
-    Denyut 2500 ms (24 bpm) -> hanya 24 denyut per 60 detik, di bawah
-    ambang 30. Jendela harus gugur karena fiturnya tidak dapat dipercaya.
+    Beats of 2500 ms (24 bpm) give only 24 beats per 60 seconds, below the
+    threshold of 30. The window must fall, because its features cannot be trusted.
     """
-    hasil = segment_rr_series(make_series(n_beats=100, rr_value=2500.0))
-    assert hasil.n_kept == 0
-    assert hasil.n_dropped_short > 0
+    result = segment_rr_series(make_series(n_beats=100, rr_value=2500.0))
+    assert result.n_kept == 0
+    assert result.n_dropped_short > 0
 
 
-def test_ringkasan_menghitung_semua_jendela(make_series):
-    """n_total harus mencakup yang dipakai maupun yang dibuang."""
-    hasil = segment_rr_series(make_series(n_beats=181))
-    assert hasil.n_total == hasil.n_kept + hasil.n_dropped_short + hasil.n_dropped_noisy
+def test_summary_counts_every_window(make_series):
+    """n_total must cover both the kept and the discarded windows."""
+    result = segment_rr_series(make_series(n_beats=181))
+    assert result.n_total == (result.n_kept + result.n_dropped_short
+                              + result.n_dropped_noisy)
 
 
-def test_deret_kosong_menghasilkan_daftar_kosong(make_series):
-    hasil = segment_rr_series(make_series(n_beats=1))
-    assert hasil.n_kept == 0
+def test_empty_series_yields_no_segments(make_series):
+    result = segment_rr_series(make_series(n_beats=1))
+    assert result.n_kept == 0

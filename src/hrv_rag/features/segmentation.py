@@ -1,16 +1,16 @@
 """
-segmentation.py — Membagi deret RR menjadi segmen analisis 60 detik.
+segmentation.py — Splits an RR series into 60-second analysis segments.
 
-Segmentasi memakai JENDELA GESER: panjang 60 detik, bergeser 30 detik.
-Jendela ke-1 mencakup detik 0-60, jendela ke-2 detik 30-90, dan seterusnya.
+Segmentation uses a SLIDING WINDOW: 60 seconds long, advancing 30 seconds at a
+time. Window 1 covers seconds 0-60, window 2 covers 30-90, and so on.
 
-Kenapa bergeser, bukan berurutan? Kalau segmennya berurutan (0-60, 60-120),
-lonjakan tekanan yang terjadi di detik 45-105 akan terbelah dua dan tidak ada
-satu pun segmen yang menangkapnya utuh. Jendela geser menggandakan resolusi
-waktu menjadi 30 detik tanpa memperpendek jendela analisis.
+Why sliding rather than consecutive? With consecutive segments (0-60, 60-120), a
+surge of pressure occurring between seconds 45 and 105 would be split across two
+windows and fully captured by neither. A sliding window doubles temporal
+resolution to 30 seconds without shortening the analysis window itself.
 
-KONSEKUENSI yang harus disebut saat melaporkan metrik: jendela bertetangga
-berbagi separuh datanya, jadi segmen TIDAK saling bebas (BACKLOG L2).
+CONSEQUENCE that must be stated when reporting metrics: neighbouring windows share
+half their data, so segments are NOT independent (BACKLOG L2).
 """
 
 from __future__ import annotations
@@ -19,19 +19,19 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from ..config.settings import SegmentationConfig, QualityConfig, settings
+from ..config.settings import QualityConfig, SegmentationConfig, settings
 from ..core.types import RRSeries
 
 
 @dataclass(frozen=True)
 class Segment:
-    """Satu jendela analisis beserta jejak asal-usulnya."""
+    """One analysis window together with its provenance."""
 
-    index: int                 # nomor urut jendela (mulai 1)
-    start_sec: float           # batas awal jendela, relatif awal fase
+    index: int                 # window number (starting at 1)
+    start_sec: float           # window start, relative to the phase start
     end_sec: float
-    rr_ms: np.ndarray          # interval di dalam jendela
-    outlier_ratio: float       # proporsi denyut hasil interpolasi
+    rr_ms: np.ndarray          # intervals inside the window
+    outlier_ratio: float       # fraction of beats that were interpolated
 
     @property
     def n_beats(self) -> int:
@@ -40,11 +40,11 @@ class Segment:
 
 @dataclass
 class SegmentationResult:
-    """Hasil segmentasi + catatan berapa jendela dibuang dan kenapa."""
+    """Segmentation output plus a record of how many windows were dropped and why."""
 
     segments: list[Segment]
-    n_dropped_short: int = 0       # denyut terlalu sedikit
-    n_dropped_noisy: int = 0       # outlier melebihi ambang
+    n_dropped_short: int = 0       # too few beats
+    n_dropped_noisy: int = 0       # outliers above threshold
 
     @property
     def n_kept(self) -> int:
@@ -55,9 +55,9 @@ class SegmentationResult:
         return self.n_kept + self.n_dropped_short + self.n_dropped_noisy
 
     def summary(self) -> str:
-        return (f"{self.n_kept}/{self.n_total} jendela dipakai "
-                f"(dibuang: {self.n_dropped_short} kurang denyut, "
-                f"{self.n_dropped_noisy} terlalu berisik)")
+        return (f"{self.n_kept}/{self.n_total} windows kept "
+                f"(dropped: {self.n_dropped_short} too few beats, "
+                f"{self.n_dropped_noisy} too noisy)")
 
 
 def segment_rr_series(
@@ -66,18 +66,18 @@ def segment_rr_series(
     qual_cfg: QualityConfig | None = None,
 ) -> SegmentationResult:
     """
-    Potong satu `RRSeries` menjadi daftar `Segment` yang lolos mutu.
+    Cut one `RRSeries` into a list of `Segment`s that pass the quality gates.
 
-    Pembagian dilakukan berdasarkan WAKTU, bukan jumlah denyut, supaya tiap
-    jendela benar-benar mewakili 60 detik rekaman. Kalau dibagi per jumlah
-    denyut, orang dengan detak cepat akan mendapat jendela yang lebih pendek
-    — dan fitur HRV sangat sensitif terhadap panjang jendela.
+    Splitting is done by TIME, not by beat count, so every window really does
+    represent 60 seconds of recording. Splitting by beat count would give people
+    with fast heart rates shorter windows — and HRV features are highly sensitive
+    to window length.
 
-    Dua gerbang mutu diterapkan di sini:
-      1. Jendela dengan denyut < `min_beats` dibuang (gagal deteksi).
-      2. Jendela dengan outlier > `max_outlier_ratio` dibuang (T1.6).
-         Menghitung RMSSD dari deret yang separuhnya hasil interpolasi
-         berarti mengukur tebakan, bukan mengukur jantung.
+    Two quality gates are applied here:
+      1. Windows with fewer than `min_beats` beats are dropped (failed detection).
+      2. Windows with more than `max_outlier_ratio` outliers are dropped (T1.6).
+         Computing RMSSD from a series that is half interpolated means measuring
+         guesswork rather than measuring a heart.
     """
     seg_cfg = seg_cfg or settings.segmentation
     qual_cfg = qual_cfg or settings.quality
@@ -91,8 +91,8 @@ def segment_rr_series(
     if duration < seg_cfg.length_sec:
         return result
 
-    # Jumlah jendela penuh yang muat. Sisa di ekor yang kurang dari 60 detik
-    # sengaja dibuang agar semua segmen berdurasi setara.
+    # Number of full windows that fit. Any tail shorter than 60 seconds is
+    # deliberately discarded so that every segment has an equal duration.
     n_windows = int((duration - seg_cfg.length_sec) // seg_cfg.hop_sec) + 1
 
     kept: list[Segment] = []

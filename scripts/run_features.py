@@ -1,11 +1,11 @@
 """
-run_features.py — Jalankan Tahap 2 pada subjek pengembangan WESAD.
+run_features.py — Run Stage 2 on the WESAD development subjects.
 
-Menghasilkan satu CSV berisi fitur per segmen beserta reaktivitasnya, lalu
-mencetak ringkasan untuk pemeriksaan cepat.
+Produces one CSV of per-segment features with their reactivity, then prints a
+summary for a quick sanity check.
 
-Cara pakai:
-    python scripts/run_features.py            # 5 subjek pengembangan
+Usage:
+    python scripts/run_features.py            # 5 development subjects
     python scripts/run_features.py S2
 """
 
@@ -28,7 +28,7 @@ from hrv_rag.preprocessing.ecg import ECGPreprocessor            # noqa: E402
 
 
 def process_subject(subject: str) -> pd.DataFrame:
-    """Satu subjek: sinyal -> fitur -> reaktivitas terhadap baseline sendiri."""
+    """One subject: signal -> features -> reactivity against their own baseline."""
     loader = WESADLoader(subject)
     pre = ECGPreprocessor(sampling_rate=loader.sampling_rate(Modality.ECG))
 
@@ -41,13 +41,12 @@ def process_subject(subject: str) -> pd.DataFrame:
         tables[phase] = df
         print(f"  {phase.value:12s}: {seg_result.summary()}")
 
-    # Baseline dibentuk HANYA dari fase kalibrasi subjek ini sendiri.
+    # The baseline is built ONLY from this subject's own calibration phase.
     baseline = BaselineProfile.from_segments(subject, tables[Phase.CALIBRATION])
     print(f"  {baseline.describe()}")
 
-    # Reaktivitas dihitung untuk semua fase, termasuk kalibrasi itu sendiri
-    # — segmen kalibrasi seharusnya mendekati 0%, dan itu berguna sebagai
-    # pemeriksaan kewarasan.
+    # Reactivity is computed for every phase, calibration included — those segments
+    # should come out near 0%, which makes a useful sanity check.
     combined = pd.concat(tables.values(), ignore_index=True)
     reactivity = pd.DataFrame(
         [baseline.reactivity(row) for row in combined.to_dict("records")]
@@ -58,55 +57,55 @@ def process_subject(subject: str) -> pd.DataFrame:
 def main(subjects: list[str]) -> None:
     if not subjects:
         subjects = list(settings.split.dev_subjects)
-        print(f"Subjek pengembangan: {', '.join(subjects)}")
-        print("(10 subjek uji disegel — BACKLOG U4.1)")
+        print(f"Development subjects: {', '.join(subjects)}")
+        print("(10 test subjects sealed — BACKLOG U4.1)")
 
     all_rows = [process_subject(s) for s in subjects]
     data = pd.concat(all_rows, ignore_index=True)
 
-    # --- Ringkasan reaktivitas per fase ---
-    # Dipakai MEDIAN, bukan rata-rata. Persentase perubahan tidak simetris:
-    # penurunan mentok di -100% sedangkan kenaikan tak terbatas (teramati
-    # sampai +442% pada S10). Rata-rata karenanya tertarik ke atas oleh ekor
-    # kanan dan bisa membalik kesimpulan — pada data ini, rata-rata pNN50
-    # tampak +61,8% padahal median-nya -61,2%.
+    # --- Reactivity summary per phase ---
+    # The MEDIAN is used, not the mean. Percentage change is asymmetric: a decrease
+    # bottoms out at -100% while an increase is unbounded (observed up to +442% on
+    # S10). The mean is therefore dragged upward by the right tail and can invert
+    # the conclusion — on this data the mean pNN50 read +61.8% while the median was
+    # -61.2%.
     cols = ["delta_pct_rmssd", "delta_pct_pnn50", "delta_pct_hf_welch",
             "delta_pct_lf_hf_welch", "delta_pct_mean_hr"]
     cols = [c for c in cols if c in data.columns]
-    print("\n=== Median reaktivitas per fase (%) ===")
-    print(data.groupby("fase")[cols].median().round(1).to_string())
+    print("\n=== Median reactivity per phase (%) ===")
+    print(data.groupby("phase")[cols].median().round(1).to_string())
 
-    # --- Arah respons per subjek ---
-    # Diperiksa per orang, bukan digabung, karena satu subjek yang berpola
-    # terbalik bisa tersamarkan di angka gabungan.
-    print("\n=== Arah respons per subjek (median, fase pertanyaan) ===")
-    q = data[data["fase"] == "pertanyaan"]
-    per_subject = q.groupby("subjek")[cols].median().round(1)
-    # Pola baku saat tertekan: RMSSD turun DAN detak jantung naik.
-    per_subject["pola"] = [
-        "sesuai teori" if r["delta_pct_rmssd"] < 0 and r["delta_pct_mean_hr"] > 0
-        else "TERBALIK" if r["delta_pct_rmssd"] > 0 and r["delta_pct_mean_hr"] > 0
-        else "campuran"
+    # --- Response direction per subject ---
+    # Checked per person rather than pooled, because a single subject with an
+    # inverted pattern would otherwise be hidden inside the aggregate.
+    print("\n=== Response direction per subject (median, question phase) ===")
+    q = data[data["phase"] == Phase.QUESTION.value]
+    per_subject = q.groupby("subject")[cols].median().round(1)
+    # Textbook pattern under pressure: RMSSD falls AND heart rate rises.
+    per_subject["pattern"] = [
+        "as expected" if r["delta_pct_rmssd"] < 0 and r["delta_pct_mean_hr"] > 0
+        else "INVERTED" if r["delta_pct_rmssd"] > 0 and r["delta_pct_mean_hr"] > 0
+        else "mixed"
         for _, r in per_subject.iterrows()
     ]
     print(per_subject.to_string())
 
-    # --- Perbandingan dua metode PSD (T2.12) ---
+    # --- Comparing the two PSD methods (T2.12) ---
     print("\n=== Welch vs Lomb-Scargle: LF/HF ===")
     both = data[["lf_hf_welch", "lf_hf_ls"]].dropna()
     if not both.empty:
         corr = both["lf_hf_welch"].corr(both["lf_hf_ls"])
         rel = ((both["lf_hf_ls"] - both["lf_hf_welch"]).abs()
                / both["lf_hf_welch"]).median()
-        print(f"  korelasi Pearson : {corr:.3f}")
-        print(f"  selisih relatif median : {rel:.1%}")
-        print(f"  rerata Welch {both['lf_hf_welch'].mean():.2f} | "
-              f"rerata Lomb-Scargle {both['lf_hf_ls'].mean():.2f}")
+        print(f"  Pearson correlation      : {corr:.3f}")
+        print(f"  median relative difference: {rel:.1%}")
+        print(f"  mean Welch {both['lf_hf_welch'].mean():.2f} | "
+              f"mean Lomb-Scargle {both['lf_hf_ls'].mean():.2f}")
 
-    path = OUTPUTS_DIR / "fitur_wesad_ecg_dev.csv"
+    path = OUTPUTS_DIR / "features_wesad_ecg_dev.csv"
     to_display_columns(data).to_csv(path, index=False)
     print(f"\nCSV: {path}")
-    print(f"Total segmen: {len(data)}")
+    print(f"Total segments: {len(data)}")
 
 
 if __name__ == "__main__":

@@ -1,15 +1,14 @@
 """
-baseline.py — Acuan personal tiap subjek dan perhitungan reaktivitas.
+baseline.py — Each subject's personal reference and the reactivity computation.
 
-Ini penerapan langsung Aturan Wajib #2: yang bermakna bukan "RMSSD = 22 ms",
-melainkan "RMSSD 35% DI BAWAH baseline orang ini". Nilai HRV terlalu
-individual — dipengaruhi usia, jenis kelamin, ritme pernapasan, postur, dan
-kafein — sehingga ambang absolut lintas orang bisa menyesatkan.
+This is Mandatory Rule #2 in practice: what carries meaning is not "RMSSD = 22 ms"
+but "RMSSD is 35% BELOW this person's baseline". HRV is too individual — shaped by
+age, sex, breathing rhythm, posture, and caffeine — for absolute cross-person
+thresholds to be trustworthy.
 
-Satu-satunya kelas di paket `features` ada di sini, dan itu disengaja
-(keputusan K12): `BaselineProfile` MENYIMPAN acuan satu subjek lalu dipakai
-berulang untuk banyak segmen. Modul lain di paket ini cukup berupa fungsi
-murni karena tidak menyimpan keadaan apa pun.
+The only class in the `features` package lives here, deliberately (decision K12):
+`BaselineProfile` HOLDS one subject's reference and is reused across many segments.
+Every other module in the package is plain functions, because they hold no state.
 """
 
 from __future__ import annotations
@@ -22,22 +21,22 @@ import pandas as pd
 from .frequency_domain import FREQ_FEATURES
 from .time_domain import TIME_FEATURES
 
-#: Fitur yang dibandingkan terhadap baseline.
+#: Features compared against the baseline.
 COMPARED_FEATURES: tuple[str, ...] = TIME_FEATURES + FREQ_FEATURES
 
 
 @dataclass
 class BaselineProfile:
     """
-    Acuan HRV satu subjek, diringkas dari fase kalibrasi.
+    One subject's HRV reference, summarised from the calibration phase.
 
-    Atribut:
-        subject   : ID subjek
-        values    : nilai acuan per fitur
-        spread    : jarak antar-kuartil (IQR) per fitur — ukuran seberapa
-                    stabil acuannya; IQR besar berarti baseline goyah dan
-                    reaktivitas yang dihitung darinya kurang bisa dipercaya
-        n_segments: jumlah segmen kalibrasi yang membentuk acuan ini
+    Attributes:
+        subject   : subject ID
+        values    : reference value per feature
+        spread    : interquartile range per feature — a measure of how stable the
+                    reference is. A large IQR means an unsteady baseline, and any
+                    reactivity computed from it deserves less trust.
+        n_segments: number of calibration segments behind this reference
     """
 
     subject: str
@@ -45,23 +44,22 @@ class BaselineProfile:
     spread: dict[str, float] = field(default_factory=dict)
     n_segments: int = 0
 
-    # ------------------------------------------------------------- pembuat
+    # ------------------------------------------------------------ builder
     @classmethod
     def from_segments(cls, subject: str,
                       calibration_features: pd.DataFrame) -> "BaselineProfile":
         """
-        Bangun acuan dari tabel fitur segmen fase kalibrasi.
+        Build the reference from the calibration-phase feature table.
 
-        Dipakai MEDIAN, bukan rata-rata. Alasannya: satu segmen yang
-        sinyalnya agak berisik bisa menggeser rata-rata cukup jauh, sedangkan
-        median hampir tidak bergeming. Karena seluruh angka reaktivitas
-        dibagi dengan acuan ini, kestabilannya menentukan kestabilan semua
-        angka sesudahnya.
+        The MEDIAN is used, not the mean. A single noisy segment can drag the mean a
+        long way, whereas the median barely moves. Since every reactivity figure is
+        divided by this reference, its stability determines the stability of
+        everything computed afterwards.
         """
         if calibration_features.empty:
             raise ValueError(
-                f"{subject}: tidak ada segmen kalibrasi yang lolos mutu, "
-                f"baseline tidak dapat dibentuk."
+                f"{subject}: no calibration segment passed the quality gates, "
+                f"so no baseline can be built."
             )
 
         values, spread = {}, {}
@@ -77,20 +75,19 @@ class BaselineProfile:
         return cls(subject=subject, values=values, spread=spread,
                    n_segments=len(calibration_features))
 
-    # ---------------------------------------------------------- pemakaian
+    # ---------------------------------------------------------------- use
     def reactivity(self, features: dict[str, float]) -> dict[str, float]:
         """
-        Perubahan relatif satu segmen terhadap acuan, dalam persen.
+        Relative change of one segment against the reference, in percent.
 
-            reaktivitas = (nilai_segmen - nilai_acuan) / nilai_acuan x 100
+            reactivity = (segment_value - reference) / reference x 100
 
-        Negatif berarti di bawah baseline, positif di atas baseline.
+        Negative means below baseline, positive means above it.
 
-        PENTING — kode berhenti di sini. Tidak ada penggabungan menjadi satu
-        "skor tekanan", karena memadukan kelima angka ini justru tugas LLM
-        yang berbekal knowledge base. Kalau kode yang menggabungkan, LLM
-        tinggal membaca ambang dan seluruh pendekatan RAG kehilangan
-        alasan keberadaannya.
+        IMPORTANT — the code stops here. There is no combined "stress score",
+        because fusing these five numbers is exactly the job of the LLM working from
+        the knowledge base. If the code did the fusing, the LLM would merely be
+        reading off a threshold and the whole RAG approach would lose its purpose.
         """
         out: dict[str, float] = {}
         for feat, ref in self.values.items():
@@ -105,10 +102,10 @@ class BaselineProfile:
 
     def relative_spread(self, feature: str) -> float:
         """
-        IQR dibagi nilai acuan — seberapa goyah baseline untuk fitur ini.
+        IQR divided by the reference value — how unsteady the baseline is.
 
-        Dipakai sebagai peringatan: kalau nilainya besar, reaktivitas yang
-        dihitung dari acuan tersebut perlu ditafsirkan lebih hati-hati.
+        Used as a warning flag: when this is large, any reactivity derived from that
+        reference needs more cautious interpretation.
         """
         ref = self.values.get(feature)
         iqr = self.spread.get(feature)
@@ -118,6 +115,6 @@ class BaselineProfile:
 
     def describe(self) -> str:
         rmssd = self.values.get("rmssd", float("nan"))
-        return (f"baseline {self.subject}: {self.n_segments} segmen, "
-                f"RMSSD acuan {rmssd:.1f} ms "
-                f"(IQR relatif {self.relative_spread('rmssd'):.0%})")
+        return (f"baseline {self.subject}: {self.n_segments} segments, "
+                f"reference RMSSD {rmssd:.1f} ms "
+                f"(relative IQR {self.relative_spread('rmssd'):.0%})")

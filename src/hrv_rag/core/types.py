@@ -1,10 +1,10 @@
 """
-types.py — Objek domain yang dipakai lintas modul.
+types.py — Domain objects shared across modules.
 
-Kenapa dataclass, bukan dict? Karena dict tidak memaksa apa pun: salah ketik
-nama kunci baru ketahuan saat program jalan. Dataclass mendokumentasikan
-bentuk data secara eksplisit — penting untuk kode yang harus dijelaskan
-baris per baris saat sidang.
+Why dataclasses instead of plain dicts? A dict enforces nothing: a mistyped key
+only surfaces at runtime, often as a silently wrong number. Dataclasses document
+the shape of the data explicitly, which matters for code that has to be defended
+line by line at the thesis defence.
 """
 
 from __future__ import annotations
@@ -17,11 +17,11 @@ import numpy as np
 
 class Modality(str, Enum):
     """
-    Modalitas sumber data.
+    Source modality of the signal.
 
-    Ikut dibawa sampai ke prompt LLM (Aturan Wajib #5): ECG adalah acuan,
-    PPG divalidasi terhadapnya dan lebih rentan artefak gerakan, sehingga
-    skor keyakinan perlu disesuaikan.
+    Carried all the way through to the LLM prompt (Mandatory Rule #5): ECG is the
+    reference, whereas PPG is validated against it and is more vulnerable to motion
+    artefacts, so the confidence score must be adjusted accordingly.
     """
 
     ECG = "ECG"
@@ -30,33 +30,34 @@ class Modality(str, Enum):
 
 class Phase(str, Enum):
     """
-    Fase dalam satu sesi.
+    Phase within a single session.
 
-    Saat validasi, fase diisi dari label dataset (WESAD label 1 -> CALIBRATION,
-    label 2 -> QUESTION). Saat produksi, diisi dari linimasa sesi nyata.
-    Skemanya sengaja sama agar kode RAG dan validasi tidak perlu bercabang.
+    During validation the phase is filled from dataset labels (WESAD label 1 ->
+    CALIBRATION, label 2 -> QUESTION). In production it comes from the real session
+    timeline. The schema is deliberately identical so that the RAG and evaluation
+    code never has to branch on which one it is looking at.
     """
 
-    ADAPTATION = "adaptasi"
-    CALIBRATION = "kalibrasi"     # -> baseline personal
-    BRIEFING = "pengarahan"       # -> antisipasi tingkat sesi
-    QUESTION = "pertanyaan"       # -> reaktivitas
-    RECOVERY = "jeda"             # -> pemulihan
+    ADAPTATION = "adaptation"
+    CALIBRATION = "calibration"   # -> personal baseline
+    BRIEFING = "briefing"         # -> session-level anticipation
+    QUESTION = "question"         # -> reactivity
+    RECOVERY = "recovery"         # -> recovery
 
 
 @dataclass(frozen=True)
 class QualityReport:
-    """Hasil pemeriksaan kualitas sinyal mentah, sebelum difilter."""
+    """Result of checking raw signal quality, before any filtering."""
 
-    clipping_ratio: float          # proporsi sampel menempel di nilai ekstrem
-    flatline_ratio: float          # proporsi durasi sinyal datar
-    is_acceptable: bool            # lolos seluruh ambang?
+    clipping_ratio: float          # fraction of samples pinned at extreme values
+    flatline_ratio: float          # fraction of duration with a flat signal
+    is_acceptable: bool            # passed every threshold?
     notes: list[str] = field(default_factory=list)
 
     def summary(self) -> str:
-        """Ringkasan sebaris untuk dicetak / dimasukkan ke prompt."""
-        status = "baik" if self.is_acceptable else "diragukan"
-        return (f"kualitas {status} "
+        """One-line summary for printing or for inclusion in the prompt."""
+        status = "good" if self.is_acceptable else "questionable"
+        return (f"quality {status} "
                 f"(clipping {self.clipping_ratio:.1%}, "
                 f"flat-line {self.flatline_ratio:.1%})")
 
@@ -64,29 +65,30 @@ class QualityReport:
 @dataclass
 class RRSeries:
     """
-    Deret interval antar denyut — keluaran baku SEMUA cabang pra-pemrosesan.
+    Inter-beat interval series — the standard output of EVERY preprocessing branch.
 
-    Inilah titik temu kedua modalitas: ECG menghasilkannya dari puncak R,
-    PPG dari puncak sistolik. Setelah tahap ini, kode sesudahnya (fitur, RAG,
-    validasi) tidak perlu lagi tahu asal sinyalnya — kecuali lewat atribut
-    `modality` yang sengaja dibawa terus.
+    This is where the two modalities meet: ECG derives it from R peaks, PPG from
+    systolic peaks. After this point the downstream code (features, RAG, evaluation)
+    no longer needs to know where the signal came from — except through the
+    `modality` attribute, which is deliberately carried forward.
     """
 
-    rr_ms: np.ndarray              # interval, milidetik
-    t_sec: np.ndarray              # waktu tiap interval, detik
+    rr_ms: np.ndarray              # intervals, milliseconds
+    t_sec: np.ndarray              # time of each interval, seconds
     modality: Modality
     subject: str
     phase: Phase
     quality: QualityReport
-    is_outlier: np.ndarray         # penanda per denyut hasil koreksi ektopik
+    is_outlier: np.ndarray         # per-beat flags from ectopic correction
 
     def __post_init__(self) -> None:
-        # Panjang ketiga array harus sama; kalau tidak, ada bug di hulu dan
-        # lebih baik ketahuan sekarang daripada muncul sebagai fitur yang aneh.
+        # All three arrays must be the same length. If they are not, something
+        # upstream is broken, and it is far better to find out here than to see it
+        # later disguised as a strange feature value.
         n = len(self.rr_ms)
         if not (len(self.t_sec) == len(self.is_outlier) == n):
             raise ValueError(
-                f"Panjang array tidak konsisten: rr_ms={n}, "
+                f"Inconsistent array lengths: rr_ms={n}, "
                 f"t_sec={len(self.t_sec)}, is_outlier={len(self.is_outlier)}"
             )
 
@@ -100,10 +102,10 @@ class RRSeries:
 
     @property
     def outlier_ratio(self) -> float:
-        """Proporsi denyut yang ditandai artefak — ukuran kualitas deret."""
+        """Fraction of beats flagged as artefacts — a measure of series quality."""
         return float(self.is_outlier.mean()) if self.n_beats else 1.0
 
     def describe(self) -> str:
         return (f"{self.subject}/{self.phase.value} [{self.modality.value}]: "
-                f"{self.n_beats} denyut, {self.duration_sec:.0f} dtk, "
-                f"outlier {self.outlier_ratio:.1%}, {self.quality.summary()}")
+                f"{self.n_beats} beats, {self.duration_sec:.0f} s, "
+                f"outliers {self.outlier_ratio:.1%}, {self.quality.summary()}")

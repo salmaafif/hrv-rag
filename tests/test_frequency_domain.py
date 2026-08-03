@@ -1,16 +1,16 @@
 """
-U1.2 — Uji domain frekuensi dengan sinyal buatan berfrekuensi diketahui.
+U1.2 — Frequency-domain features tested with synthetic signals of known frequency.
 
-Gagasannya: kalau deret RR sengaja dibuat bergoyang pada 0,25 Hz, maka daya
-spektrumnya HARUS muncul di pita HF (0,15-0,40 Hz), bukan di LF. Begitu pula
-sebaliknya untuk 0,10 Hz yang jatuh di pita LF (0,04-0,15 Hz).
+The idea: if an RR series is deliberately made to oscillate at 0.25 Hz, its
+spectral power MUST land in the HF band (0.15-0.40 Hz), not in LF. Likewise a
+0.10 Hz oscillation must land in the LF band (0.04-0.15 Hz).
 
-Uji ini membuktikan kebenaran kode tanpa membandingkan ke pustaka lain —
-kebenarannya berasal dari fisika sinyal yang kita kendalikan sendiri.
+This proves the code correct without comparing against another library — the truth
+comes from signal physics we control ourselves.
 
-Kedua metode (Welch dan Lomb-Scargle) diuji dengan kriteria sama, karena
-keduanya harus sepakat pada hal sedasar ini. Kalau salah satu gagal di sini,
-perbandingan K2 tidak ada artinya.
+Both methods (Welch and Lomb-Scargle) face the same criteria, because they must
+agree on something this basic. If either failed here, the K2 comparison would be
+meaningless.
 """
 
 import numpy as np
@@ -23,71 +23,70 @@ from hrv_rag.features.frequency_domain import (frequency_features,
 
 @pytest.fixture(scope="module")
 def rr_hf():
-    """Deret RR bergoyang di 0,25 Hz — jantung pita HF."""
+    """RR series oscillating at 0.25 Hz — the heart of the HF band."""
     return synth_modulated_rr(freq_hz=0.25)
 
 
 @pytest.fixture(scope="module")
 def rr_lf():
-    """Deret RR bergoyang di 0,10 Hz — jantung pita LF."""
+    """RR series oscillating at 0.10 Hz — the heart of the LF band."""
     return synth_modulated_rr(freq_hz=0.10)
 
 
-# --------------------------------------------------------------- Welch
-def test_welch_menempatkan_025hz_di_pita_hf(rr_hf):
-    hasil = welch_bands(rr_hf)
-    assert hasil["hf_welch"] > hasil["lf_welch"]
-    assert hasil["lf_hf_welch"] < 1.0
+# ----------------------------------------------------------------- Welch
+def test_welch_places_025hz_in_hf_band(rr_hf):
+    result = welch_bands(rr_hf)
+    assert result["hf_welch"] > result["lf_welch"]
+    assert result["lf_hf_welch"] < 1.0
 
 
-def test_welch_menempatkan_010hz_di_pita_lf(rr_lf):
-    hasil = welch_bands(rr_lf)
-    assert hasil["lf_welch"] > hasil["hf_welch"]
-    assert hasil["lf_hf_welch"] > 1.0
+def test_welch_places_010hz_in_lf_band(rr_lf):
+    result = welch_bands(rr_lf)
+    assert result["lf_welch"] > result["hf_welch"]
+    assert result["lf_hf_welch"] > 1.0
 
 
-# -------------------------------------------------------- Lomb-Scargle
-def test_lombscargle_menempatkan_025hz_di_pita_hf(rr_hf):
-    hasil = lombscargle_bands(rr_hf)
-    assert hasil["hf_ls"] > hasil["lf_ls"]
-    assert hasil["lf_hf_ls"] < 1.0
+# ---------------------------------------------------------- Lomb-Scargle
+def test_lombscargle_places_025hz_in_hf_band(rr_hf):
+    result = lombscargle_bands(rr_hf)
+    assert result["hf_ls"] > result["lf_ls"]
+    assert result["lf_hf_ls"] < 1.0
 
 
-def test_lombscargle_menempatkan_010hz_di_pita_lf(rr_lf):
-    hasil = lombscargle_bands(rr_lf)
-    assert hasil["lf_ls"] > hasil["hf_ls"]
-    assert hasil["lf_hf_ls"] > 1.0
+def test_lombscargle_places_010hz_in_lf_band(rr_lf):
+    result = lombscargle_bands(rr_lf)
+    assert result["lf_ls"] > result["hf_ls"]
+    assert result["lf_hf_ls"] > 1.0
 
 
-# -------------------------------------------------------- kedua metode
-def test_kedua_metode_sepakat_soal_arah(rr_hf, rr_lf):
+# ----------------------------------------------------------- both methods
+def test_both_methods_agree_on_direction(rr_hf, rr_lf):
     """
-    Boleh berbeda besaran (terukur ~37% pada data WESAD), tapi TIDAK boleh
-    berbeda arah. Kalau satu bilang HF dominan dan satunya bilang LF,
-    ada yang rusak.
+    They may differ in magnitude (~37% was observed on the WESAD data), but they
+    must NOT differ in direction. If one says HF dominates and the other says LF,
+    something is broken.
     """
     for rr in (rr_hf, rr_lf):
-        hasil = frequency_features(rr)
-        welch_hf_dominan = hasil["lf_hf_welch"] < 1.0
-        ls_hf_dominan = hasil["lf_hf_ls"] < 1.0
-        assert welch_hf_dominan == ls_hf_dominan
+        result = frequency_features(rr)
+        welch_hf_dominant = result["lf_hf_welch"] < 1.0
+        ls_hf_dominant = result["lf_hf_ls"] < 1.0
+        assert welch_hf_dominant == ls_hf_dominant
 
 
-def test_segmen_terlalu_pendek_menghasilkan_nan():
+def test_too_short_segment_returns_nan():
     """
-    Deret sangat pendek tidak menghasilkan spektrum bermakna.
+    A very short series cannot yield a meaningful spectrum.
 
-    Yang dikembalikan HARUS NaN, bukan 0. Nilai 0 akan terbaca sebagai
-    "tidak ada daya LF" — sebuah pengukuran — padahal kenyataannya
-    "tidak dapat diukur". Membedakan keduanya penting agar segmen buruk
-    tidak diam-diam ikut dihitung dalam metrik.
+    What comes back MUST be NaN, not 0. A zero would read as "there is no LF power"
+    — a measurement — when the truth is "this could not be measured". Keeping the
+    two apart is what stops bad segments from quietly entering the metrics.
     """
-    hasil = frequency_features(np.full(5, 800.0))
-    assert all(np.isnan(v) for v in hasil.values())
+    result = frequency_features(np.full(5, 800.0))
+    assert all(np.isnan(v) for v in result.values())
 
 
-def test_deret_datar_tidak_membuat_program_gagal():
-    """Deret tanpa variasi sama sekali: tidak boleh melempar exception."""
-    hasil = frequency_features(np.full(60, 800.0))
-    assert set(hasil) == {"lf_welch", "hf_welch", "lf_hf_welch",
-                          "lf_ls", "hf_ls", "lf_hf_ls"}
+def test_flat_series_does_not_crash():
+    """A series with no variation at all must not raise."""
+    result = frequency_features(np.full(60, 800.0))
+    assert set(result) == {"lf_welch", "hf_welch", "lf_hf_welch",
+                           "lf_ls", "hf_ls", "lf_hf_ls"}

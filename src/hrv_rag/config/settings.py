@@ -1,120 +1,123 @@
 """
-settings.py — Seluruh parameter numerik proyek, terpusat di satu tempat.
+settings.py — Every numeric parameter in the project, centralised.
 
-Aturan CLAUDE.md: setiap parameter numerik harus punya alasan yang bisa
-dijelaskan saat sidang. Karena itu tiap nilai di bawah diberi komentar
-alasannya, bukan sekadar angkanya.
+CLAUDE.md rule: each numeric parameter must have a reason that can be explained at
+the thesis defence. Every value below therefore carries a comment explaining why it
+is what it is, not merely what it is.
 """
 
 from dataclasses import dataclass, field
 from pathlib import Path
 
 # ===========================================================================
-# JALUR
+# PATHS
 # ===========================================================================
 REPO_DIR = Path(__file__).resolve().parents[3]      # .../hrv-rag
 DATA_RAW = REPO_DIR / "data" / "raw"
 DATA_PROCESSED = REPO_DIR / "data" / "processed"
 KB_DIR = REPO_DIR / "kb"
+KB_FILE = KB_DIR / "knowledge_base_HRV.md"
+KB_INDEX_DIR = DATA_PROCESSED / "kb_index"
 OUTPUTS_DIR = REPO_DIR / "outputs"
 
-# Dataset WESAD masih tersimpan di luar repo pada komputer Salma.
-# Loader mencoba data/raw dulu, baru jatuh ke lokasi ini.
+# WESAD still lives outside the repo on Salma's machine. The loader tries
+# data/raw first and falls back to this location.
 WESAD_FALLBACK = Path.home() / "Documents" / "WESAD"
 
 
 # ===========================================================================
-# SEGMENTASI
+# SEGMENTATION
 # ===========================================================================
 @dataclass(frozen=True)
 class SegmentationConfig:
-    """Parameter pembagian deret interval menjadi segmen analisis."""
+    """Parameters for splitting an interval series into analysis segments."""
 
-    # 60 detik: kompromi standar untuk HRV ultra-short-term. Cukup panjang agar
-    # RMSSD stabil, cukup pendek untuk memisahkan respons antar pertanyaan.
+    # 60 seconds: the standard compromise for ultra-short-term HRV. Long enough
+    # for RMSSD to stabilise, short enough to separate responses to individual
+    # questions.
     length_sec: int = 60
 
-    # Overlap 30 detik (jendela geser). Menggandakan resolusi waktu menjadi
-    # 30 detik tanpa memperpendek jendela analisis. KONSEKUENSI: segmen
-    # bertetangga berbagi separuh data, jadi TIDAK independen — ini harus
-    # disebut saat melaporkan metrik (lihat BACKLOG L2).
+    # 30-second overlap (sliding window). Doubles temporal resolution to 30 s
+    # without shortening the analysis window. CONSEQUENCE: neighbouring segments
+    # share half their data, so they are NOT independent — this must be stated
+    # when reporting metrics (BACKLOG L2).
     overlap_sec: int = 30
 
-    # Segmen dengan denyut lebih sedikit dari ini dibuang. 30 denyut per
-    # 60 detik setara HR 30 bpm — di bawah itu hampir pasti gagal deteksi,
-    # bukan kondisi fisiologis nyata.
+    # Segments with fewer beats than this are discarded. 30 beats per 60 seconds
+    # equals 30 bpm — below that it is almost certainly failed detection rather
+    # than a real physiological state.
     min_beats: int = 30
 
     @property
     def hop_sec(self) -> int:
-        """Jarak geser antar segmen (detik)."""
+        """Distance the window slides between segments (seconds)."""
         return self.length_sec - self.overlap_sec
 
 
 # ===========================================================================
-# KUALITAS SINYAL & KOREKSI EKTOPIK
+# SIGNAL QUALITY & ECTOPIC CORRECTION
 # ===========================================================================
 @dataclass(frozen=True)
 class QualityConfig:
-    """Ambang penolakan sinyal dan denyut bermasalah."""
+    """Rejection thresholds for signals and problematic beats."""
 
-    # Batas fisiologis RR. 0,3 dtk = 200 bpm, 2,0 dtk = 30 bpm. Di luar
-    # rentang ini hampir pasti artefak, bukan denyut sungguhan.
+    # Physiological RR bounds. 0.3 s = 200 bpm, 2.0 s = 30 bpm. Outside this
+    # range it is almost certainly an artefact rather than a real beat.
     rr_min_sec: float = 0.30
     rr_max_sec: float = 2.00
 
-    # Selisih maksimum terhadap interval sebelumnya yang masih dianggap
-    # wajar. HRV normal berubah bertahap; lompatan >20% menandakan denyut
-    # ektopik atau puncak R yang salah terdeteksi. (Kriteria Malik.)
+    # Maximum change from the preceding interval still considered plausible.
+    # Normal HRV changes gradually; a jump above 20% signals an ectopic beat or a
+    # misdetected R peak. (Malik criterion.)
     max_rel_diff: float = 0.20
 
-    # Bila lebih dari 10% denyut dalam satu segmen bermasalah, segmen itu
-    # dibuang seluruhnya. Menginterpolasi terlalu banyak denyut berarti
-    # fitur HRV lebih banyak berasal dari tebakan daripada dari pengukuran.
+    # If more than 10% of beats in a segment are problematic, the whole segment is
+    # discarded. Interpolating too many beats means the HRV features come mostly
+    # from guesses rather than from measurement.
     max_outlier_ratio: float = 0.10
 
-    # --- Quality check pada sinyal mentah ---
-    # Proporsi sampel yang menempel di nilai ekstrem (clipping ADC).
+    # --- Raw-signal quality checks ---
+    # Fraction of samples pinned at the extremes of the ADC range (clipping).
     max_clipping_ratio: float = 0.01
-    # Panjang jendela (detik) untuk mendeteksi sinyal datar/lepas elektroda.
+    # Window length (seconds) used to detect a flat signal / detached electrode.
     flatline_window_sec: float = 2.0
-    # Proporsi durasi flat-line yang masih ditoleransi.
+    # Tolerated fraction of the recording spent flat-lined.
     max_flatline_ratio: float = 0.05
 
 
 # ===========================================================================
-# FILTER PER MODALITAS
+# PER-MODALITY FILTERS
 # ===========================================================================
 @dataclass(frozen=True)
 class ECGFilterConfig:
     """
-    Filter cabang ECG.
+    ECG branch filter.
 
-    Bandpass 0,5-40 Hz: membuang drift baseline akibat napas/gerakan (<0,5 Hz)
-    dan derau otot/frekuensi tinggi (>40 Hz), sambil mempertahankan kompleks
-    QRS yang energinya terpusat di 10-25 Hz.
+    Bandpass 0.5-40 Hz: removes baseline drift from breathing and movement
+    (<0.5 Hz) and muscle / high-frequency noise (>40 Hz), while preserving the QRS
+    complex whose energy is concentrated around 10-25 Hz.
     """
 
     lowcut_hz: float = 0.5
     highcut_hz: float = 40.0
-    # Orde 2 sesuai CLAUDE.md. Orde rendah = respons fase lebih landai dan
-    # lebih stabil secara numerik; ketajaman transisi tidak kritis di sini.
+    # Order 2 per CLAUDE.md. A low order gives a gentler phase response and better
+    # numerical stability; a sharp transition band is not critical here.
     order: int = 2
-    # Notch 50 Hz: frekuensi jala-jala listrik Indonesia (PLN).
+    # 50 Hz notch: the mains frequency in Indonesia (PLN).
     notch_hz: float = 50.0
-    # Faktor kualitas notch. Q=30 memberi pita henti sempit, sehingga
-    # komponen sinyal di sekitar 50 Hz tidak ikut terpangkas.
+    # Notch quality factor. Q=30 gives a narrow stop band, so signal components
+    # near 50 Hz are not stripped out along with the interference.
     notch_q: float = 30.0
 
 
 @dataclass(frozen=True)
 class PPGFilterConfig:
     """
-    Filter cabang PPG (dipakai Tahap 6).
+    PPG branch filter (used in Stage 6).
 
-    Pita 0,5-8 Hz jauh lebih sempit daripada ECG karena gelombang PPG
-    berbentuk landai dan tidak punya komponen setajam QRS. Melewatkan
-    frekuensi tinggi hanya akan memasukkan derau.
+    The 0.5-8 Hz band is far narrower than for ECG because the PPG waveform is
+    smooth and has nothing as sharp as a QRS complex. Passing higher frequencies
+    would only admit noise.
     """
 
     lowcut_hz: float = 0.5
@@ -123,106 +126,151 @@ class PPGFilterConfig:
 
 
 # ===========================================================================
-# FITUR DOMAIN FREKUENSI
+# FREQUENCY-DOMAIN FEATURES
 # ===========================================================================
 @dataclass(frozen=True)
 class FrequencyConfig:
     """
-    Pita frekuensi standar Task Force ESC/NASPE (1996).
+    Standard frequency bands per Task Force ESC/NASPE (1996).
 
-    Keputusan K2: LF/HF dihitung DUA cara berdampingan (Welch setelah
-    interpolasi 4 Hz, dan Lomb-Scargle langsung pada deret tak seragam),
-    lalu dibandingkan sebagai bahan pembahasan sidang.
+    Decision K2: LF/HF is computed TWO ways side by side (Welch after resampling
+    to 4 Hz, and Lomb-Scargle directly on the unevenly sampled series), then
+    compared as material for the defence.
     """
 
     lf_band: tuple[float, float] = (0.04, 0.15)
     hf_band: tuple[float, float] = (0.15, 0.40)
 
-    # 4 Hz: laju resampling lazim untuk HRV. Jauh di atas Nyquist pita HF
-    # (0,4 Hz) sehingga tidak terjadi aliasing, tapi tidak boros.
+    # 4 Hz: the customary resampling rate for HRV. Comfortably above the Nyquist
+    # requirement for the HF band (0.4 Hz) so no aliasing occurs, without waste.
     resample_hz: float = 4.0
 
 
 # ===========================================================================
-# DINAMIKA: PEMULIHAN & KETAHANAN
+# DYNAMICS: RECOVERY & RESILIENCE
 # ===========================================================================
 @dataclass(frozen=True)
 class DynamicsConfig:
-    """Parameter perhitungan pemulihan dan pengelompokan ketahanan."""
+    """Parameters for recovery computation and resilience classification."""
 
-    # Pemulihan hanya dihitung bila simpangan saat pertanyaan cukup berarti.
-    # Rumus pemulihan membagi dengan (nilai_tertekan - baseline); kalau
-    # penyebutnya mendekati nol, hasilnya meledak jadi angka tak bermakna
-    # (mis. -278%). Ambang 10% menyaring kasus itu, dan hasilnya dilaporkan
-    # "tidak dapat dihitung" — bukan diisi nol, karena nol berarti
-    # "tidak pulih sama sekali" dan itu klaim yang berbeda.
+    # Recovery is only computed when the deviation during the question is large
+    # enough to matter. The formula divides by (stressed - baseline); if that
+    # denominator approaches zero the result explodes into meaningless numbers
+    # (e.g. -278%). A 10% threshold filters those cases out, and the result is
+    # reported as "not computable" — never as zero, because zero would mean
+    # "did not recover at all", which is a different claim entirely.
     min_deviation_ratio: float = 0.10
 
-    # Ambang pemisah kuadran ketahanan. Nilai awal ini masih SEMENTARA dan
-    # harus dikalibrasi memakai lima subjek pengembangan saja (BACKLOG U4.1),
-    # lalu dibekukan sebelum subjek uji disentuh.
-    reactivity_threshold_pct: float = 20.0   # |perubahan| RMSSD dianggap besar
-    recovery_threshold_pct: float = 50.0     # >= dianggap pulih cepat
+    # Cut-offs separating the resilience quadrants. These starting values are
+    # PROVISIONAL and must be calibrated on the five development subjects only
+    # (BACKLOG U4.1), then frozen before the test subjects are touched.
+    reactivity_threshold_pct: float = 20.0   # |RMSSD change| counted as large
+    recovery_threshold_pct: float = 50.0     # >= counted as fast recovery
 
-    # Fitur acuan untuk pemulihan dan ketahanan. RMSSD dipilih karena
-    # knowledge base menyebutnya paling andal pada segmen 60 detik.
+    # Reference feature for recovery and resilience. RMSSD is chosen because the
+    # knowledge base identifies it as the most dependable on 60-second segments.
     primary_feature: str = "rmssd"
 
 
 # ===========================================================================
-# PROTOKOL SESI (disetujui — lihat BACKLOG K9 & Q1/Q2)
+# RAG: EMBEDDING & RETRIEVAL
+# ===========================================================================
+@dataclass(frozen=True)
+class RAGConfig:
+    """Parameters for indexing the knowledge base and retrieving chunks."""
+
+    # CLAUDE.md originally specified `text-embedding-004`, but that model returns
+    # 404 on the API in use. Its replacement is the current Gemini embedding
+    # model. This is not a preference — it is a necessity.
+    embedding_model: str = "gemini-embedding-001"
+
+    # The model's native dimensionality. For 23 chunks, 23 x 3072 float32 is only
+    # ~280 KB, so there is no reason to truncate it to save space.
+    embedding_dim: int = 3072
+
+    # Documents and queries are embedded differently because their shapes genuinely
+    # differ: a KB chunk is a long explanation, a query is a short feature summary.
+    # Telling the model which role each text plays improves matching at no cost.
+    task_document: str = "RETRIEVAL_DOCUMENT"
+    task_query: str = "RETRIEVAL_QUERY"
+
+    # Number of chunks retrieved per query. Starting value 3; will be swept
+    # (k = 1, 3, 5, 7) in ablation U3.4 and then frozen.
+    top_k: int = 3
+
+    # Minimum similarity. Chunks below this are treated as irrelevant and dropped,
+    # so the context is not padded with material that could mislead the LLM.
+    #
+    # The value is measured, not guessed. Gemini embeddings produce scores in a
+    # narrow band, so a low threshold filters nothing at all. Calibration against
+    # the English KB (kb_v2.0) with English queries:
+    #     highly relevant query   -> top score 0.807
+    #     loosely relevant query  -> top score 0.661
+    #     irrelevant queries      -> top score 0.527-0.561
+    # So 0.60 sits inside the gap between "irrelevant" and "loosely relevant",
+    # with a small margin above the highest irrelevant score.
+    #
+    # NOTE: calibrated on five sample queries only; must be revisited during the
+    # U3.4 sweep and then frozen.
+    min_similarity: float = 0.60
+
+
+# ===========================================================================
+# SESSION PROTOCOL (approved — see BACKLOG K9 & Q1/Q2)
 # ===========================================================================
 @dataclass(frozen=True)
 class SessionConfig:
     """
-    Linimasa sesi wawancara. Semua durasi dalam detik.
+    Interview session timeline. All durations in seconds.
 
-    Angka-angka ini bukan selera UX — semuanya terikat panjang segmen 60 dtk.
-    Fase yang lebih pendek dari 60 detik tidak menghasilkan segmen sama sekali.
+    These numbers are not a UX preference — every one of them is tied to the
+    60-second segment length. A phase shorter than 60 seconds yields no segment
+    at all, and therefore no measurement.
     """
 
-    # Dibuang, tidak dihitung. Memberi waktu detak jantung turun ke kondisi
-    # duduk tenang setelah pengguna memasang alat dan menyiapkan diri.
+    # Discarded, not analysed. Gives heart rate time to settle into a quiet seated
+    # state after the user has fitted the device and got ready.
     adaptation_sec: int = 60
 
-    # Baseline personal. 240 dtk menghasilkan 7 segmen, cukup agar median-nya
-    # tahan terhadap satu-dua segmen berisik.
+    # Personal baseline. 240 s yields 7 segments, enough for the median to resist
+    # one or two noisy segments.
     calibration_sec: int = 240
 
-    # Fase antisipasi tingkat sesi (K9). 120 dtk menghasilkan 3 segmen.
-    # Antisipasi PER PERTANYAAN sengaja tidak diukur: jendelanya (5-10 dtk)
-    # jauh di bawah resolusi 60 detik, jadi tidak akan pernah terukur.
+    # Session-level anticipation phase (K9). 120 s yields 3 segments.
+    # PER-QUESTION anticipation is deliberately not measured: a 5-10 s window sits
+    # far below the 60-second resolution, so it could never be captured.
     briefing_sec: int = 120
 
-    # Durasi menjawab satu pertanyaan -> 2 segmen.
+    # Time to answer one question -> 2 segments.
     answer_sec: int = 90
 
-    # Jeda setelah pertanyaan SULIT -> tepat 1 segmen pemulihan.
-    # 60 dtk adalah lantai keras: di bawah ini pemulihan tidak bisa dihitung.
+    # Gap after a DIFFICULT question -> exactly 1 recovery segment.
+    # 60 s is a hard floor: below it, recovery cannot be computed at all.
     recovery_gap_sec: int = 60
 
-    # Jeda setelah pertanyaan biasa. Terlalu pendek untuk menghasilkan segmen,
-    # jadi pemulihan untuk pertanyaan ini memang TIDAK dilaporkan (bukan nol).
+    # Gap after an ordinary question. Too short to yield a segment, so recovery
+    # for those questions is genuinely NOT REPORTED — as opposed to being zero.
     short_gap_sec: int = 20
 
 
 # ===========================================================================
-# PEMBAGIAN SUBJEK (BACKLOG U4.1 — cegah prompt overfitting)
+# SUBJECT SPLIT (BACKLOG U4.1 — guard against prompt overfitting)
 # ===========================================================================
 @dataclass(frozen=True)
 class SplitConfig:
     """
-    Pemisahan subjek pengembangan vs pengujian.
+    Separation of development and test subjects.
 
-    Meski tidak ada model yang dilatih, menyetel prompt dan KB sambil melihat
-    hasil TETAP bentuk fitting. Karena itu subjek uji disegel sejak awal.
+    Even though no model is trained, tuning the prompt and the KB while looking at
+    results IS a form of fitting. The test subjects are therefore sealed from the
+    start.
 
-    Pembagian PER SUBJEK, tidak pernah per segmen: baseline dihitung per
-    subjek, jadi segmen milik orang yang sama berbagi acuan — memisahkannya
-    per segmen akan membocorkan informasi.
+    The split is PER SUBJECT, never per segment: the baseline is computed per
+    subject, so segments belonging to the same person share a reference. Splitting
+    per segment would leak information across the boundary.
 
-    Subjek pengembangan dipilih menyebar (bukan S2-S6 berurutan), karena
-    urutan penomoran bisa berkorelasi dengan urutan perekaman.
+    Development subjects are spread out rather than sequential (not S2-S6), because
+    numbering order may correlate with recording order.
     """
 
     dev_subjects: tuple[str, ...] = ("S2", "S6", "S10", "S14", "S17")
@@ -232,11 +280,11 @@ class SplitConfig:
 
 
 # ===========================================================================
-# OBJEK KONFIGURASI TUNGGAL
+# SINGLE CONFIGURATION OBJECT
 # ===========================================================================
 @dataclass(frozen=True)
 class Settings:
-    """Wadah seluruh konfigurasi; dipakai dengan `from ... import settings`."""
+    """Container for all configuration; used via `from ... import settings`."""
 
     segmentation: SegmentationConfig = field(default_factory=SegmentationConfig)
     quality: QualityConfig = field(default_factory=QualityConfig)
@@ -244,6 +292,7 @@ class Settings:
     ppg_filter: PPGFilterConfig = field(default_factory=PPGFilterConfig)
     frequency: FrequencyConfig = field(default_factory=FrequencyConfig)
     dynamics: DynamicsConfig = field(default_factory=DynamicsConfig)
+    rag: RAGConfig = field(default_factory=RAGConfig)
     session: SessionConfig = field(default_factory=SessionConfig)
     split: SplitConfig = field(default_factory=SplitConfig)
 

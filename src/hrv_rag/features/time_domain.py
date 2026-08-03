@@ -1,67 +1,67 @@
 """
-time_domain.py — Fitur HRV domain waktu.
+time_domain.py — Time-domain HRV features.
 
-Semua fungsi di sini murni: masuk array, keluar angka, tidak menyimpan apa
-pun. Bentuk seperti ini paling mudah diuji (BACKLOG U1) karena hasilnya bisa
-dibandingkan dengan hitungan tangan.
+Every function here is pure: arrays in, numbers out, no state retained. That shape
+is the easiest to test (BACKLOG U1), because results can be checked against values
+computed by hand.
 
-Menurut knowledge base, pada segmen 60 detik fitur domain waktu — terutama
-RMSSD — jauh lebih andal daripada fitur domain frekuensi. Karena itu fitur
-di berkas inilah yang diprioritaskan saat menafsirkan.
+Per the knowledge base, time-domain features — RMSSD above all — are far more
+dependable than frequency-domain features on 60-second segments. The features in
+this file are therefore the ones given priority during interpretation.
 """
 
 from __future__ import annotations
 
 import numpy as np
 
-#: Nama fitur yang dihasilkan modul ini, berurutan.
+#: Names of the features produced by this module, in order.
 TIME_FEATURES = ("mean_rr", "mean_hr", "sdnn", "rmssd", "pnn50")
 
 
 def mean_rr(rr_ms: np.ndarray) -> float:
     """
-    Rata-rata interval RR (ms).
+    Mean RR interval (ms).
 
-    Mengecil berarti jantung berdetak lebih cepat — indikasi arousal.
+    A smaller value means the heart is beating faster — an indication of arousal.
     """
     return float(np.mean(rr_ms))
 
 
 def mean_hr(rr_ms: np.ndarray) -> float:
     """
-    Detak jantung rata-rata (bpm).
+    Mean heart rate (bpm).
 
-    Dihitung dari meanRR, bukan dari rata-rata detak sesaat. Perlu hati-hati:
-    60000/mean(RR) TIDAK sama dengan mean(60000/RR) karena pembagian bersifat
-    tak linear. Yang dipakai di literatur HRV adalah bentuk pertama.
+    Derived from meanRR rather than by averaging instantaneous rates. This matters:
+    60000/mean(RR) is NOT the same as mean(60000/RR), because division is
+    non-linear. The HRV literature uses the former.
     """
     return 60000.0 / mean_rr(rr_ms)
 
 
 def sdnn(rr_ms: np.ndarray) -> float:
     """
-    Simpangan baku seluruh interval RR (ms) — variabilitas total.
+    Standard deviation of all RR intervals (ms) — total variability.
 
-    Dipakai ddof=1 (pembagi n-1) karena segmen ini SAMPEL dari proses yang
-    lebih panjang, bukan seluruh populasi. Pada 60 detik dengan ~70 denyut
-    selisihnya kecil, tapi pilihan ini harus konsisten dan bisa dijelaskan.
+    Uses ddof=1 (an n-1 denominator) because a segment is a SAMPLE of a longer
+    process, not an entire population. Over 60 seconds with ~70 beats the
+    difference is small, but the choice must be consistent and defensible.
 
-    SDNN dipengaruhi simpatis maupun parasimpatis, dan cenderung menurun
-    saat tertekan.
+    SDNN is influenced by both sympathetic and parasympathetic activity, and tends
+    to fall under pressure.
     """
     return float(np.std(rr_ms, ddof=1))
 
 
 def rmssd(rr_ms: np.ndarray) -> float:
     """
-    Akar rata-rata kuadrat selisih RR berurutan (ms).
+    Root mean square of successive differences (ms).
 
-    Karena dihitung dari SELISIH antar denyut bertetangga, RMSSD menangkap
-    perubahan cepat — yaitu pengaruh saraf vagus, yang bekerja jauh lebih
-    gesit daripada simpatis. Inilah alasan RMSSD tetap andal pada rekaman
-    pendek, dan kenapa ia jadi fitur utama sistem ini.
+    Because it is built from differences between NEIGHBOURING beats, RMSSD captures
+    fast change — which means vagal influence, since the vagus acts far more quickly
+    than the sympathetic branch. That is why RMSSD stays reliable in short
+    recordings, and why it is this system's primary feature.
 
-    RMSSD menurun saat tekanan meningkat.
+    RMSSD decreases as pressure rises.
     """
     diff = np.diff(rr_ms)
     return float(np.sqrt(np.mean(diff ** 2)))
@@ -69,19 +69,19 @@ def rmssd(rr_ms: np.ndarray) -> float:
 
 def pnn50(rr_ms: np.ndarray) -> float:
     """
-    Persentase pasangan RR berurutan yang berbeda lebih dari 50 ms.
+    Percentage of consecutive RR pairs differing by more than 50 ms.
 
-    Seperti RMSSD, mencerminkan aktivitas vagal — tapi berupa cacahan, bukan
-    besaran. Akibatnya pNN50 lebih kasar: pada orang dengan HRV rendah,
-    nilainya bisa menyentuh 0% dan berhenti membedakan apa pun (efek lantai).
-    Karena itu dilaporkan sebagai pelengkap RMSSD, bukan pengganti.
+    Like RMSSD it reflects vagal activity, but as a count rather than a magnitude.
+    That makes it coarser: in people with low HRV it can bottom out at 0% and stop
+    discriminating at all (a floor effect). It is therefore reported alongside
+    RMSSD, never as a substitute for it.
     """
     diff = np.abs(np.diff(rr_ms))
     return float(np.mean(diff > 50.0) * 100.0)
 
 
 def time_domain_features(rr_ms: np.ndarray) -> dict[str, float]:
-    """Hitung seluruh fitur domain waktu sekaligus untuk satu segmen."""
+    """Compute every time-domain feature for one segment."""
     return {
         "mean_rr": mean_rr(rr_ms),
         "mean_hr": mean_hr(rr_ms),
