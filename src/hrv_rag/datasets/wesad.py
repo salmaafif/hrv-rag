@@ -55,6 +55,10 @@ class WESADLoader(BaseDatasetLoader):
         Modality.PPG: ("wrist", "BVP"),
     }
 
+    #: Wrist accelerometer, used for motion-artefact rejection on PPG.
+    _ACC_KEY = ("wrist", "ACC")
+    _ACC_FS = 32
+
     def __init__(self, subject: str) -> None:
         self.subject = subject
         self._path = self._locate(subject)
@@ -139,3 +143,36 @@ class WESADLoader(BaseDatasetLoader):
         end = int(round(end * scale))
 
         return signal[start:end]
+
+    def load_phase_accelerometer(self, subject: str, phase: Phase,
+                                 target_fs: int) -> np.ndarray:
+        """
+        Wrist acceleration for one phase, resampled to `target_fs`.
+
+        WESAD records wrist ACC at 32 Hz but BVP at 64 Hz, so the two do not line up
+        sample for sample. Acceleration is therefore stretched onto the BVP time
+        grid before it can be used to reject beats — otherwise a movement flagged at
+        one index would correspond to a quite different moment in the pulse signal.
+
+        Nearest-neighbour interpolation is used rather than a smooth one. What is
+        needed here is "was the wrist moving around this instant", and interpolating
+        smoothly between acceleration samples would invent motion values that were
+        never measured.
+        """
+        acc = np.asarray(self.data["signal"][self._ACC_KEY[0]][self._ACC_KEY[1]],
+                         dtype=float)
+        labels = np.asarray(self.data["label"]).reshape(-1)
+
+        mask = labels == self._PHASE_TO_LABEL[phase]
+        start, end = self.longest_contiguous_run(mask)
+
+        scale = acc.shape[0] / labels.size
+        acc = acc[int(round(start * scale)):int(round(end * scale))]
+
+        n_target = int(round(acc.shape[0] * target_fs / self._ACC_FS))
+        if n_target <= 0 or acc.shape[0] == 0:
+            return np.zeros((0, acc.shape[1] if acc.ndim > 1 else 1))
+
+        idx = np.clip((np.arange(n_target) * self._ACC_FS / target_fs)
+                      .round().astype(int), 0, acc.shape[0] - 1)
+        return acc[idx]

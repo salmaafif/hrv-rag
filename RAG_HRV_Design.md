@@ -12,7 +12,7 @@ Sistem menilai tingkat tekanan pengguna dari fitur HRV **tanpa melatih model mac
 
 ## 2. Arsitektur / Alur
 
-![Pipeline RAG untuk interpretasi HRV](Gambar_pipeline_RAG_HRV.png)
+![Pipeline RAG untuk interpretasi HRV](pipeline_RAG_HRV.png)
 
 *Gambar 1. Pipeline RAG untuk interpretasi HRV*
 

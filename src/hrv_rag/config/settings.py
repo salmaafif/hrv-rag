@@ -19,6 +19,7 @@ KB_DIR = REPO_DIR / "kb"
 KB_FILE = KB_DIR / "knowledge_base_HRV.md"
 KB_INDEX_DIR = DATA_PROCESSED / "kb_index"
 OUTPUTS_DIR = REPO_DIR / "outputs"
+PROMPTS_DIR = REPO_DIR / "prompts"
 
 # WESAD still lives outside the repo on Salma's machine. The loader tries
 # data/raw first and falls back to this location.
@@ -214,6 +215,51 @@ class RAGConfig:
     # U3.4 sweep and then frozen.
     min_similarity: float = 0.60
 
+    # Chunk pinned into every prompt regardless of the search result, or None to
+    # disable pinning.
+    #
+    # Why this exists: KB-INTERP-01 defines the criteria for low / moderate / high.
+    # It is a rubric, not ordinary knowledge, yet it competes with ordinary chunks
+    # during retrieval. On the S2 calibration segment it failed to reach the top 3,
+    # and the model answered "uncertain" for what was plainly a resting segment —
+    # it had no definition of "low" to work from.
+    #
+    # Left disabled by default so that evaluation can MEASURE whether pinning
+    # helps, rather than the question being settled by assumption (BACKLOG T4.7).
+    pinned_chunk_id: str | None = None
+
+
+# ===========================================================================
+# LLM GENERATION
+# ===========================================================================
+@dataclass(frozen=True)
+class LLMConfig:
+    """Parameters for the interpretation call to Gemini."""
+
+    model: str = "gemini-2.5-flash"
+
+    # Temperature 0.0 for maximum determinism. The LLM is stochastic by nature,
+    # so run-to-run consistency must still be MEASURED rather than assumed
+    # (BACKLOG T5.4); temperature will also be swept in ablation U3.5.
+    temperature: float = 0.0
+
+    # Prompt version. The prompt is part of the system in a RAG design — the
+    # equivalent of model architecture in a deep-learning approach — so it lives
+    # in a versioned file under prompts/ and must never be edited silently.
+    prompt_version: str = "v1"
+
+    # Requests per minute. The Gemini free tier allows only 5 for
+    # gemini-2.5-flash; exceeding it returns HTTP 429 and aborts the run partway
+    # through, wasting every call already made. The client paces itself to stay
+    # underneath. Raise this if billing is enabled.
+    requests_per_minute: int = 5
+
+    # Upper bound on the response. Set to 8192 after 2048 proved too small:
+    # gemini-2.5-flash spends output tokens on internal reasoning as well, so the
+    # JSON was being truncated mid-string and failed to parse. The guard caught it
+    # loudly rather than returning half an answer, which is the desired behaviour.
+    max_output_tokens: int = 8192
+
 
 # ===========================================================================
 # SESSION PROTOCOL (approved — see BACKLOG K9 & Q1/Q2)
@@ -293,6 +339,7 @@ class Settings:
     frequency: FrequencyConfig = field(default_factory=FrequencyConfig)
     dynamics: DynamicsConfig = field(default_factory=DynamicsConfig)
     rag: RAGConfig = field(default_factory=RAGConfig)
+    llm: LLMConfig = field(default_factory=LLMConfig)
     session: SessionConfig = field(default_factory=SessionConfig)
     split: SplitConfig = field(default_factory=SplitConfig)
 

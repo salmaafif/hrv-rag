@@ -62,7 +62,7 @@ Sudah disepakati, tidak perlu dibahas ulang kecuali ada alasan baru.
 ## Tahap 1 — `preprocessing/base.py` + `preprocessing/ecg.py`  ✅ SELESAI
 
 Kode lama `src/preprocess.py` **tidak sesuai spesifikasi CLAUDE.md** dan ditulis ulang, bukan ditambal.
-Kode lama diarsipkan di `_arsip_tahap1_lama/` untuk perbandingan.
+Kode lama diarsipkan di `archive/` untuk perbandingan.
 
 **Temuan saat verifikasi:** percobaan membandingkan RR terhadap "interval terakhir yang
 diterima" (alih-alih interval tepat sebelumnya) membuat nilai acuan membeku dan menolak
@@ -108,10 +108,10 @@ Dipisah karena dipakai bersama oleh Tahap 4, 5, dan 9.
 
 | ID | Tugas | Status |
 |---|---|---|
-| T2b.1 | Skema masukan tunggal untuk produksi **dan** validasi (label dataset mengisi slot yang di produksi diisi user) | belum |
-| T2b.2 | Skema keluaran dua lapis (K4) | belum |
+| T2b.1 | Skema masukan tunggal untuk produksi **dan** validasi (label dataset mengisi slot yang di produksi diisi user) | selesai |
+| T2b.2 | Skema keluaran dua lapis (K4) | selesai |
 | T2b.3 | Linimasa sesi **disetujui, versi cepat ~15,5 mnt**: adaptasi 1 → kalibrasi 4 → pengarahan 2 → jawab 90 dtk → jeda 60 dtk (sulit) / 20 dtk (biasa). Sudah masuk `SessionConfig` | selesai |
-| T2b.4 | Anonimisasi: tidak ada nama/NRP/email yang dikirim ke LLM | belum |
+| T2b.4 | Anonimisasi: tidak ada nama/NRP/email yang dikirim ke LLM | selesai |
 
 ---
 
@@ -126,7 +126,7 @@ dari `kb_v1.1` — hanya bahasanya. Skor retrieval naik 0,03–0,08 di semua kue
 
 **Status `kb_v1.1` (versi Indonesia, digantikan):** 23 chunk (naik dari 15), rerata 92 kata,
 rentang 80–108 kata, simpangan baku 8 kata. Semua chunk punya ID unik. Versi lama
-diarsipkan di `kb/versi/knowledge_base_HRV_v1.0.md`.
+diarsipkan di `kb/versions/knowledge_base_HRV_v1.0.md`.
 
 Delapan chunk baru: `KB-LFHF-02`, `KB-RECOV-02`, `KB-CONF-02`, `KB-COGN-01`,
 `KB-AROUS-01`, `KB-MODAL-01`, `KB-MODAL-02`, `KB-INTERP-02`.
@@ -161,12 +161,12 @@ Delapan chunk baru: `KB-LFHF-02`, `KB-RECOV-02`, `KB-CONF-02`, `KB-COGN-01`,
 
 | ID | Tugas | Status |
 |---|---|---|
-| T4.1 | Fitur → deskripsi tekstual ("RMSSD 35% di bawah baseline, LF/HF meningkat") | belum |
-| T4.2 | Retrieval manual: cosine similarity, top-k | belum |
-| T4.3 | Susun prompt: instruksi + konteks KB + fitur + **modalitas** (Aturan Wajib #5) | belum |
-| T4.4 | Structured output JSON Gemini 2.5 Flash | belum |
-| T4.5 | Pagar anti-halusinasi: hanya jawab dari konteks, wajib menyatakan ketidakpastian | belum |
-| T4.6 | Pastikan LLM **tidak pernah** diminta menghitung angka (Aturan Wajib #1) | belum |
+| T4.1 | Fitur → deskripsi tekstual ("RMSSD 35% di bawah baseline, LF/HF meningkat") | selesai |
+| T4.2 | Retrieval manual: cosine similarity, top-k | selesai |
+| T4.3 | Susun prompt: instruksi + konteks KB + fitur + **modalitas** (Aturan Wajib #5) | selesai |
+| T4.4 | Structured output JSON Gemini 2.5 Flash | selesai |
+| T4.5 | Pagar anti-halusinasi: hanya jawab dari konteks, wajib menyatakan ketidakpastian | selesai |
+| T4.6 | Aturan Wajib #1 ditegakkan **secara otomatis**, bukan cuma diinstruksikan: `rag/guards.py` memeriksa tiap angka di keluaran LLM harus dapat ditelusuri ke prompt, dan tiap ID rujukan harus benar-benar terambil. Hasil pada 3 segmen uji: nol angka karangan, nol rujukan palsu | selesai |
 
 ---
 
@@ -174,13 +174,13 @@ Delapan chunk baru: `KB-LFHF-02`, `KB-RECOV-02`, `KB-CONF-02`, `KB-COGN-01`,
 
 | ID | Tugas | Status |
 |---|---|---|
-| T5.1 | Metrik klasifikasi **per dataset & per modalitas** — jangan digabung | belum |
-| T5.2 | WESAD: F1 biner, confusion matrix, Cohen's Kappa | belum |
-| T5.3 | Catatan independensi sampel: segmen overlap 30 dtk **tidak independen** | belum |
-| T5.4 | **Konsistensi antar-run**: prompt sama 3–5×, ukur variasi | belum |
+| T5.1 | Metrik klasifikasi **per dataset & per modalitas** — jangan digabung | selesai |
+| T5.2 | WESAD: F1 biner, confusion matrix, Cohen's Kappa | selesai |
+| T5.3 | Catatan independensi sampel: segmen overlap 30 dtk **tidak independen** | selesai |
+| T5.4 | **Konsistensi antar-run** — sudah bisa dijalankan (`--consistency`). Uji awal S14: 3 run identik (level, keyakinan, rujukan) pada temperature 0,0. Masih perlu diperluas ke banyak segmen & temperature lain (U3.5) | jalan |
 | T5.5 | **Kualitas retrieval**: Precision@k, Recall@k, MRR (butuh T3.4) | belum |
-| T5.6 | **Faithfulness**: tiap klaim di `alasan` didukung chunk terambil | belum |
-| T5.7 | **Kalibrasi skor keyakinan** vs kebenaran prediksi | belum |
+| T5.6 | **Faithfulness** — modul siap (`evaluation/rag_metrics.py`), memakai hasil pengaman per-assessment. Menunggu kuota API untuk dijalankan pada sampel memadai | jalan |
+| T5.7 | **Kalibrasi skor keyakinan** vs kebenaran prediksi | selesai |
 
 ---
 
@@ -220,7 +220,7 @@ cara menjawab "dari mana Anda tahu RAG-nya membantu?"
 
 | ID | Tugas | Status |
 |---|---|---|
-| U3.1 | **Pembanding aturan ambang** (tanpa LLM sama sekali): if RMSSD turun >X% → tinggi. Kalau RAG tidak mengalahkan ini, LLM tidak memberi nilai tambah | belum |
+| U3.1 | **Pembanding aturan ambang** — SELESAI pada seluruh 293 segmen dev. Hasil: RMSSD saja macro-F1 0,742 / kappa 0,487; RMSSD atau HR macro-F1 **0,828** / kappa **0,656**; selalu-'low' kappa 0,000. Inilah bar yang harus dilampaui RAG | selesai |
 | U3.2 | **Ablasi: LLM tanpa KB** (fitur langsung ke Gemini, tanpa retrieval). Selisihnya = kontribusi nyata knowledge base | belum |
 | U3.3 | **Ablasi: chunk acak** menggantikan chunk relevan. Kalau hasilnya tidak turun, berarti retrieval tidak berperan dan sistem hanya mengandalkan pengetahuan bawaan LLM | belum |
 | U3.4 | **Sapuan nilai k** (k=1,3,5,7) — berapa chunk yang optimal | belum |
@@ -243,10 +243,10 @@ cara menjawab "dari mana Anda tahu RAG-nya membantu?"
 
 | ID | Tugas | Status |
 |---|---|---|
-| T6.1 | Bandpass **0,5–8 Hz**, deteksi puncak sistolik → deret IBI | belum |
-| T6.2 | Buang artefak gerakan pakai `wrist['ACC']` | belum |
-| T6.3 | Pakai ulang `features.py` apa adanya, `modalitas="PPG"` | belum |
-| T6.4 | **Perbandingan berpasangan subjek sama**: ICC, Bland-Altman, label agreement — bukti terkuat di TA ini | belum |
+| T6.1 | Bandpass **0,5–8 Hz**, deteksi puncak sistolik → deret IBI | selesai |
+| T6.2 | Buang artefak gerakan pakai `wrist['ACC']` | selesai |
+| T6.3 | Pakai ulang `features.py` apa adanya, `modalitas="PPG"` | selesai |
+| T6.4 | **Perbandingan berpasangan** — SELESAI, 91 segmen 5 subjek. meanHR ICC **+0,936**; RMSSD ICC **+0,103** (bias +97 ms); reaktivitas RMSSD naik ke **+0,513** berkat normalisasi baseline. Deteksi denyut PPG 101–103% saat istirahat, 78–84% saat TSST | selesai |
 
 ---
 
@@ -295,7 +295,7 @@ keputusan paling mudah ditulis saat keputusannya baru diambil.
 |---|---|---|
 | D1.1 | `README.md`: cara pasang, cara menjalankan, urutan skrip | belum |
 | D1.2 | Docstring + komentar Bahasa Indonesia di bagian penting (aturan CLAUDE.md) | jalan |
-| D1.3 | **Buat `Gambar_pipeline_RAG_HRV.png`** — `Rancangan_RAG_HRV.md:15` merujuknya tapi berkasnya tidak ada; rujukan rusak | belum |
+| D1.3 | **Buat `pipeline_RAG_HRV.png`** — `RAG_HRV_Design.md:15` merujuknya tapi berkasnya tidak ada; rujukan rusak | belum |
 | D1.4 | Diagram alir pra-pemrosesan per modalitas (ECG vs PPG) untuk bab metodologi | belum |
 | D1.5 | Catatan tiap parameter numerik + alasannya, terpusat di `config.py` | belum |
 | D1.6 | Kamus data: arti tiap kolom di CSV keluaran | belum |
@@ -304,7 +304,7 @@ keputusan paling mudah ditulis saat keputusannya baru diambil.
 
 | ID | Tugas | Status |
 |---|---|---|
-| D2.1 | **Berkas prompt berversi** (`prompts/v1.md`, `v2.md`) — di RAG, prompt itu bagian dari sistem, setara arsitektur model di DL. Wajib bisa dilacak | belum |
+| D2.1 | **Berkas prompt berversi** (`prompts/v1.md`, `v2.md`) — di RAG, prompt itu bagian dari sistem, setara arsitektur model di DL. Wajib bisa dilacak | selesai |
 | D2.2 | Catatan perubahan prompt: apa yang diubah, kenapa, dampaknya ke metrik | belum |
 | D2.3 | Catatan perubahan KB: chunk apa ditambah/diubah, dampaknya | belum |
 | D2.4 | Dokumentasikan gold-standard mapping (T3b.4) beserta alasan tiap pemetaan | belum |
@@ -315,6 +315,7 @@ keputusan paling mudah ditulis saat keputusannya baru diambil.
 | ID | Tugas | Status |
 |---|---|---|
 | D3.1 | Petakan tiap tahap backlog ke bab laporan | belum |
+| D3.5 | **`docs/development_journey.md`** — kronologi, alasan keputusan, 10 temuan empiris terukur, status validasi. Sumber utama saat menyusun laporan | selesai |
 | D3.2 | Tulis bab keterbatasan dari daftar L1–L8 di bawah | belum |
 | D3.3 | Siapkan jawaban untuk pertanyaan sidang yang bisa diduga (lihat kolom alasan di tiap keputusan K1–K9) | belum |
 | D3.4 | Catat alasan perubahan metode dari 4 arsitektur DL → RAG | belum |
@@ -334,6 +335,7 @@ Bukan bug — ini yang harus jujur disebut dan hampir pasti ditanya penguji.
 | L5 | LLM stokastik — perlu pelaporan konsistensi antar-run (T5.4) |
 | L6 | Tidak ada satu macro-F1 tunggal untuk seluruh sistem; metrik selalu per dataset & per modalitas |
 | L7 | **Meski tidak ada model dilatih, menyetel prompt dan KB sambil melihat hasil tetap bentuk *fitting*.** Karena itu perlu subjek uji yang disegel (U4.1). Ini kritik paling tajam yang bisa dilontarkan ke pendekatan "tanpa pelatihan" — lebih baik diakui dan ditangani duluan daripada dibantah |
+| L11 | **PPG WESAD (Empatica E4, 64 Hz) tidak layak untuk RMSSD.** ICC hanya +0,103 dengan bias +97 ms, dan tidak tertolong oleh pelonggaran ambang (diuji 20–50%) maupun upsampling (64→256 Hz). Yang dapat dipercaya hanya detak jantung (ICC +0,936). Konsekuensi: UBFC-Phys yang hanya PPG perlu bersandar pada detak jantung |
 | L9 | **Dua dari lima subjek pengembangan berpola terbalik**: S6 dan S10 menunjukkan RMSSD/HF/pNN50 NAIK saat TSST, padahal detak jantungnya ikut naik. Dugaan penyebab: (a) TSST menuntut subjek BERBICARA, dan napas dalam saat bicara menaikkan daya pita HF secara artifisial — pita HF memang digerakkan pernapasan; (b) baseline S10 tampak bukan istirahat sejati (RMSSD 14,4 ms, HR 99 bpm saat "diam", IQR relatif 52%). Konsekuensi: RMSSD saja tidak cukup, dan detak jantung — yang naik pada **kelima** subjek (+5,1% s.d. +74%) — adalah penanda paling konsisten |
 | L10 | Persentase perubahan **tidak simetris**: penurunan mentok −100%, kenaikan tak terbatas (teramati +442%). Seluruh peringkasan reaktivitas WAJIB memakai median; memakai rata-rata sempat membalik kesimpulan pNN50 dari −61,2% jadi +61,8% |
 | L8 | Sistem bergantung pada layanan pihak ketiga (Gemini). Model dapat diperbarui atau dihentikan Google, sehingga hasil persis bisa tidak terulang di masa depan. Mitigasi: catat versi model (U4.4) dan simpan keluaran mentah (U4.5) |
@@ -354,5 +356,9 @@ Bukan bug — ini yang harus jujur disebut dan hampir pasti ditanya penguji.
 | Q8 | **Terjawab.** Gambar pipeline dibuatkan |
 | T3b.5 | **Ambang kemiripan dikalibrasi ulang untuk Inggris**: 0,65 → 0,60. Tak relevan 0,527–0,561; agak relevan 0,661; sangat relevan 0,807 | selesai |
 | T3b.6 | **Peringatan mutu retrieval**: skor sangat berdempet (kueri 1: tiga teratas hanya berjarak 0,009). Pada 2 dari 5 kueri, chunk paling tepat kalah tipis — `KB-COGN-01` kalah 0,002 dari `KB-RECOV-02`. Perlu diukur di T3b.4 | belum |
+| T4.7 | **Chunk pedoman penilaian tidak selalu terambil.** Pada segmen kalibrasi S2, `KB-INTERP-01` (yang mendefinisikan kriteria rendah/sedang/tinggi) TIDAK terambil, sehingga LLM menilai "uncertain" padahal itu segmen istirahat. Usul: sematkan `KB-INTERP-01` sebagai chunk tetap di tiap prompt, terpisah dari k hasil pencarian | belum |
+| T4.8 | **Keyakinan belum terkalibrasi**: S14 mendapat confidence 1,0 tiga kali berturut-turut tanpa menyebut satu pun keterbatasan. Keyakinan sempurna hampir tidak pernah wajar. Perlu ditangani di prompt v2 dan diukur di T5.7 | belum |
+| T5.8 | **Kuota tier gratis 20 panggilan/hari** membatasi evaluasi. Mitigasi cache lintas-hari sudah dibangun (`evaluation/cache.py`). Perlu keputusan: aktifkan billing, atau kecilkan cakupan evaluasi | belum |
+| T8.4 | **Antisipasi risiko UBFC-Phys**: dataset PPG-saja. Bila keterbatasan L11 berlaku juga di sana, uji arah perubahan harus memakai detak jantung, bukan RMSSD. Putuskan sebelum Tahap 8 dimulai |
 | Q10 | Pemulihan & ketahanan tidak bisa diuji dengan WESAD (tidak ada fase jeda). Pilihan: (a) uji dengan data sintetis di U1 saja, (b) pakai WESAD label 4 (meditation) sebagai fase jeda — tapi urutan protokolnya berbeda antar subjek sehingga maknanya tidak setara. Rekomendasi: (a) |
 | Q9 | **Terjawab: semua ablasi U3.1–U3.6 masuk laporan** |

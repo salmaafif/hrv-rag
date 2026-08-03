@@ -147,7 +147,29 @@ class KBIndex:
             if score < min_similarity:
                 break                    # everything after this scores lower still
             results.append(RetrievedChunk(self.chunks[idx], score, rank))
-        return results
+
+        return self._apply_pinning(results, scores)
+
+    def _apply_pinning(self, results: list[RetrievedChunk],
+                       scores: np.ndarray) -> list[RetrievedChunk]:
+        """
+        Prepend the pinned chunk when one is configured and was not already found.
+
+        The pinned chunk is the rating rubric, which serves a different purpose from
+        ordinary knowledge: without a definition of what "low" means, the model
+        cannot assign that label no matter how calm the measurements look. Its real
+        similarity score is kept so the retrieval record stays honest about how it
+        got there.
+        """
+        pinned_id = self.cfg.pinned_chunk_id
+        if not pinned_id or any(r.chunk.id == pinned_id for r in results):
+            return results
+
+        for idx, chunk in enumerate(self.chunks):
+            if chunk.id == pinned_id:
+                pinned = RetrievedChunk(chunk, float(scores[idx]), 0)
+                return [pinned] + results
+        raise KeyError(f"Pinned chunk {pinned_id} is not in the index.")
 
     def get(self, chunk_id: str) -> KBChunk:
         """Fetch one chunk by ID — used when testing faithfulness."""
