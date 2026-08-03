@@ -144,6 +144,32 @@ class FrequencyConfig:
 
 
 # ===========================================================================
+# DINAMIKA: PEMULIHAN & KETAHANAN
+# ===========================================================================
+@dataclass(frozen=True)
+class DynamicsConfig:
+    """Parameter perhitungan pemulihan dan pengelompokan ketahanan."""
+
+    # Pemulihan hanya dihitung bila simpangan saat pertanyaan cukup berarti.
+    # Rumus pemulihan membagi dengan (nilai_tertekan - baseline); kalau
+    # penyebutnya mendekati nol, hasilnya meledak jadi angka tak bermakna
+    # (mis. -278%). Ambang 10% menyaring kasus itu, dan hasilnya dilaporkan
+    # "tidak dapat dihitung" — bukan diisi nol, karena nol berarti
+    # "tidak pulih sama sekali" dan itu klaim yang berbeda.
+    min_deviation_ratio: float = 0.10
+
+    # Ambang pemisah kuadran ketahanan. Nilai awal ini masih SEMENTARA dan
+    # harus dikalibrasi memakai lima subjek pengembangan saja (BACKLOG U4.1),
+    # lalu dibekukan sebelum subjek uji disentuh.
+    reactivity_threshold_pct: float = 20.0   # |perubahan| RMSSD dianggap besar
+    recovery_threshold_pct: float = 50.0     # >= dianggap pulih cepat
+
+    # Fitur acuan untuk pemulihan dan ketahanan. RMSSD dipilih karena
+    # knowledge base menyebutnya paling andal pada segmen 60 detik.
+    primary_feature: str = "rmssd"
+
+
+# ===========================================================================
 # PROTOKOL SESI (disetujui — lihat BACKLOG K9 & Q1/Q2)
 # ===========================================================================
 @dataclass(frozen=True)
@@ -217,6 +243,7 @@ class Settings:
     ecg_filter: ECGFilterConfig = field(default_factory=ECGFilterConfig)
     ppg_filter: PPGFilterConfig = field(default_factory=PPGFilterConfig)
     frequency: FrequencyConfig = field(default_factory=FrequencyConfig)
+    dynamics: DynamicsConfig = field(default_factory=DynamicsConfig)
     session: SessionConfig = field(default_factory=SessionConfig)
     split: SplitConfig = field(default_factory=SplitConfig)
 

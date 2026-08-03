@@ -84,18 +84,18 @@ Hasil akhir seluruh subjek pengembangan: outlier 0,0–4,2%, semua di bawah gate
 
 | ID | Tugas | Status |
 |---|---|---|
-| T2.1 | Segmentasi 60 dtk **overlap 30 dtk** (kode lama tanpa overlap) | tulis-ulang |
+| T2.1 | Segmentasi 60 dtk **overlap 30 dtk** (kode lama tanpa overlap) | selesai |
 | T2.2 | Fitur domain waktu: meanRR, meanHR, SDNN, RMSSD, pNN50 | selesai |
-| T2.3 | Domain frekuensi **dua metode** (K2): kolom `*_welch` dan `*_ls` | tulis-ulang |
-| T2.4 | Kolom wajib: `subjek`, `modalitas`, `fase`, `kualitas_sinyal` | belum |
+| T2.3 | Domain frekuensi **dua metode** (K2): kolom `*_welch` dan `*_ls` | selesai |
+| T2.4 | Kolom wajib: `subjek`, `modalitas`, `fase`, `kualitas_sinyal` | selesai |
 | T2.5 | Baseline per subjek = median segmen fase kalibrasi | selesai |
 | T2.6 | Reaktivitas (% perubahan terhadap baseline) | selesai |
-| T2.7 | **Pemulihan** — laju kembali ke baseline pada segmen jeda | belum |
-| T2.8 | **Indeks ketahanan** — formula gabungan reaktivitas + pemulihan | belum |
+| T2.7 | **Pemulihan** — rumus + pengaman ditulis di `features/dynamics.py`, **terverifikasi lewat 10 uji** di `tests/test_dynamics.py` (termasuk contoh acuan S2 = 52,99%). Belum dijalankan pada data sesi nyata karena WESAD tidak punya fase jeda | selesai |
+| T2.8 | **Indeks ketahanan** — kuadran 2×2 terverifikasi lewat 3 uji (empat kuadran + nilai mutlak + sumbu hilang). Ambangnya masih sementara, wajib dikalibrasi di 5 subjek dev lalu dibekukan | jalan |
 | T2.9 | Indeks **beban kognitif** (K6) — dibedakan lewat metadata jenis pertanyaan | belum |
 | T2.10 | Indeks **arousal** | belum |
-| T2.11 | Timeline per pertanyaan: urutkan segmen berdasarkan reaktivitas (kode, bukan LLM) | belum |
-| T2.12 | Bandingkan Welch vs Lomb-Scargle, catat selisihnya sebagai bahan sidang | belum |
+| T2.11 | Timeline per pertanyaan: urutkan segmen berdasarkan reaktivitas (kode, bukan LLM) | selesai |
+| T2.12 | Bandingkan Welch vs Lomb-Scargle, catat selisihnya sebagai bahan sidang | selesai |
 
 ---
 
@@ -131,6 +131,7 @@ Kondisi sekarang: 15 chunk isi + 1 bagian Sumber (terverifikasi 31 Juli 2026).
 | T3a.6 | Beri **ID stabil tiap chunk** (mis. `KB-RMSSD-01`) — wajib untuk mengisi field `rujukan` di keluaran LLM dan untuk gold standard T3b.4 | belum |
 | T3a.7 | Samakan panjang chunk — sekarang timpang (4–8 baris); chunk terlalu pendek buruk saat retrieval | belum |
 | T3a.8 | **Versi KB** (mis. `kb_v1.0`) dicap ke tiap keluaran — hasil berubah kalau KB berubah, jadi hasil tanpa versi KB tidak bisa direproduksi | belum |
+| T3a.10 | **Chunk pengaruh berbicara terhadap HRV** — lubang yang baru ketahuan dari L9. KB sekarang menyebut "ritme pernapasan" sebagai faktor pengganggu, tapi tidak menjelaskan bahwa TUGAS BERBICARA itu sendiri mengubah pola napas dan dapat menaikkan HF/RMSSD. Tanpa chunk ini, LLM tidak punya dasar menjelaskan subjek berpola terbalik | belum |
 | T3a.9 | Tiap klaim di KB harus punya rujukan — kalau tidak, LLM meneruskan klaim tak bersumber dan faithfulness (T5.6) jadi tak bermakna | belum |
 
 ## Tahap 3b — `kb_index.py`
@@ -178,19 +179,23 @@ mengerjakan lapis 2.
 
 ### Lapis 1 — Uji Perangkat Lunak (apakah kodenya benar?)
 
+**Status: 62 uji, semua lolos** (`python -m pytest tests/ -q`). Uji tambahan di luar
+daftar semula: rumus pemulihan & kuadran ketahanan (`tests/test_dynamics.py`), yang
+justru paling penting karena WESAD tidak bisa mengujinya sama sekali.
+
 Aturan Wajib #1 menempatkan **kode sebagai sumber kebenaran angka**. Kalau kode
 salah hitung, seluruh TA ikut salah dan LLM tidak bisa disalahkan. Jadi kode
 wajib diuji dengan masukan yang jawabannya sudah diketahui.
 
 | ID | Tugas | Status |
 |---|---|---|
-| U1.1 | Uji fitur domain waktu dengan deret RR sintetis ber-RMSSD/SDNN/pNN50 yang dihitung tangan | belum |
-| U1.2 | Uji domain frekuensi dengan sinyal sintetis: RR termodulasi sinus 0,25 Hz harus muncul sebagai puncak HF | belum |
-| U1.3 | Uji koreksi ektopik: sisipkan denyut ektopik buatan, pastikan tertandai & terkoreksi | belum |
-| U1.4 | Uji gate outlier >10%: buat segmen rusak, pastikan benar-benar dibuang | belum |
-| U1.5 | Uji segmentasi overlap: hitung jumlah segmen yang seharusnya dari durasi tertentu | belum |
-| U1.6 | Uji reaktivitas: baseline dan segmen identik harus menghasilkan delta 0% | belum |
-| U1.7 | Uji parser JSON keluaran LLM: keluaran cacat/terpotong tidak boleh membuat pipeline mati | belum |
+| U1.1 | Uji fitur domain waktu dengan deret RR sintetis ber-RMSSD/SDNN/pNN50 yang dihitung tangan | selesai |
+| U1.2 | Uji domain frekuensi dengan sinyal sintetis: RR termodulasi sinus 0,25 Hz harus muncul sebagai puncak HF | selesai |
+| U1.3 | Uji koreksi ektopik: sisipkan denyut ektopik buatan, pastikan tertandai & terkoreksi | selesai |
+| U1.4 | Uji gate outlier >10%: buat segmen rusak, pastikan benar-benar dibuang | selesai |
+| U1.5 | Uji segmentasi overlap: hitung jumlah segmen yang seharusnya dari durasi tertentu | selesai |
+| U1.6 | Uji reaktivitas: baseline dan segmen identik harus menghasilkan delta 0% | selesai |
+| U1.7 | Uji parser JSON keluaran LLM: keluaran cacat/terpotong tidak boleh membuat pipeline mati | blokir (menunggu Tahap 4) |
 
 ### Lapis 2 — Validasi Sistem (apakah tafsirnya benar?)
 
@@ -317,6 +322,8 @@ Bukan bug — ini yang harus jujur disebut dan hampir pasti ditanya penguji.
 | L5 | LLM stokastik — perlu pelaporan konsistensi antar-run (T5.4) |
 | L6 | Tidak ada satu macro-F1 tunggal untuk seluruh sistem; metrik selalu per dataset & per modalitas |
 | L7 | **Meski tidak ada model dilatih, menyetel prompt dan KB sambil melihat hasil tetap bentuk *fitting*.** Karena itu perlu subjek uji yang disegel (U4.1). Ini kritik paling tajam yang bisa dilontarkan ke pendekatan "tanpa pelatihan" — lebih baik diakui dan ditangani duluan daripada dibantah |
+| L9 | **Dua dari lima subjek pengembangan berpola terbalik**: S6 dan S10 menunjukkan RMSSD/HF/pNN50 NAIK saat TSST, padahal detak jantungnya ikut naik. Dugaan penyebab: (a) TSST menuntut subjek BERBICARA, dan napas dalam saat bicara menaikkan daya pita HF secara artifisial — pita HF memang digerakkan pernapasan; (b) baseline S10 tampak bukan istirahat sejati (RMSSD 14,4 ms, HR 99 bpm saat "diam", IQR relatif 52%). Konsekuensi: RMSSD saja tidak cukup, dan detak jantung — yang naik pada **kelima** subjek (+5,1% s.d. +74%) — adalah penanda paling konsisten |
+| L10 | Persentase perubahan **tidak simetris**: penurunan mentok −100%, kenaikan tak terbatas (teramati +442%). Seluruh peringkasan reaktivitas WAJIB memakai median; memakai rata-rata sempat membalik kesimpulan pNN50 dari −61,2% jadi +61,8% |
 | L8 | Sistem bergantung pada layanan pihak ketiga (Gemini). Model dapat diperbarui atau dihentikan Google, sehingga hasil persis bisa tidak terulang di masa depan. Mitigasi: catat versi model (U4.4) dan simpan keluaran mentah (U4.5) |
 
 ---
@@ -333,4 +340,5 @@ Bukan bug — ini yang harus jujur disebut dan hampir pasti ditanya penguji.
 | Q6 | **Terjawab: setuju 5/10.** Alasan tercatat di K10 |
 | Q7 | **Terjawab.** Draft lubang KB disusun Claude, diperiksa & disitasi Salma |
 | Q8 | **Terjawab.** Gambar pipeline dibuatkan |
+| Q10 | Pemulihan & ketahanan tidak bisa diuji dengan WESAD (tidak ada fase jeda). Pilihan: (a) uji dengan data sintetis di U1 saja, (b) pakai WESAD label 4 (meditation) sebagai fase jeda — tapi urutan protokolnya berbeda antar subjek sehingga maknanya tidak setara. Rekomendasi: (a) |
 | Q9 | **Terjawab: semua ablasi U3.1–U3.6 masuk laporan** |
