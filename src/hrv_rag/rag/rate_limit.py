@@ -11,9 +11,17 @@ Two protections are combined:
    is full, the next call waits until the oldest one ages out. This keeps the run
    under quota instead of discovering the limit by being rejected.
 
-2. **Reactive retry.** If a 429 arrives anyway — quotas are also enforced per day
-   and per token count, not only per minute — the call is retried using the delay
-   the API itself suggests, with exponential backoff as a fallback.
+2. **Reactive retry.** Two kinds of failure are worth retrying, and only these two:
+
+   - **429, quota exhausted.** Quotas are enforced per day and per token count as
+     well as per minute, so pacing alone cannot prevent every rejection. The retry
+     uses the delay the API itself suggests.
+   - **5xx, server-side trouble.** A 503 means the model is temporarily overloaded
+     at Google's end; nothing about the request is wrong and it will usually succeed
+     shortly afterwards. Treating it as fatal would throw away an entire batch run
+     because of a passing spike.
+
+   Everything else fails immediately, because waiting will not fix it.
 
 The alternative, catching 429 and giving up, would waste an entire partial run. At
 five requests per minute a 293-segment evaluation takes about an hour, so losing
@@ -29,6 +37,11 @@ from collections.abc import Callable
 from typing import TypeVar
 
 T = TypeVar("T")
+
+#: HTTP statuses worth retrying. 429 is quota; the 5xx family is transient trouble
+#: on the server side. A 400 or 401 would never be fixed by waiting.
+_RETRYABLE = ("429", "RESOURCE_EXHAUSTED", "500", "502", "503", "504",
+              "UNAVAILABLE", "INTERNAL", "DEADLINE_EXCEEDED")
 
 #: Pulls the server-suggested wait out of a 429 message, e.g. "retry in 28.5s".
 _RETRY_DELAY = re.compile(r"retryDelay['\"]?:\s*['\"]?(\d+(?:\.\d+)?)")
@@ -75,31 +88,42 @@ def _suggested_delay(message: str) -> float | None:
     return None
 
 
-def call_with_retry(fn: Callable[[], T], max_attempts: int = 4,
-                    base_delay: float = 30.0) -> T:
+def call_with_retry(fn: Callable[[], T], max_attempts: int = 5,
+                    base_delay: float = 15.0) -> T:
     """
-    Run `fn`, retrying when the API reports the quota is exhausted.
+    Run `fn`, retrying quota rejections and transient server errors.
 
-    Only 429 is retried. Other errors — a bad schema, an invalid key, a malformed
-    prompt — will not fix themselves by waiting, and retrying them would merely
-    delay a failure that needs to be seen.
+    Errors that waiting cannot fix — a bad schema, an invalid key, a malformed
+    prompt — are raised immediately, because retrying them would only delay a
+    failure that needs to be seen.
+
+    Server errors back off faster than quota errors. A 503 usually clears within
+    seconds, whereas a quota reset can take a minute, so the two are paced
+    differently instead of sharing one delay.
     """
     for attempt in range(1, max_attempts + 1):
         try:
             return fn()
         except Exception as exc:                     # noqa: BLE001
             message = str(exc)
-            if "429" not in message and "RESOURCE_EXHAUSTED" not in message:
+            if not any(code in message for code in _RETRYABLE):
                 raise
             if attempt == max_attempts:
                 raise RuntimeError(
-                    f"Quota still exhausted after {max_attempts} attempts. "
-                    f"Consider a smaller sample, a model with a higher free "
-                    f"limit, or enabling billing. Original error: {message[:200]}"
+                    f"Still failing after {max_attempts} attempts. "
+                    f"Original error: {message[:200]}"
                 ) from exc
 
-            delay = _suggested_delay(message) or base_delay * attempt
-            print(f"    [quota reached, waiting {delay:.0f}s "
+            is_quota = "429" in message or "RESOURCE_EXHAUSTED" in message
+            if is_quota:
+                delay = _suggested_delay(message) or base_delay * 2 * attempt
+                label = "quota reached"
+            else:
+                # Exponential backoff for server-side trouble: 15s, 30s, 60s, 120s.
+                delay = base_delay * (2 ** (attempt - 1))
+                label = "server busy"
+
+            print(f"    [{label}, waiting {delay:.0f}s "
                   f"— attempt {attempt}/{max_attempts}]")
             time.sleep(delay + 1.0)
 

@@ -15,7 +15,7 @@ from pathlib import Path
 REPO_DIR = Path(__file__).resolve().parents[3]      # .../hrv-rag
 DATA_RAW = REPO_DIR / "data" / "raw"
 DATA_PROCESSED = REPO_DIR / "data" / "processed"
-KB_DIR = REPO_DIR / "kb"
+KB_DIR = REPO_DIR / "knowledge_base"
 KB_FILE = KB_DIR / "knowledge_base_HRV.md"
 KB_INDEX_DIR = DATA_PROCESSED / "kb_index"
 OUTPUTS_DIR = REPO_DIR / "outputs"
@@ -230,6 +230,45 @@ class RAGConfig:
 
 
 # ===========================================================================
+# STRESS LEVEL RULE (the product's classifier)
+# ===========================================================================
+@dataclass(frozen=True)
+class StressRuleConfig:
+    """
+    Thresholds that turn reactivity into a low / moderate / high label.
+
+    This rule, not the LLM, assigns the label in the product. Two reasons, both
+    measured rather than assumed:
+
+    - On the development subjects a two-feature rule reaches macro-F1 0.828 and
+      kappa 0.656, while an LLM given the same numbers answered "uncertain" on 6 of
+      13 resting segments that the rule got right.
+    - A rule is instant, free, offline, and identical every time it runs — none of
+      which is true of a model behind an API.
+
+    The LLM keeps the job it is actually better at: explaining the result in
+    language a person can act on.
+
+    Both features are scored because neither is sufficient alone. RMSSD moved the
+    expected way in only three of five development subjects, whereas heart rate rose
+    in all five; conversely heart rate alone is too crude to grade severity. Scoring
+    them together lets one cover for the other.
+    """
+
+    # RMSSD below baseline by this much scores one point, or two.
+    rmssd_moderate_pct: float = -15.0
+    rmssd_high_pct: float = -30.0
+
+    # Heart rate above baseline by this much scores one point, or two.
+    hr_moderate_pct: float = 5.0
+    hr_high_pct: float = 15.0
+
+    # Total points needed for each label, out of a maximum of four.
+    moderate_points: int = 1
+    high_points: int = 3
+
+
+# ===========================================================================
 # LLM GENERATION
 # ===========================================================================
 @dataclass(frozen=True)
@@ -243,10 +282,16 @@ class LLMConfig:
     # (BACKLOG T5.4); temperature will also be swept in ablation U3.5.
     temperature: float = 0.0
 
-    # Prompt version. The prompt is part of the system in a RAG design — the
-    # equivalent of model architecture in a deep-learning approach — so it lives
-    # in a versioned file under prompts/ and must never be edited silently.
-    prompt_version: str = "v1"
+    # Prompt file stem under prompts/. The prompt is part of the system in a RAG
+    # design — the equivalent of model architecture in a deep-learning approach —
+    # so it lives in its own file and must never be edited silently. To change the
+    # wording, copy the file under a new name and point this at it, so earlier
+    # results stay reproducible.
+    prompt_version: str = "HRV_stress_interpretation"
+
+    # Prompt for the hybrid path, where the rule assigns the label and the model
+    # only writes the narrative. One call covers the whole session.
+    narrative_prompt: str = "HRV_session_narrative"
 
     # Requests per minute. The Gemini free tier allows only 5 for
     # gemini-2.5-flash; exceeding it returns HTTP 429 and aborts the run partway
@@ -338,6 +383,7 @@ class Settings:
     ppg_filter: PPGFilterConfig = field(default_factory=PPGFilterConfig)
     frequency: FrequencyConfig = field(default_factory=FrequencyConfig)
     dynamics: DynamicsConfig = field(default_factory=DynamicsConfig)
+    stress_rule: StressRuleConfig = field(default_factory=StressRuleConfig)
     rag: RAGConfig = field(default_factory=RAGConfig)
     llm: LLMConfig = field(default_factory=LLMConfig)
     session: SessionConfig = field(default_factory=SessionConfig)

@@ -1,7 +1,7 @@
 # BACKLOG — Interpretasi Tingkat Tekanan dari HRV dengan RAG
 
 Tugas Akhir Salma Afifa Azis (3123600017) — Teknik Informatika PENS
-Terakhir diperbarui: 31 Juli 2026
+Terakhir diperbarui: 3 Agustus 2026
 
 > Berkas ini melacak pekerjaan. Aturan desain dan alasan ilmiahnya ada di
 > `CLAUDE.md`; di sini hanya **apa yang dikerjakan, urutannya, dan statusnya**.
@@ -30,6 +30,8 @@ Sudah disepakati, tidak perlu dibahas ulang kecuali ada alasan baru.
 | K15 | **Seluruh kode, KB, kueri, dan prompt berbahasa Inggris**; keluaran LLM untuk pengguna tetap Bahasa Indonesia | Kueri Inggris terhadap KB Indonesia menurunkan skor retrieval 0,03–0,08 dan sempat membuat satu kueri jatuh di bawah ambang sehingga mengembalikan nol chunk. Satu bahasa menghilangkan variabel tak terkendali itu |
 | K13 | **Tanpa vector store** — 23 chunk disimpan sebagai matriks numpy | Perpanjangan K3. Indeks pencarian baru berguna di puluhan ribu dokumen; di sini hanya menambah dependensi. Pencarian = satu perkalian matriks |
 | K14 | Embedding **`gemini-embedding-001`**, SDK **`google-genai`** | Bukan pilihan: `text-embedding-004` mengembalikan 404, dan `google-generativeai` sudah usang serta tidak terpasang |
+| K16 | **Arsitektur gabungan**: aturan skor menentukan LABEL, LLM menulis PENJELASAN. Satu panggilan per sesi, bukan per segmen | Diukur, bukan diasumsikan: aturan mencapai macro-F1 0,828 / kappa 0,656, sedangkan LLM menjawab "uncertain" pada 6 dari 13 segmen istirahat yang dijawab benar oleh aturan. Aturan juga gratis, instan, luring, dan hasilnya sama tiap kali dijalankan — label yang berubah-ubah tidak layak ditampilkan ke pengguna. LLM memegang bagian yang memang lebih baik ia kerjakan: menyusun kalimat yang bisa ditindaklanjuti |
+| K17 | **Model terlatih tidak dipakai untuk KARIRLINK** | Bukan soal biaya komputasi melainkan ketiadaan data: tidak ada satu pun sesi wawancara nyata berlabel tingkat stres. Mengumpulkannya butuh kuesioner tervalidasi per pertanyaan selama berbulan-bulan. Melatih dari WESAD pun tidak menyelesaikan — TSST di lab (berdiri, juri sungguhan, chest strap) berbeda dari orang duduk di kamar menghadap webcam. Lagi pula keluaran model hanya angka, sedangkan produknya butuh kalimat |
 | K12 | OOP hanya pada dua sumbu variasi nyata: **modalitas** dan **dataset** | Abstraksi di tempat yang memang bervariasi; sisanya fungsi biasa agar tetap mudah dijelaskan baris per baris |
 
 ---
@@ -95,10 +97,31 @@ Hasil akhir seluruh subjek pengembangan: outlier 0,0–4,2%, semua di bawah gate
 | T2.6 | Reaktivitas (% perubahan terhadap baseline) | selesai |
 | T2.7 | **Pemulihan** — rumus + pengaman ditulis di `features/dynamics.py`, **terverifikasi lewat 10 uji** di `tests/test_dynamics.py` (termasuk contoh acuan S2 = 52,99%). Belum dijalankan pada data sesi nyata karena WESAD tidak punya fase jeda | selesai |
 | T2.8 | **Indeks ketahanan** — kuadran 2×2 terverifikasi lewat 3 uji (empat kuadran + nilai mutlak + sumbu hilang). Ambangnya masih sementara, wajib dikalibrasi di 5 subjek dev lalu dibekukan | jalan |
-| T2.9 | Indeks **beban kognitif** (K6) — dibedakan lewat metadata jenis pertanyaan | belum |
-| T2.10 | Indeks **arousal** | belum |
+| T2.9 | Indeks **beban kognitif** — sengaja BUKAN skor. Kode tidak bisa memisahkannya dari tekanan sosial (tanda HRV identik), jadi yang dihasilkan besar reaksi + kalimat dugaan berdasarkan jenis pertanyaan | selesai |
+| T2.10 | Indeks **arousal** — dibaca dari detak jantung. Bukan pengukuran kedua: nilainya identik dengan Δ detak jantung, jadi tidak ditampilkan sebagai kolom terpisah agar tidak terkesan dua temuan yang saling menguatkan | selesai |
 | T2.11 | Timeline per pertanyaan: urutkan segmen berdasarkan reaktivitas (kode, bukan LLM) | selesai |
 | T2.12 | Bandingkan Welch vs Lomb-Scargle, catat selisihnya sebagai bahan sidang | selesai |
+
+---
+
+## Tahap 2c — Arsitektur Gabungan (K16)
+
+Perubahan arah setelah bukti terkumpul: LLM tidak lagi menentukan label.
+
+| ID | Tugas | Status |
+|---|---|---|
+| T2c.1 | `features/stress_level.py` — aturan skor 3 tingkat (rendah/sedang/tinggi), 0–4 poin dari RMSSD + detak jantung | selesai |
+| T2c.2 | Ambang aturan di `StressRuleConfig` dengan alasan tiap angka | selesai |
+| T2c.3 | 15 uji: batas ambang, determinisme, pola terbalik S6/S10 tetap terdeteksi | selesai |
+| T2c.4 | `prompts/HRV_session_narrative.md` — prompt narasi, label dinyatakan sudah final | selesai |
+| T2c.5 | `core/schemas.py` — `SessionNarrative`, **tanpa** field tingkat tekanan | selesai |
+| T2c.6 | `rag/narrative.py` — satu panggilan per sesi, kueri dibangun dari sesi utuh | selesai |
+| T2c.7 | `run_session.py` menampilkan label tanpa API | selesai |
+| T2c.8 | Uji narasi ujung-ke-ujung dengan API | blokir (kuota) |
+| T2c.9 | Kalibrasi ambang aturan pada 5 subjek dev, lalu dibekukan | belum |
+
+**Dampak biaya**: dari 5 panggilan/sesi (7.596 token masukan) menjadi 1 panggilan
+(1.519 token). Turun lima kali lipat, dan pengguna menunggu ~10 detik, bukan semenit.
 
 ---
 
@@ -126,7 +149,7 @@ dari `kb_v1.1` — hanya bahasanya. Skor retrieval naik 0,03–0,08 di semua kue
 
 **Status `kb_v1.1` (versi Indonesia, digantikan):** 23 chunk (naik dari 15), rerata 92 kata,
 rentang 80–108 kata, simpangan baku 8 kata. Semua chunk punya ID unik. Versi lama
-diarsipkan di `kb/versions/knowledge_base_HRV_v1.0.md`.
+diarsipkan di `knowledge_base/versions/knowledge_base_HRV_v1.0.md`.
 
 Delapan chunk baru: `KB-LFHF-02`, `KB-RECOV-02`, `KB-CONF-02`, `KB-COGN-01`,
 `KB-AROUS-01`, `KB-MODAL-01`, `KB-MODAL-02`, `KB-INTERP-02`.
@@ -304,7 +327,7 @@ keputusan paling mudah ditulis saat keputusannya baru diambil.
 
 | ID | Tugas | Status |
 |---|---|---|
-| D2.1 | **Berkas prompt berversi** (`prompts/v1.md`, `v2.md`) — di RAG, prompt itu bagian dari sistem, setara arsitektur model di DL. Wajib bisa dilacak | selesai |
+| D2.1 | **Berkas prompt berversi** (`prompts/HRV_stress_interpretation.md`, `v2.md`) — di RAG, prompt itu bagian dari sistem, setara arsitektur model di DL. Wajib bisa dilacak | selesai |
 | D2.2 | Catatan perubahan prompt: apa yang diubah, kenapa, dampaknya ke metrik | belum |
 | D2.3 | Catatan perubahan KB: chunk apa ditambah/diubah, dampaknya | belum |
 | D2.4 | Dokumentasikan gold-standard mapping (T3b.4) beserta alasan tiap pemetaan | belum |

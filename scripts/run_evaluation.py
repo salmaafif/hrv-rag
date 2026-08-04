@@ -36,6 +36,7 @@ from hrv_rag.evaluation.rag_metrics import (measure_calibration,  # noqa: E402
                                             measure_faithfulness)
 from hrv_rag.evaluation.rule_baseline import (rule_rmssd_and_hr,  # noqa: E402
                                               rule_rmssd_only)
+from hrv_rag.features.extractor import load_features            # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from run_assessment import FEATURES_CSV, row_to_input           # noqa: E402
@@ -115,7 +116,7 @@ def main() -> None:
     if not FEATURES_CSV.exists():
         sys.exit(f"{FEATURES_CSV} not found. Run scripts/run_features.py first.")
 
-    data = pd.read_csv(FEATURES_CSV)
+    data = load_features(FEATURES_CSV)
 
     if "--rules-only" in sys.argv:
         report_rule_baselines(data)

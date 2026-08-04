@@ -67,6 +67,25 @@ def extract_features(series: RRSeries) -> tuple[pd.DataFrame, SegmentationResult
     return pd.DataFrame(rows), result
 
 
+def from_display_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Restore snake_case names after reading a CSV written for display.
+
+    The inverse of `to_display_columns`. It exists so that every consumer of the
+    feature CSV does not have to carry its own translation table — a duplicated
+    mapping is exactly the kind of thing that silently drifts out of step.
+    """
+    mapping = {shown: attr for attr, shown in DISPLAY_NAMES.items()}
+    for attr, shown in DISPLAY_NAMES.items():
+        mapping[f"delta%_{shown}"] = f"delta_pct_{attr}"
+    return df.rename(columns=mapping)
+
+
+def load_features(path) -> pd.DataFrame:
+    """Read a feature CSV and hand it back with the names the code expects."""
+    return from_display_columns(pd.read_csv(path))
+
+
 def to_display_columns(df: pd.DataFrame) -> pd.DataFrame:
     """
     Rename feature columns to scientific notation, including reactivity columns.

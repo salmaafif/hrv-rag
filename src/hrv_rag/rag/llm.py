@@ -46,6 +46,37 @@ class GeminiInterpreter:
         # run paces itself rather than discovering the quota by being rejected.
         self._limiter = RateLimiter(self.cfg.requests_per_minute)
 
+    def interpret_as(self, prompt: str, schema: type,
+                     temperature: float | None = None):
+        """
+        Same call, but constrained to any pydantic schema the caller supplies.
+
+        The hybrid path needs a different response shape from the per-segment path —
+        it returns narrative without a stress level, because the rule already decided
+        that. Parameterising the schema keeps one client instead of two that would
+        drift apart.
+        """
+        from google.genai import types
+
+        config = types.GenerateContentConfig(
+            response_mime_type="application/json",
+            response_schema=schema,
+            temperature=(temperature if temperature is not None
+                         else self.cfg.temperature),
+            max_output_tokens=self.cfg.max_output_tokens,
+        )
+        self._limiter.wait()
+        response = call_with_retry(
+            lambda: self._client.models.generate_content(
+                model=self.cfg.model, contents=prompt, config=config,
+            )
+        )
+        if response.parsed is None:
+            raise ValueError(
+                f"Model returned no parsable response. Raw text: {response.text!r}"
+            )
+        return response.parsed
+
     def interpret(self, prompt: str,
                   temperature: float | None = None) -> LLMResponse:
         """

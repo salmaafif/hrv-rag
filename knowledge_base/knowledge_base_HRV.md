@@ -13,7 +13,7 @@
 >
 > **The KB version must be recorded on every system output.** Editing this file
 > changes the results, so any result without a version tag cannot be reproduced.
-> Earlier versions are archived under `kb/versions/`.
+> Earlier versions are archived under `knowledge_base/versions/`.
 >
 > Language note: this KB is written in English so that retrieval stays
 > single-language — queries built from HRV features are also English. Version

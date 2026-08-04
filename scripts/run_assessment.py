@@ -22,26 +22,29 @@ from hrv_rag.config.settings import OUTPUTS_DIR                 # noqa: E402
 from hrv_rag.core.schemas import (AssessmentInput,              # noqa: E402
                                   SignalQuality)
 from hrv_rag.core.types import Modality, Phase                  # noqa: E402
+from hrv_rag.features.extractor import load_features            # noqa: E402
 from hrv_rag.rag.pipeline import AssessmentPipeline             # noqa: E402
 from hrv_rag.rag.query_builder import build_query               # noqa: E402
 
 FEATURES_CSV = OUTPUTS_DIR / "features_wesad_ecg_dev.csv"
 
-#: Attribute names, mapped back from the display names used in the CSV.
-_FROM_DISPLAY = {
-    "meanRR": "mean_rr", "meanHR": "mean_hr", "SDNN": "sdnn",
-    "RMSSD": "rmssd", "pNN50": "pnn50", "LF_welch": "lf_welch",
-    "HF_welch": "hf_welch", "LF/HF_welch": "lf_hf_welch",
-}
+#: Feature columns expected by the assessment input, in snake_case.
+_FEATURES = ("mean_rr", "mean_hr", "sdnn", "rmssd", "pnn50",
+             "lf_welch", "hf_welch", "lf_hf_welch")
 
 
 def row_to_input(row: pd.Series) -> AssessmentInput:
-    """Build an AssessmentInput from one row of the feature table."""
-    features = {attr: float(row[shown]) for shown, attr in _FROM_DISPLAY.items()
-                if shown in row and pd.notna(row[shown])}
-    reactivity = {f"delta_pct_{attr}": float(row[f"delta%_{shown}"])
-                  for shown, attr in _FROM_DISPLAY.items()
-                  if f"delta%_{shown}" in row and pd.notna(row[f"delta%_{shown}"])}
+    """
+    Build an AssessmentInput from one row of the feature table.
+
+    The row must already carry snake_case names — read the CSV with
+    `features.extractor.load_features` rather than `pd.read_csv`.
+    """
+    features = {f: float(row[f]) for f in _FEATURES
+                if f in row and pd.notna(row[f])}
+    reactivity = {f"delta_pct_{f}": float(row[f"delta_pct_{f}"])
+                  for f in _FEATURES
+                  if f"delta_pct_{f}" in row and pd.notna(row[f"delta_pct_{f}"])}
 
     return AssessmentInput(
         # Subject IDs are already anonymous in WESAD; no personal data is ever sent.
@@ -84,7 +87,7 @@ def show(assessment, data) -> None:
 def main() -> None:
     if not FEATURES_CSV.exists():
         sys.exit(f"{FEATURES_CSV} not found. Run scripts/run_features.py first.")
-    data = pd.read_csv(FEATURES_CSV)
+    data = load_features(FEATURES_CSV)
     pipeline = AssessmentPipeline()
 
     # Three contrasting cases: a calm calibration segment, a textbook stress

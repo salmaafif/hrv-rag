@@ -24,7 +24,7 @@ SHOWN_FEATURES = ("rmssd", "sdnn", "pnn50", "mean_hr", "hf_welch", "lf_hf_welch"
 def load_template(version: str | None = None,
                   prompts_dir: Path | None = None) -> str:
     """
-    Load a prompt template by version.
+    Load a prompt template by file stem.
 
     Everything before the `## SYSTEM INSTRUCTION` heading is editorial commentary
     about the file and is stripped, so it never reaches the model and never costs

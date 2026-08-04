@@ -136,6 +136,49 @@ class LLMResponse(BaseModel):
     )
 
 
+class QuestionNarrative(BaseModel):
+    """The model's Indonesian feedback for one question."""
+
+    question_no: int = Field(description="Which question this refers to.")
+    explanation: str = Field(
+        description="INDONESIAN, 1-2 sentences. What happened, described as "
+                    "behaviour. NO feature names, NO numbers, NO percentages."
+    )
+    suggestion: str = Field(
+        description="INDONESIAN, one sentence. A concrete thing to practise. "
+                    "Describe an action, never a personal trait."
+    )
+
+
+class SessionNarrative(BaseModel):
+    """
+    One call's worth of feedback for a whole session.
+
+    Note what is ABSENT: no stress level. The label was already decided by the rule
+    in `features/stress_level.py`, and the model is not asked to revisit it. That
+    separation is the point of the hybrid design — the number stays reproducible
+    while the words stay readable.
+    """
+
+    questions: list[QuestionNarrative] = Field(
+        description="One entry per question, in order."
+    )
+    session_summary: str = Field(
+        description="INDONESIAN, 2-3 sentences about the session as a whole."
+    )
+    encouragement: str = Field(
+        description="INDONESIAN, one closing sentence. Warm, not clinical."
+    )
+    references: list[str] = Field(
+        description="IDs of CONTEXT chunks relied on, e.g. KB-RMSSD-01."
+    )
+    uncertainty_notes: str = Field(
+        default="",
+        description="English, for the technical layer only. Anything that weakens "
+                    "the reading: modality, signal quality, conflicting features."
+    )
+
+
 @dataclass
 class Assessment:
     """One completed assessment, in both layers, with full provenance."""
