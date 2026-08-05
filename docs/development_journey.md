@@ -408,6 +408,36 @@ tidak menyelamatkan apa pun.
    sama berlaku, uji arah perubahan di sana sebaiknya bersandar pada detak jantung,
    bukan RMSSD. Ini perlu diantisipasi sejak sekarang.
 
+### 4.14 Hasil holdout: aturan bertahan di subjek yang belum pernah dilihat
+
+Ambang dikalibrasi pada 5 subjek pengembangan lalu **dibekukan**, baru sesudah itu
+10 subjek tersegel dibuka.
+
+| | Subjek dev (293 segmen) | **Subjek uji (561 segmen)** |
+|---|---|---|
+| Accuracy | 0,857 | **0,852** |
+| Macro-F1 | 0,851 | **0,839** |
+| Cohen's kappa | 0,703 | **0,678** |
+
+**Selisihnya hanya −0,012 macro-F1.** Ini pertanda sehat: kalau ambangnya terlalu
+menempel pada lima orang tertentu, penurunannya akan jauh lebih besar. Aturan dua
+fitur ternyata cukup umum untuk orang yang belum pernah dilihat.
+
+Confusion matrix subjek uji (`[rendah, tinggi]`): `[[320, 56], [27, 158]]` — sistem
+lebih sering keliru menyebut kondisi istirahat sebagai tertekan (56) daripada
+sebaliknya (27). Untuk platform latihan, arah kesalahan ini relatif aman: menandai
+tekanan yang sebenarnya ringan lebih tidak merugikan daripada melewatkan tekanan
+yang nyata.
+
+Rentang per subjek 0,707–0,966. Dua terlemah S9 (0,707) dan S15 (0,712), sisanya di
+atas 0,78.
+
+**Yang tidak dapat divalidasi:** pembagian sedang versus tinggi. WESAD bersifat
+biner sehingga keduanya dipetakan ke kelas yang sama saat penilaian — terbukti dari
+lima kombinasi ambang teratas yang berskor persis identik meski ambang tingginya
+berbeda. Ambang tinggi karena itu tetap memakai nilai dari literatur, dan statusnya
+**beralasan, bukan terukur**. Ini harus dinyatakan apa adanya di laporan.
+
 ---
 
 ## 5. Penegakan Aturan Wajib #1

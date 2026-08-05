@@ -1,10 +1,6 @@
 """
 base.py — Shared contract for the ECG and PPG preprocessing branches.
 
-CLAUDE.md requires the two modalities to live in separate files rather than one
-file with `if` branching. The reason is real: filter bands, peak detection
-algorithms, and motion-artefact handling genuinely differ.
-
 Some steps are IDENTICAL for both, however — ectopic correction and quality
 checking operate on the interval series, not on the waveform. Those live here so
 they are written once and cannot drift apart between the two branches.

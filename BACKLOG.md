@@ -118,7 +118,8 @@ Perubahan arah setelah bukti terkumpul: LLM tidak lagi menentukan label.
 | T2c.6 | `rag/narrative.py` — satu panggilan per sesi, kueri dibangun dari sesi utuh | selesai |
 | T2c.7 | `run_session.py` menampilkan label tanpa API | selesai |
 | T2c.8 | Uji narasi ujung-ke-ujung dengan API | blokir (kuota) |
-| T2c.9 | Kalibrasi ambang aturan pada 5 subjek dev, lalu dibekukan | belum |
+| T2c.9 | **Kalibrasi ambang SELESAI & DIBEKUKAN** (3 Agt 2026). 81 kombinasi disapu pada 5 subjek dev. Hanya satu nilai berubah: RMSSD sedang −15% → −20%. macro-F1 dev naik 0,831 → 0,851 | selesai |
+| T2c.10 | **Ambang TINGGI tidak dapat dikalibrasi dengan WESAD** — dataset biner, sehingga sedang & tinggi dipetakan ke kelas sama. Lima kombinasi teratas berskor identik. Nilai dari literatur dipertahankan; butuh SWELL-KW atau laporan-diri pengguna | blokir |
 
 **Dampak biaya**: dari 5 panggilan/sesi (7.596 token masukan) menjadi 1 panggilan
 (1.519 token). Turun lima kali lipat, dan pengguna menunggu ~10 detik, bukan semenit.
@@ -198,7 +199,7 @@ Delapan chunk baru: `KB-LFHF-02`, `KB-RECOV-02`, `KB-CONF-02`, `KB-COGN-01`,
 | ID | Tugas | Status |
 |---|---|---|
 | T5.1 | Metrik klasifikasi **per dataset & per modalitas** — jangan digabung | selesai |
-| T5.2 | WESAD: F1 biner, confusion matrix, Cohen's Kappa | selesai |
+| T5.2 | **WESAD holdout SELESAI** — 10 subjek tersegel, 561 segmen: accuracy **0,852**, macro-F1 **0,839**, kappa **0,678**. Selisih dengan dev hanya −0,012 macro-F1, menandakan overfitting minimal | selesai |
 | T5.3 | Catatan independensi sampel: segmen overlap 30 dtk **tidak independen** | selesai |
 | T5.4 | **Konsistensi antar-run** — sudah bisa dijalankan (`--consistency`). Uji awal S14: 3 run identik (level, keyakinan, rujukan) pada temperature 0,0. Masih perlu diperluas ke banyak segmen & temperature lain (U3.5) | jalan |
 | T5.5 | **Kualitas retrieval**: Precision@k, Recall@k, MRR (butuh T3.4) | belum |

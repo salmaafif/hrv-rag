@@ -255,13 +255,32 @@ class StressRuleConfig:
     them together lets one cover for the other.
     """
 
+    # --- CALIBRATED on the five development subjects, 3 August 2026, then FROZEN.
+    # Swept 81 combinations; the best moved macro-F1 from 0.831 to 0.851 and kappa
+    # from 0.666 to 0.703. Only ONE value changed: the RMSSD moderate threshold.
+    # Do not retune these against the test subjects — that would turn the headline
+    # figures into a description of how well the thresholds were fitted.
+
     # RMSSD below baseline by this much scores one point, or two.
-    rmssd_moderate_pct: float = -15.0
-    rmssd_high_pct: float = -30.0
+    rmssd_moderate_pct: float = -20.0        # calibrated (was -15.0)
+    rmssd_high_pct: float = -30.0            # NOT calibrated — see note below
 
     # Heart rate above baseline by this much scores one point, or two.
-    hr_moderate_pct: float = 5.0
-    hr_high_pct: float = 15.0
+    hr_moderate_pct: float = 5.0             # calibrated, unchanged
+    hr_high_pct: float = 15.0                # NOT calibrated — see note below
+
+    # WHY TWO THRESHOLDS COULD NOT BE CALIBRATED.
+    #
+    # WESAD is binary: a subject is either at rest or undergoing TSST, with nothing
+    # in between. Both "moderate" and "high" therefore map onto the same stressed
+    # class during scoring, so the grid search was blind to where that boundary sits
+    # — the five top-scoring combinations differed only in the high thresholds and
+    # produced identical results.
+    #
+    # The values kept are the ones derived from the literature. Calibrating them
+    # needs a dataset with a genuine middle condition (SWELL-KW has three levels) or
+    # self-reports from real users. Until then, treat the moderate/high boundary as
+    # reasoned rather than measured, and say so.
 
     # Total points needed for each label, out of a maximum of four.
     moderate_points: int = 1

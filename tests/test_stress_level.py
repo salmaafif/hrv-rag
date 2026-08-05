@@ -8,13 +8,27 @@ label. Both properties are locked in here.
 
 import pytest
 
+from hrv_rag.config.settings import settings
 from hrv_rag.core.schemas import StressLevel
 from hrv_rag.features.stress_level import classify
+
+#: Read the thresholds rather than hard-coding them.
+#:
+#: These values are calibrated against data and will move again when a dataset with
+#: a genuine middle condition arrives. Tests that memorised the numbers would break
+#: on every recalibration while proving nothing about the behaviour — the point is
+#: that a moderate move scores a point, not that the boundary sits at exactly -20%.
+CFG = settings.stress_rule
 
 
 def r(rmssd: float = float("nan"), hr: float = float("nan")) -> dict:
     """Shorthand for a reactivity dict."""
     return {"delta_pct_rmssd": rmssd, "delta_pct_mean_hr": hr}
+
+
+def just_past(threshold: float) -> float:
+    """A value one unit beyond a threshold, on whichever side it points."""
+    return threshold - 1.0 if threshold < 0 else threshold + 1.0
 
 
 # ----------------------------------------------------------------- levels
@@ -33,7 +47,9 @@ def test_both_features_strong_is_high():
 
 
 def test_both_features_mild_is_moderate():
-    v = classify(r(rmssd=-18.0, hr=7.0))
+    """Both features just past the moderate line: one point each, so moderate."""
+    v = classify(r(rmssd=just_past(CFG.rmssd_moderate_pct),
+                   hr=just_past(CFG.hr_moderate_pct)))
     assert v.level is StressLevel.MODERATE
     assert v.points == 2
 
@@ -119,11 +135,26 @@ def test_evidence_is_human_readable():
     assert "high" in text
 
 
-@pytest.mark.parametrize("rmssd, hr, expected", [
-    (-30.0, 15.0, StressLevel.HIGH),        # exactly on both high thresholds
-    (-15.0, 5.0, StressLevel.MODERATE),     # exactly on both moderate thresholds
-    (-14.9, 4.9, StressLevel.LOW),          # just inside the flat zone
-])
-def test_threshold_boundaries(rmssd, hr, expected):
-    """Boundaries are inclusive, and that choice is locked in here."""
-    assert classify(r(rmssd=rmssd, hr=hr)).level is expected
+def test_boundaries_are_inclusive():
+    """
+    A value sitting exactly on a threshold counts as having reached it.
+
+    Read from the configuration so the rule survives recalibration: what is being
+    locked in is the inclusive comparison, not any particular number.
+    """
+    on_high = classify(r(rmssd=CFG.rmssd_high_pct, hr=CFG.hr_high_pct))
+    assert on_high.level is StressLevel.HIGH
+    assert on_high.points == 4
+
+    on_moderate = classify(r(rmssd=CFG.rmssd_moderate_pct,
+                             hr=CFG.hr_moderate_pct))
+    assert on_moderate.points == 2
+    assert on_moderate.level is StressLevel.MODERATE
+
+
+def test_just_inside_the_flat_zone_is_low():
+    """A hair short of the moderate threshold scores nothing."""
+    v = classify(r(rmssd=CFG.rmssd_moderate_pct + 0.1,
+                   hr=CFG.hr_moderate_pct - 0.1))
+    assert v.points == 0
+    assert v.level is StressLevel.LOW
