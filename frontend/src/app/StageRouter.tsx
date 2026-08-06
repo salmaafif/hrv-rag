@@ -14,10 +14,17 @@ import type { StageContext } from './stageContext'
 import { NavigateKeepingSearch } from './NavigateKeepingSearch'
 import { StartPage } from '../pages/StartPage'
 import { SessionPage } from '../pages/SessionPage'
+import { UploadPage } from '../pages/UploadPage'
 import { ProcessingPage } from '../pages/ProcessingPage'
 import { ResultPage } from '../pages/ResultPage'
 
-const STAGES: readonly StageSegment[] = ['mulai', 'sesi', 'proses', 'hasil']
+const STAGES: readonly StageSegment[] = [
+  'mulai',
+  'sesi',
+  'unggah',
+  'proses',
+  'hasil',
+]
 
 function isStage(value: string | undefined): value is StageSegment {
   return STAGES.includes(value as StageSegment)
@@ -31,7 +38,9 @@ export function StageRouter() {
   if (!isStage(stage)) {
     return <NavigateKeepingSearch to={`/${mode.id}/mulai`} />
   }
-  if (stage === 'sesi' && !mode.runsInterview) {
+  // Both of these belong to V3 alone: only V3 runs an interview, and only V3
+  // has a recording that could not have existed before that interview.
+  if ((stage === 'sesi' || stage === 'unggah') && !mode.runsInterview) {
     return <NavigateKeepingSearch to={`/${mode.id}/mulai`} />
   }
 
@@ -39,7 +48,9 @@ export function StageRouter() {
     case 'mulai':
       return <StartPage {...context} />
     case 'sesi':
-      return <SessionPage />
+      return <SessionPage {...context} />
+    case 'unggah':
+      return <UploadPage {...context} />
     case 'proses':
       return <ProcessingPage {...context} />
     case 'hasil':

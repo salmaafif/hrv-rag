@@ -1,32 +1,34 @@
 /**
- * StartPage.tsx — stage 1: where the heart data comes from.
+ * StartPage.tsx — stage 1: getting ready.
  *
- * Two things on this screen are not decoration.
+ * What this screen offers depends on when the recording comes into being.
  *
- * The quiet period. Every number the system produces is a comparison against
- * this person's own resting state, so if the recording does not start calm
- * there is nothing meaningful to compare against. That is easy to forget and
- * impossible to repair afterwards, so it is stated here rather than in a
- * footnote on the results.
+ * V1 and V2 analyse a recording that already exists, made before anyone opened
+ * this app, so their file picker belongs here. V3 records DURING the interview
+ * it is about to run, so there is nothing to upload yet — its file picker lives
+ * on a later screen, and V3 can start with no sensor connected at all.
  *
- * The wear location. It decides the modality, and the modality decides how much
- * confidence the reading earns. The person is never asked about ECG or PPG —
- * they are asked where they wear the thing, which they cannot get wrong.
+ * The quiet period is stated here rather than in a footnote on the results,
+ * because every number the system produces is a comparison against this
+ * person's own resting state. If the recording does not start calm there is
+ * nothing meaningful to compare against, and that cannot be repaired
+ * afterwards.
  *
- * None of the choices are held here: they belong to the session, which outlives
- * this screen and turns into the analysis request.
+ * The wear location decides the modality, and the modality decides how much
+ * confidence the reading earns. Nobody is asked about ECG or PPG — they are
+ * asked where they wear the thing, which they cannot get wrong.
  */
 
-import { useNavigateKeepingSearch } from '../app/useNavigateKeepingSearch'
 import { Button } from '../components/Button'
 import { Card } from '../components/Card'
 import { DevicePanel } from '../components/DevicePanel'
-import { wearLabel, type WearLocation } from '../types/device'
-import type { StageContext } from '../app/stageContext'
+import { RecordingUpload } from '../components/RecordingUpload'
+import { useNavigateKeepingSearch } from '../app/useNavigateKeepingSearch'
 import {
   BASELINE_MAX_MINUTES,
   BASELINE_MIN_MINUTES,
 } from '../app/useSessionState'
+import type { StageContext } from '../app/stageContext'
 
 const STEPS = [
   'Kenakan perangkat dengan pas.',
@@ -34,18 +36,22 @@ const STEPS = [
   'Tekan tombol di bawah untuk mencari perangkat.',
 ]
 
-const WEAR_CHOICES: WearLocation[] = ['chest', 'wrist']
-
 export function StartPage({ mode, device, session }: StageContext) {
   const navigate = useNavigateKeepingSearch()
+
+  // V3 can begin without a sensor: the recording is made on the person's own
+  // device and handed over afterwards. V1 and V2 have nothing to analyse until
+  // a source exists, so their button stays locked until it does.
+  const canProceed = mode.runsInterview || session.isReady
 
   return (
     <div className="grid gap-6 xl:grid-cols-[1fr_22rem]">
       <div className="space-y-6">
         <Card title={mode.runsInterview ? 'Siapkan perangkatmu' : 'Siapkan data'}>
           <p className="text-sm text-ink-muted">
-            Pakai heart rate monitor atau smartwatch, lalu sambungkan melalui
-            Bluetooth sebelum mulai berlatih.
+            {mode.runsInterview
+              ? 'Pakai heart rate monitor atau smartwatch, lalu sambungkan melalui Bluetooth sebelum mulai berlatih.'
+              : 'Sambungkan perangkat lewat Bluetooth, atau unggah berkas rekaman yang sudah kamu punya.'}
           </p>
 
           <ol className="mt-5 space-y-3">
@@ -74,55 +80,31 @@ export function StartPage({ mode, device, session }: StageContext) {
             </Button>
           </div>
 
-          <div className="my-5 flex items-center gap-3 text-xs text-ink-muted">
-            <span className="h-px flex-1 bg-hairline" />
-            atau
-            <span className="h-px flex-1 bg-hairline" />
-          </div>
-
-          <label className="block cursor-pointer rounded-xl border border-hairline bg-surface px-5 py-3 text-center text-sm font-semibold text-navy hover:bg-canvas">
-            {session.fileName ?? 'Unggah berkas rekaman (CSV)'}
-            <input
-              type="file"
-              accept=".csv,text/csv"
-              className="sr-only"
-              onChange={(event) => session.setFile(event.target.files?.[0] ?? null)}
-            />
-          </label>
-
-          {session.fileName !== null && session.fileWornAt === null && (
-            <div className="mt-4 rounded-xl bg-level-moderate-bg p-4">
-              <p className="mb-3 text-sm font-semibold text-level-moderate">
-                Rekaman ini diambil dengan alat yang dipakai di mana?
-              </p>
-              <div className="space-y-2">
-                {WEAR_CHOICES.map((location) => (
-                  <Button
-                    key={location}
-                    variant="outline"
-                    full
-                    onClick={() => session.setFileWornAt(location)}
-                  >
-                    {wearLabel(location)}
-                  </Button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {session.fileName !== null && session.fileWornAt !== null && (
-            <p className="mt-3 rounded-lg bg-canvas px-4 py-3 text-sm text-ink-muted">
-              {wearLabel(session.fileWornAt)}
+          {mode.runsInterview ? (
+            <p className="mt-4 rounded-xl bg-canvas p-4 text-sm text-ink-muted">
+              Tidak punya perangkat yang bisa disambungkan? Sesi latihan tetap
+              bisa dijalankan. Rekam detak jantungmu dengan alatmu sendiri, lalu
+              unggah berkasnya setelah sesi selesai.
             </p>
+          ) : (
+            <>
+              <div className="my-5 flex items-center gap-3 text-xs text-ink-muted">
+                <span className="h-px flex-1 bg-hairline" />
+                atau
+                <span className="h-px flex-1 bg-hairline" />
+              </div>
+              <RecordingUpload session={session} />
+            </>
           )}
         </Card>
 
         <Card title="Periode tenang di awal">
           <p className="text-sm text-ink-muted">
             Beberapa menit pertama rekaman dipakai sebagai pembanding untuk
-            seluruh sesi. Selama menit-menit itu, duduklah diam dan bernapas
-            biasa. Kalau bagian ini tidak tenang, sisa hasilnya kehilangan
-            acuan.
+            seluruh sesi. Mulai merekam, lalu duduk diam dan bernapas biasa
+            selama menit-menit itu{' '}
+            <strong>sebelum</strong> memulai sesi latihan. Kalau bagian ini
+            tidak tenang, sisa hasilnya kehilangan acuan.
           </p>
 
           <label className="mt-4 flex items-center gap-3 text-sm">
@@ -144,13 +126,13 @@ export function StartPage({ mode, device, session }: StageContext) {
         <Button
           variant="accent"
           full
-          disabled={!session.isReady}
+          disabled={!canProceed}
           onClick={() => navigate(`/${mode.id}/${mode.nextAfterStart}`)}
         >
           {mode.runsInterview ? 'Mulai sesi latihan' : 'Mulai analisis'}
         </Button>
 
-        {!session.isReady && (
+        {!canProceed && (
           <p className="text-center text-sm text-ink-muted">
             Sambungkan perangkat atau unggah berkas dulu, lalu beri tahu di mana
             alatnya dipakai.

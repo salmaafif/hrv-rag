@@ -19,6 +19,7 @@ import { mockQuestionTimeline } from '../mocks/questionTimeline'
 import type {
   AnalyzeRequest,
   Modality,
+  QuestionTimelineEntry,
   SessionResponse,
   TimelineResponse,
 } from '../types/api'
@@ -49,8 +50,24 @@ export interface SessionState {
    * would miscalibrate that silently.
    */
   modality: Modality | null
-  /** True when there is both a data source and a known wear location. */
+  /**
+   * True when there is both a data source and a known wear location — that is,
+   * when the analysis has something to work on.
+   *
+   * Not the same as being able to START a V3 interview. The interview can run
+   * with no sensor connected at all, because the recording is made elsewhere
+   * and uploaded once the interview is over.
+   */
   isReady: boolean
+
+  /**
+   * When each question was actually asked, recorded by V3 as it ran.
+   *
+   * Null until an interview has been completed. V2 has no way to produce this
+   * yet and falls back to a fixture.
+   */
+  questionTimeline: QuestionTimelineEntry[] | null
+  setQuestionTimeline: (entries: QuestionTimelineEntry[]) => void
 
   status: AnalysisStatus
   result: TimelineResponse | SessionResponse | null
@@ -63,6 +80,9 @@ export function useSessionState(device: DeviceConnection): SessionState {
   const [baselineMinutes, setBaselineMinutesRaw] = useState(4)
   const [file, setFileRaw] = useState<File | null>(null)
   const [fileWornAt, setFileWornAtState] = useState<WearLocation | null>(null)
+  const [questionTimeline, setQuestionTimelineState] = useState<
+    QuestionTimelineEntry[] | null
+  >(null)
 
   const [status, setStatus] = useState<AnalysisStatus>('idle')
   const [result, setResult] = useState<TimelineResponse | SessionResponse | null>(
@@ -86,6 +106,10 @@ export function useSessionState(device: DeviceConnection): SessionState {
 
   const setFileWornAt = useCallback((location: WearLocation) => {
     setFileWornAtState(location)
+  }, [])
+
+  const setQuestionTimeline = useCallback((entries: QuestionTimelineEntry[]) => {
+    setQuestionTimelineState(entries)
   }, [])
 
   // A connected device wins over an uploaded file: it is the more recent,
@@ -122,7 +146,12 @@ export function useSessionState(device: DeviceConnection): SessionState {
             mode.endpoint === '/api/v1/analyze/timeline'
               ? await analyzeTimeline(base, options)
               : await analyzeSession(
-                  { ...base, questions: mockQuestionTimeline },
+                  {
+                    ...base,
+                    // V3 supplies real timings recorded during the interview.
+                    // V2 has no editor yet, so it falls back to the fixture.
+                    questions: questionTimeline ?? mockQuestionTimeline,
+                  },
                   options,
                 )
 
@@ -136,7 +165,7 @@ export function useSessionState(device: DeviceConnection): SessionState {
 
       void send()
     },
-    [baselineMinutes, file, modality],
+    [baselineMinutes, file, modality, questionTimeline],
   )
 
   return {
@@ -148,6 +177,8 @@ export function useSessionState(device: DeviceConnection): SessionState {
     setFileWornAt,
     modality,
     isReady,
+    questionTimeline,
+    setQuestionTimeline,
     status,
     result,
     error,
