@@ -113,6 +113,27 @@ class WESADLoader(BaseDatasetLoader):
     def sampling_rate(self, modality: Modality) -> int:
         return self._FS[modality]
 
+    def _require_own_subject(self, subject: str) -> None:
+        """
+        Refuse to serve a subject this loader was not opened for.
+
+        `BaseDatasetLoader` is written per DATASET and so takes `subject` on every
+        call, but WESAD ships one pickle per person, so this loader is bound to a
+        single subject at construction. Those two shapes disagree, and the argument
+        was simply ignored — `WESADLoader("S2").load_phase_signal("S6", ...)`
+        returned S2's recording under S6's name, with no error and no warning.
+
+        A loop over subjects that forgets to build a fresh loader would therefore
+        analyse the same person fifteen times and report it as fifteen people. That
+        is a silent failure which would survive every downstream check, so it is
+        worth one comparison to make impossible.
+        """
+        if subject != self.subject:
+            raise ValueError(
+                f"this loader holds {self.subject}, not {subject} — "
+                f"construct WESADLoader({subject!r}) instead"
+            )
+
     def load_phase_signal(self, subject: str, phase: Phase,
                           modality: Modality) -> np.ndarray:
         """
@@ -123,6 +144,7 @@ class WESADLoader(BaseDatasetLoader):
         RESCALED to the BVP rate — without that, the extracted slice lands in
         completely the wrong place.
         """
+        self._require_own_subject(subject)
         if phase not in self._PHASE_TO_LABEL:
             raise ValueError(
                 f"WESAD does not provide phase {phase.value}. "
@@ -159,6 +181,7 @@ class WESADLoader(BaseDatasetLoader):
         smoothly between acceleration samples would invent motion values that were
         never measured.
         """
+        self._require_own_subject(subject)
         acc = np.asarray(self.data["signal"][self._ACC_KEY[0]][self._ACC_KEY[1]],
                          dtype=float)
         labels = np.asarray(self.data["label"]).reshape(-1)

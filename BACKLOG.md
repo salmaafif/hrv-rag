@@ -134,7 +134,7 @@ Dipisah karena dipakai bersama oleh Tahap 4, 5, dan 9.
 |---|---|---|
 | T2b.1 | Skema masukan tunggal untuk produksi **dan** validasi (label dataset mengisi slot yang di produksi diisi user) | selesai |
 | T2b.2 | Skema keluaran dua lapis (K4) | selesai |
-| T2b.3 | Linimasa sesi **disetujui, versi cepat ~15,5 mnt**: adaptasi 1 → kalibrasi 4 → pengarahan 2 → jawab 90 dtk → jeda 60 dtk (sulit) / 20 dtk (biasa). Sudah masuk `SessionConfig` | selesai |
+| T2b.3 | Linimasa sesi **disetujui, versi cepat ~14,5 mnt**: adaptasi 1 → kalibrasi **3** → pengarahan 2 → jawab 90 dtk → jeda 60 dtk (sulit) / 20 dtk (biasa). Sudah masuk `SessionConfig`. **Direvisi 6 Agt 2026**: kalibrasi 4 → 3 menit. Alasannya UX, bukan statistik — 4 menit disuruh duduk diam cukup lama untuk membuat orang berhenti duduk diam, dan baseline yang tidak benar-benar dijalani lebih buruk daripada baseline yang lebih pendek tapi dipatuhi. Konsekuensi terukur: 5 segmen baseline, bukan 7. Lantai kerasnya 2 menit (3 segmen); di bawah 2 menit tidak ada segmen sama sekali. Angka ini kini sama persis dengan `INTERVIEW_REST_MINUTES` di web demo | selesai |
 | T2b.4 | Anonimisasi: tidak ada nama/NRP/email yang dikirim ke LLM | selesai |
 
 ---
@@ -270,7 +270,26 @@ cara menjawab "dari mana Anda tahu RAG-nya membantu?"
 | T6.1 | Bandpass **0,5–8 Hz**, deteksi puncak sistolik → deret IBI | selesai |
 | T6.2 | Buang artefak gerakan pakai `wrist['ACC']` | selesai |
 | T6.3 | Pakai ulang `features.py` apa adanya, `modalitas="PPG"` | selesai |
-| T6.4 | **Perbandingan berpasangan** — SELESAI, 91 segmen 5 subjek. meanHR ICC **+0,936**; RMSSD ICC **+0,103** (bias +97 ms); reaktivitas RMSSD naik ke **+0,513** berkat normalisasi baseline. Deteksi denyut PPG 101–103% saat istirahat, 78–84% saat TSST | selesai |
+| T6.4 | **Perbandingan berpasangan** — DIJALANKAN ULANG 6 Agt 2026 setelah bug penjodohan ditemukan (lihat catatan di bawah). 90 segmen 5 subjek. meanHR ICC **+0,986**; RMSSD ICC **+0,109** (bias +95 ms); reaktivitas RMSSD **+0,620** berkat normalisasi baseline | selesai |
+
+---
+
+**Catatan penting soal angka T6.4 yang lama.** Versi sebelumnya (91 segmen, meanHR
+ICC +0,936, RMSSD ICC +0,103, reaktivitas +0,513) **tidak sah** dan tidak boleh
+dikutip. `run_ppg.py` menjodohkan ECG dan PPG lewat kolom `segment`, yang saat itu
+berisi peringkat segmen yang lolos gerbang mutu, bukan nomor jendela. PPG membuang
+jauh lebih banyak segmen daripada ECG, sehingga kedua kolom menghitung hal berbeda:
+dari 91 pasangan hanya **2** yang benar-benar sewaktu, selisih mediannya **210
+detik**, dan **74** pasangan jendelanya tidak bertumpang tindih sama sekali.
+Penjodohan kini memakai `start_sec`, dan `Segment.index` sudah diperbaiki menjadi
+nomor jendela sungguhan. Arah kesimpulan tidak berubah — justru menguat.
+
+**Temuan baru yang muncul setelah perbaikan:** PPG menghasilkan **nol segmen layak
+selama fase TSST pada 4 dari 5 subjek dev** (hanya S14 menyisakan 9). Outlier PPG
+saat TSST 16–37%, jauh di atas gerbang 10%. Jadi perbandingan berpasangan praktis
+bersandar pada fase istirahat (81 dari 90 pasangan). Ini memperkuat L11 dan wajib
+masuk pertimbangan T8.4: kalau PPG runtuh justru saat orang tertekan, UBFC-Phys
+yang PPG-saja tidak bisa diandalkan untuk kondisi tertekan.
 
 ---
 
@@ -359,7 +378,7 @@ Bukan bug — ini yang harus jujur disebut dan hampir pasti ditanya penguji.
 | L5 | LLM stokastik — perlu pelaporan konsistensi antar-run (T5.4) |
 | L6 | Tidak ada satu macro-F1 tunggal untuk seluruh sistem; metrik selalu per dataset & per modalitas |
 | L7 | **Meski tidak ada model dilatih, menyetel prompt dan KB sambil melihat hasil tetap bentuk *fitting*.** Karena itu perlu subjek uji yang disegel (U4.1). Ini kritik paling tajam yang bisa dilontarkan ke pendekatan "tanpa pelatihan" — lebih baik diakui dan ditangani duluan daripada dibantah |
-| L11 | **PPG WESAD (Empatica E4, 64 Hz) tidak layak untuk RMSSD.** ICC hanya +0,103 dengan bias +97 ms, dan tidak tertolong oleh pelonggaran ambang (diuji 20–50%) maupun upsampling (64→256 Hz). Yang dapat dipercaya hanya detak jantung (ICC +0,936). Konsekuensi: UBFC-Phys yang hanya PPG perlu bersandar pada detak jantung |
+| L11 | **PPG WESAD (Empatica E4, 64 Hz) tidak layak untuk RMSSD.** ICC hanya **+0,109** dengan bias +95 ms, dan tidak tertolong oleh pelonggaran ambang (diuji 20–50%) maupun upsampling (64→256 Hz). Yang dapat dipercaya hanya detak jantung (ICC **+0,986**). Lebih tajam lagi: PPG **tidak menghasilkan satu pun segmen layak selama TSST** pada 4 dari 5 subjek dev, jadi kesimpulan ini bahkan belum teruji pada kondisi tertekan. Konsekuensi: UBFC-Phys yang hanya PPG perlu bersandar pada detak jantung (angka diperbarui 6 Agt 2026 setelah bug penjodohan diperbaiki) |
 | L9 | **Dua dari lima subjek pengembangan berpola terbalik**: S6 dan S10 menunjukkan RMSSD/HF/pNN50 NAIK saat TSST, padahal detak jantungnya ikut naik. Dugaan penyebab: (a) TSST menuntut subjek BERBICARA, dan napas dalam saat bicara menaikkan daya pita HF secara artifisial — pita HF memang digerakkan pernapasan; (b) baseline S10 tampak bukan istirahat sejati (RMSSD 14,4 ms, HR 99 bpm saat "diam", IQR relatif 52%). Konsekuensi: RMSSD saja tidak cukup, dan detak jantung — yang naik pada **kelima** subjek (+5,1% s.d. +74%) — adalah penanda paling konsisten |
 | L10 | Persentase perubahan **tidak simetris**: penurunan mentok −100%, kenaikan tak terbatas (teramati +442%). Seluruh peringkasan reaktivitas WAJIB memakai median; memakai rata-rata sempat membalik kesimpulan pNN50 dari −61,2% jadi +61,8% |
 | L8 | Sistem bergantung pada layanan pihak ketiga (Gemini). Model dapat diperbarui atau dihentikan Google, sehingga hasil persis bisa tidak terulang di masa depan. Mitigasi: catat versi model (U4.4) dan simpan keluaran mentah (U4.5) |

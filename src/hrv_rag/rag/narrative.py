@@ -29,7 +29,8 @@ from dataclasses import dataclass, field
 from ..config.settings import LLMConfig, settings
 from ..core.schemas import SessionNarrative, StressLevel
 from ..features.stress_level import StressVerdict
-from .guards import find_invented_numbers, find_unknown_references
+from .guards import (find_fabricated_citations, find_invented_numbers,
+                     find_unknown_references)
 from .llm import GeminiInterpreter
 from .prompt import format_context, load_template
 from .query_builder import FEATURE_LABELS, _magnitude_word
@@ -192,6 +193,8 @@ class NarrativeWriter:
             model=self.cfg.model,
             temperature=self.cfg.temperature,
             invented_numbers=find_invented_numbers(checked, prompt),
-            unknown_references=find_unknown_references(narrative.references,
-                                                       retrieved_ids),
+            unknown_references=(
+                find_unknown_references(narrative.references, retrieved_ids)
+                + find_fabricated_citations(checked, retrieved_ids)
+            ),
         )

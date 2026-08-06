@@ -42,6 +42,25 @@ describe('recogniseWearLocation', () => {
     expect(recogniseWearLocation('Garmin Venu 3')).toBe('wrist')
   })
 
+  it('places optical armbands on the wrist even when the brand suggests a strap', () => {
+    // Every one of these was reported as a chest strap, which is the dangerous
+    // direction: it hands the model ECG-grade confidence for an optical signal.
+    //
+    // Polar's H series straps; OH1 and Verity Sense are optical armbands.
+    expect(recogniseWearLocation('Polar OH1')).toBe('wrist')
+    expect(recogniseWearLocation('Polar OH1+')).toBe('wrist')
+    expect(recogniseWearLocation('Polar Verity Sense')).toBe('wrist')
+    // Wahoo TICKR and TICKR X are straps; TICKR FIT is an optical armband.
+    expect(recogniseWearLocation('Wahoo TICKR FIT')).toBe('wrist')
+    expect(recogniseWearLocation('Wahoo TICKR X')).toBe('chest')
+    // "Dual" was meant to catch HRM-Dual, but Garmin also sells a watch called
+    // Instinct 2 Dual Power.
+    expect(recogniseWearLocation('Garmin Instinct 2 Dual Power')).toBe('wrist')
+    expect(recogniseWearLocation('Garmin Instinct Crossover Dual Power')).toBe(
+      'wrist',
+    )
+  })
+
   it('returns null for anything it does not actually recognise', () => {
     // Null means "ask the person". Guessing here would silently miscalibrate
     // how much the whole session's reading is trusted.

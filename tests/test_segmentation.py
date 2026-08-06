@@ -99,6 +99,31 @@ def test_too_few_beats_discarded(make_series):
     assert result.n_dropped_short > 0
 
 
+def test_window_numbers_survive_a_dropped_window(make_series):
+    """
+    A window's number names a MOMENT, and dropping an earlier window must not
+    renumber the ones after it.
+
+    Beats 0-9 carry outliers, which only window 1 contains, so window 1 falls at
+    16.7% and windows 2-5 are untouched. Their numbers must still be 2, 3, 4, 5.
+
+    They used to be 1, 2, 3, 4 — the rank among survivors rather than the window
+    number. The same label then pointed at different moments depending on signal
+    quality, which is how the ECG/PPG comparison paired segments recorded minutes
+    apart, and how the assessment cache could return one window's answer when asked
+    about another. `start_sec` is the cross-check: window k always starts at
+    (k-1) * 30 seconds.
+    """
+    mask = np.zeros(181, dtype=bool)
+    mask[:10] = True
+    result = segment_rr_series(make_series(n_beats=181, outlier_mask=mask))
+
+    assert result.n_dropped_noisy == 1
+    assert [s.index for s in result.segments] == [2, 3, 4, 5]
+    for seg in result.segments:
+        assert seg.start_sec == pytest.approx((seg.index - 1) * 30.0)
+
+
 def test_summary_counts_every_window(make_series):
     """n_total must cover both the kept and the discarded windows."""
     result = segment_rr_series(make_series(n_beats=181))

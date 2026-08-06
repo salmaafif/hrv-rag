@@ -102,7 +102,23 @@ def main(subjects: list[str]) -> None:
         print(f"  mean Welch {both['lf_hf_welch'].mean():.2f} | "
               f"mean Lomb-Scargle {both['lf_hf_ls'].mean():.2f}")
 
-    path = OUTPUTS_DIR / "features_wesad_ecg_dev.csv"
+    # Only a full development run may claim the development table.
+    #
+    # The single-subject form is documented at the top of this file, and it used to
+    # write to the same path — so `run_features.py S2` quietly replaced the
+    # five-subject table with one subject. Nothing downstream noticed: the file is
+    # the input to calibrate_rule.py, run_session.py and run_evaluation.py, and
+    # calibrate_rule.py printed all five subject names regardless of what it read.
+    # A threshold sweep on one subject would have reported macro-F1 0.94 and looked
+    # like an improvement on the honest 0.85.
+    expected = set(settings.split.dev_subjects)
+    if set(data["subject"].unique()) == expected:
+        path = OUTPUTS_DIR / "features_wesad_ecg_dev.csv"
+    else:
+        stem = "_".join(sorted(data["subject"].unique()))
+        path = OUTPUTS_DIR / f"features_wesad_ecg_{stem}.csv"
+        print(f"\nPartial run ({stem}) — the development table is left untouched.")
+
     to_display_columns(data).to_csv(path, index=False)
     print(f"\nCSV: {path}")
     print(f"Total segments: {len(data)}")

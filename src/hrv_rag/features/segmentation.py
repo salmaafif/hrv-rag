@@ -27,7 +27,18 @@ from ..core.types import RRSeries
 class Segment:
     """One analysis window together with its provenance."""
 
-    index: int                 # window number (starting at 1)
+    # Window number, starting at 1, counted over EVERY window the recording
+    # produced — including the ones the quality gates later threw away. It is
+    # therefore a stable name for a moment in time: window k always covers
+    # [(k-1)*hop, (k-1)*hop + length), whatever else happened.
+    #
+    # It used to be the rank among surviving windows instead, which made it a
+    # different thing entirely. Dropping window 3 renumbered window 4 as 3, so the
+    # same label pointed at different moments depending on signal quality. That is
+    # how the ECG/PPG modality comparison ended up pairing segments recorded minutes
+    # apart, and why the assessment cache could hand back the answer for one window
+    # when asked about another.
+    index: int
     start_sec: float           # window start, relative to the phase start
     end_sec: float
     rr_ms: np.ndarray          # intervals inside the window
@@ -114,7 +125,7 @@ def segment_rr_series(
             continue
 
         kept.append(Segment(
-            index=len(kept) + 1,
+            index=i + 1,
             start_sec=start - t0,
             end_sec=end - t0,
             rr_ms=rr,

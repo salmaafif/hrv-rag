@@ -49,10 +49,38 @@ function baseUrl(): string {
   return configured.replace(/\/$/, '')
 }
 
+/**
+ * Statuses worth another attempt even though they are not 5xx.
+ *
+ * 408 is the server saying it waited too long, and 429 is it asking us to slow
+ * down. Both clear on their own. Lumping them in with 4xx told the person their
+ * recording was unusable and removed the retry button, which is the opposite of
+ * what either status means.
+ */
+const RETRYABLE_CLIENT_STATUSES = new Set([408, 429])
+
+function messageForStatus(status: number): string {
+  if (status === 404) {
+    // Almost always a misconfigured base URL or endpoint path, not the recording.
+    return 'Alamat layanan tidak ditemukan. Hubungi pengembang.'
+  }
+  if (status >= 500 || RETRYABLE_CLIENT_STATUSES.has(status)) {
+    return 'Server sedang bermasalah. Coba lagi sebentar lagi.'
+  }
+  return 'Rekaman ini tidak bisa diproses. Periksa berkas atau sambungan perangkatmu.'
+}
+
 async function postJson<T>(path: string, body: unknown): Promise<T> {
+  // Resolved BEFORE the try block on purpose. When it sat inside, the "server
+  // address is not configured" error it throws was caught by the network handler
+  // below and replaced with "check your internet connection" — sending the user
+  // to look at their wifi over a missing .env value, behind a retry button that
+  // could never succeed.
+  const url = `${baseUrl()}${path}`
+
   let response: Response
   try {
-    response = await fetch(`${baseUrl()}${path}`, {
+    response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -67,16 +95,22 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
   }
 
   if (!response.ok) {
-    const retryable = response.status >= 500
-    throw new ApiError(
-      retryable
-        ? 'Server sedang bermasalah. Coba lagi sebentar lagi.'
-        : 'Rekaman ini tidak bisa diproses. Periksa berkas atau sambungan perangkatmu.',
-      retryable,
-    )
+    const retryable =
+      response.status >= 500 || RETRYABLE_CLIENT_STATUSES.has(response.status)
+    throw new ApiError(messageForStatus(response.status), retryable)
   }
 
-  return (await response.json()) as T
+  try {
+    return (await response.json()) as T
+  } catch {
+    // A 200 carrying HTML rather than JSON — a proxy splash page, a captive
+    // portal, a CDN error page. Left unguarded this escaped as a raw SyntaxError
+    // quoting the HTML back at the user.
+    throw new ApiError(
+      'Jawaban dari server tidak bisa dibaca. Coba lagi sebentar lagi.',
+      true,
+    )
+  }
 }
 
 export function analyzeTimeline(

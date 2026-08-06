@@ -20,7 +20,8 @@ from __future__ import annotations
 
 from ..config.settings import LLMConfig, settings
 from ..core.schemas import Assessment, AssessmentInput
-from .guards import find_invented_numbers, find_unknown_references
+from .guards import (find_fabricated_citations, find_invented_numbers,
+                     find_unknown_references)
 from .llm import GeminiInterpreter
 from .prompt import build_prompt
 from .query_builder import build_query
@@ -56,7 +57,19 @@ class AssessmentPipeline:
 
         # Guards run against the prompt that was actually sent, so the check covers
         # both the supplied measurements and the retrieved knowledge.
-        checked_text = f"{response.reasoning} {response.uncertainty_notes}"
+        #
+        # EVERY generated field is checked, including the two the user actually
+        # reads. Only `reasoning` and `uncertainty_notes` used to be, which left the
+        # Indonesian summary and recommendation — the only text a KARIRLINK user
+        # ever sees — completely unguarded. A response could tell someone their
+        # heart rate rose 47% and their stress scored 8 out of 10, with all four
+        # numbers invented, and still be recorded as trustworthy.
+        checked_text = " ".join([
+            response.reasoning,
+            response.uncertainty_notes,
+            response.user_summary,
+            response.user_recommendation,
+        ])
         retrieved_ids = [c.chunk.id for c in chunks]
 
         return Assessment(
@@ -72,8 +85,9 @@ class AssessmentPipeline:
             retrieval_scores=[c.similarity for c in chunks],
             response=response,
             invented_numbers=find_invented_numbers(checked_text, prompt),
-            unknown_references=find_unknown_references(
-                response.references, retrieved_ids
+            unknown_references=(
+                find_unknown_references(response.references, retrieved_ids)
+                + find_fabricated_citations(checked_text, retrieved_ids)
             ),
         )
 

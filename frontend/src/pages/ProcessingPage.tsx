@@ -71,7 +71,18 @@ export function ProcessingPage({ mode, session }: StageContext) {
           )}
           <Button
             variant="outline"
-            onClick={() => navigate(`/${mode.id}/mulai`)}
+            onClick={() => {
+              // Clear the failure on the way out, not just the screen showing
+              // it. Navigating away used to leave `status` on "error", so the
+              // effect above refused to start anything the next time round: the
+              // person picked a corrected file, pressed "Mulai analisis", and
+              // was shown the OLD error with no retry button. On a
+              // non-retryable failure that was the only exit, which made it a
+              // dead end until the whole page was reloaded.
+              startedRef.current = false
+              session.reset()
+              navigate(`/${mode.id}/mulai`)
+            }}
           >
             Kembali ke awal
           </Button>

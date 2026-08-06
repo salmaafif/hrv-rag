@@ -342,9 +342,23 @@ class SessionConfig:
     # state after the user has fitted the device and got ready.
     adaptation_sec: int = 60
 
-    # Personal baseline. 240 s yields 7 segments, enough for the median to resist
-    # one or two noisy segments.
-    calibration_sec: int = 240
+    # Personal baseline. 180 s yields 5 segments.
+    #
+    # Reduced from 240 s (7 segments) on 6 Aug 2026, revising T2b.3. The reason is
+    # the person waiting, not the statistics: this is dead time before the practice
+    # can start, and four minutes of being told to sit still is long enough that
+    # people stop sitting still. A baseline they did not actually keep is worse
+    # than a shorter one they did.
+    #
+    # 180 s is a compromise rather than a free choice. The reference is the MEDIAN
+    # across these segments, and every reactivity percentage is divided by it, so
+    # fewer segments means a shakier divisor: 5 still absorbs one noisy window,
+    # 3 (from 120 s) barely absorbs any. 120 s is the hard floor — below it a
+    # 60-second window with a 30-second hop yields nothing at all.
+    #
+    # Kept identical to the web demo's `INTERVIEW_REST_MINUTES`, so the protocol
+    # described here and the one users actually perform are the same protocol.
+    calibration_sec: int = 180
 
     # Session-level anticipation phase (K9). 120 s yields 3 segments.
     # PER-QUESTION anticipation is deliberately not measured: a 5-10 s window sits

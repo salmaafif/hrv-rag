@@ -98,30 +98,45 @@ export function StartPage({ mode, device, session }: StageContext) {
           )}
         </Card>
 
-        <Card title="Periode tenang di awal">
-          <p className="text-sm text-ink-muted">
-            Beberapa menit pertama rekaman dipakai sebagai pembanding untuk
-            seluruh sesi. Mulai merekam, lalu duduk diam dan bernapas biasa
-            selama menit-menit itu{' '}
-            <strong>sebelum</strong> memulai sesi latihan. Kalau bagian ini
-            tidak tenang, sisa hasilnya kehilangan acuan.
-          </p>
+        {/*
+          Only the upload modes ask about the resting period.
 
-          <label className="mt-4 flex items-center gap-3 text-sm">
-            <span className="text-ink-muted">Lama periode tenang</span>
-            <input
-              type="number"
-              min={BASELINE_MIN_MINUTES}
-              max={BASELINE_MAX_MINUTES}
-              value={session.baselineMinutes}
-              onChange={(event) =>
-                session.setBaselineMinutes(Number(event.target.value))
-              }
-              className="w-20 rounded-lg border border-hairline px-3 py-1.5 text-sm font-semibold text-navy"
-            />
-            <span className="text-ink-muted">menit</span>
-          </label>
-        </Card>
+          V3 runs it on its own clock for a fixed two minutes, so there is
+          nothing for the person to set and nothing they need to understand
+          before pressing start. Explaining why a baseline exists is our
+          reasoning, not their task — and the session screen says the one thing
+          they actually have to do, at the moment they have to do it.
+
+          V1 and V2 are different: those recordings were made outside the app, so
+          only the person knows how much of the file is quiet. The number below
+          is what tells the backend where the baseline ends. Fixing it would
+          silently mislabel the rest of a longer quiet period as interview data.
+        */}
+        {!mode.runsInterview && (
+          <Card title="Periode tenang di awal">
+            <p className="text-sm text-ink-muted">
+              Beberapa menit pertama rekaman dipakai sebagai pembanding untuk
+              seluruh sesi. Duduk diam dan bernapas biasa selama menit-menit itu{' '}
+              <strong>di awal rekaman</strong>. Kalau bagian ini tidak tenang,
+              sisa hasilnya kehilangan acuan.
+            </p>
+
+            <label className="mt-4 flex items-center gap-3 text-sm">
+              <span className="text-ink-muted">Lama periode tenang</span>
+              <input
+                type="number"
+                min={BASELINE_MIN_MINUTES}
+                max={BASELINE_MAX_MINUTES}
+                value={session.baselineMinutes}
+                onChange={(event) =>
+                  session.setBaselineMinutes(Number(event.target.value))
+                }
+                className="w-20 rounded-lg border border-hairline px-3 py-1.5 text-sm font-semibold text-navy"
+              />
+              <span className="text-ink-muted">menit</span>
+            </label>
+          </Card>
+        )}
 
         <Button
           variant="accent"

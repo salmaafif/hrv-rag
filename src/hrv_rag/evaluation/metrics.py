@@ -117,6 +117,19 @@ def evaluate_classification(records: list[EvaluationRecord],
             f"read coverage together with the scores."
         )
 
+    # A class that never appears scores F1 = 0 and drags macro-F1 down by half,
+    # which reads as a broken system when it is really a lopsided sample. This is
+    # not hypothetical: the free tier allows 20 calls a day and `--full` walks the
+    # CSV in order, so the first day's run sees calibration segments only. It would
+    # print macro-F1 0.50 and kappa nan after answering all 20 correctly.
+    missing = [lab for lab in order if lab not in set(y_true)]
+    if missing:
+        notes.append(
+            f"class {', '.join(missing)} is absent from this sample, so macro-F1 "
+            f"and kappa are not meaningful — report accuracy and per-class F1 "
+            f"instead until both classes are represented."
+        )
+
     return ClassificationReport(
         dataset=dataset,
         modality=modality,

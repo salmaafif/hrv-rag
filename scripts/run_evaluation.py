@@ -124,7 +124,15 @@ def main() -> None:
 
     n = 40
     if "--n" in sys.argv:
-        n = int(sys.argv[sys.argv.index("--n") + 1])
+        position = sys.argv.index("--n") + 1
+        if position >= len(sys.argv):
+            sys.exit("--n needs a number, e.g. --n 20")
+        try:
+            n = int(sys.argv[position])
+        except ValueError:
+            sys.exit(f"--n needs a number, got {sys.argv[position]!r}")
+        if n < 1:
+            sys.exit(f"--n must be at least 1, got {n}")
     subset = data if "--full" in sys.argv else stratified_sample(data, n)
 
     cfg = settings.rag
@@ -153,7 +161,8 @@ def main() -> None:
 
         key = cache_key(
             subject=str(row["subject"]), phase=str(row["phase"]),
-            segment=int(row["segment"]), kb_version=pipeline.index.kb_version,
+            segment=int(row["segment"]), modality=str(row["modality"]),
+            kb_version=pipeline.index.kb_version,
             prompt_version=settings.llm.prompt_version,
             model=settings.llm.model, temperature=settings.llm.temperature,
             pinned=cfg.pinned_chunk_id,

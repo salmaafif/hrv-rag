@@ -62,8 +62,31 @@ export interface HeartDevice {
  * about where the sensor sits — chest straps and watches both use it — so the
  * name is the only clue available, and it is not always enough.
  */
+/**
+ * Optical sensors that are easy to mistake for chest straps.
+ *
+ * Checked FIRST, because each of these carries a brand or model word that the
+ * chest list also matches, and the chest list used to win:
+ *
+ * - Polar OH1, OH1+ and Verity Sense are optical armbands, not straps. They were
+ *   listed as chest outright.
+ * - Wahoo TICKR FIT is an optical armband; only TICKR and TICKR X go on the chest.
+ * - Garmin Instinct 2 Dual Power is a watch. The chest pattern looked for "dual"
+ *   anywhere after "garmin", intending HRM-Dual, and swallowed it.
+ *
+ * Each mistake reported PPG hardware as ECG. That is not cosmetic: modality is
+ * carried into the prompt precisely so the model can hold an optical reading to a
+ * lower confidence (Mandatory Rule #5), and nothing downstream can tell it was
+ * lied to. It would raise its confidence on exactly the signal that deserves less.
+ */
+const OPTICAL_OVERRIDES = [
+  /\bpolar\s*(oh1|verity)/i,
+  /\bwahoo\b.*\btickr\s*fit\b/i,
+  /\bgarmin\b.*\binstinct\b/i,
+]
+
 const CHEST_PATTERNS = [
-  /\bpolar\s*(h\d|oh1|verity)/i,
+  /\bpolar\s*h\d/i,
   /\bcoospo\b/i,
   /\bmagene\b/i,
   /\bwahoo\b.*\btickr\b/i,
@@ -81,6 +104,7 @@ const WRIST_PATTERNS = [
 ]
 
 export function recogniseWearLocation(name: string): WearLocation | null {
+  if (OPTICAL_OVERRIDES.some((pattern) => pattern.test(name))) return 'wrist'
   if (CHEST_PATTERNS.some((pattern) => pattern.test(name))) return 'chest'
   if (WRIST_PATTERNS.some((pattern) => pattern.test(name))) return 'wrist'
   return null
