@@ -73,7 +73,23 @@ export interface SessionState {
   result: TimelineResponse | SessionResponse | null
   error: ApiError | null
   run: (mode: ModeDefinition, options?: AnalyzeOptions) => void
+  /**
+   * Clear the analysis only, keeping the recording and the question timeline.
+   *
+   * This is what "coba lagi" needs after a failure: the inputs were fine, the
+   * server was not. Clearing them too would make the person choose their file
+   * again for no reason.
+   */
   reset: () => void
+  /**
+   * Clear everything and start a fresh session.
+   *
+   * What "latihan lagi" needs. Keeping the previous recording here would be
+   * worse than useless — the next interview's question timings would be matched
+   * against the previous interview's heart data, and the result would look
+   * perfectly ordinary while describing the wrong session entirely.
+   */
+  restart: () => void
 }
 
 export function useSessionState(device: DeviceConnection): SessionState {
@@ -124,6 +140,15 @@ export function useSessionState(device: DeviceConnection): SessionState {
     setStatus('idle')
     setResult(null)
     setError(null)
+  }, [])
+
+  const restart = useCallback(() => {
+    setStatus('idle')
+    setResult(null)
+    setError(null)
+    setFileRaw(null)
+    setFileWornAtState(null)
+    setQuestionTimelineState(null)
   }, [])
 
   const run = useCallback(
@@ -184,5 +209,6 @@ export function useSessionState(device: DeviceConnection): SessionState {
     error,
     run,
     reset,
+    restart,
   }
 }

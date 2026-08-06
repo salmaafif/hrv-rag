@@ -117,15 +117,15 @@ export const mockTimeline: TimelineResponse = {
   summary: summarise(points),
   narrative: {
     ringkasan:
-      'Kondisimu tenang di beberapa menit awal, lalu naik cukup tajam sekitar ' +
-      'menit keenam dan bertahan tinggi selama kurang lebih dua menit. ' +
-      'Setelah itu perlahan mereda sampai akhir rekaman.',
+      'Beberapa menit awal berjalan tenang. Sekitar menit keenam tekananmu ' +
+      'naik tajam dan bertahan tinggi kurang lebih dua menit, lalu perlahan ' +
+      'turun sampai akhir rekaman.',
     rekomendasi:
-      'Bagian tengah sesi tampaknya paling menuntut. Coba sisipkan jeda napas ' +
-      'singkat sebelum masuk ke bagian itu, lalu perhatikan apakah puncaknya ' +
+      'Bagian tengah sesi yang paling menuntut. Coba sisipkan jeda napas ' +
+      'singkat sebelum masuk ke bagian itu, lalu lihat apakah puncaknya ' +
       'bergeser di latihan berikutnya.',
     penyemangat:
-      'Tubuhmu kembali tenang menjelang akhir sesi. Itu tanda pemulihan yang ' +
+      'Menjelang akhir sesi kamu kembali tenang. Itu tanda pemulihan yang ' +
       'baik, dan bagian yang paling bisa kamu andalkan.',
   },
   meta: {
