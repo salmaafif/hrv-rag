@@ -41,6 +41,14 @@ export interface ModeDefinition {
   steps: readonly string[]
   /** Which stage index each route segment highlights. */
   stepOfSegment: Readonly<Record<StageSegment, number | null>>
+  /**
+   * Where the start screen leads once a data source is ready.
+   *
+   * V3 goes to the interview it runs itself; the others go straight to
+   * analysis, because their recording either already exists as a file or was
+   * captured outside this app.
+   */
+  nextAfterStart: StageSegment
 }
 
 const TIMELINE_STEPS = ['Siapkan data', 'Rekaman', 'Lihat hasil'] as const
@@ -55,6 +63,7 @@ export const MODES: Readonly<Record<ModeId, ModeDefinition>> = {
     runsInterview: false,
     steps: TIMELINE_STEPS,
     stepOfSegment: { mulai: 0, sesi: null, proses: 1, hasil: 2 },
+    nextAfterStart: 'proses',
   },
   v2: {
     id: 'v2',
@@ -64,6 +73,7 @@ export const MODES: Readonly<Record<ModeId, ModeDefinition>> = {
     runsInterview: false,
     steps: ['Siapkan data', 'Isi pertanyaan', 'Lihat hasil'],
     stepOfSegment: { mulai: 0, sesi: null, proses: 1, hasil: 2 },
+    nextAfterStart: 'proses',
   },
   v3: {
     id: 'v3',
@@ -73,6 +83,7 @@ export const MODES: Readonly<Record<ModeId, ModeDefinition>> = {
     runsInterview: true,
     steps: SESSION_STEPS,
     stepOfSegment: { mulai: 0, sesi: 1, proses: 1, hasil: 2 },
+    nextAfterStart: 'sesi',
   },
 }
 

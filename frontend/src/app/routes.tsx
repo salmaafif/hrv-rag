@@ -5,6 +5,10 @@
  * on a router at all: the back button works, and a result can be sent to a
  * supervisor as a link rather than as a description of which buttons to press.
  *
+ * All redirects go through `NavigateKeepingSearch` so that `?dev=1` survives
+ * being corrected — a redirect that silently drops the query makes the
+ * developer panel look broken.
+ *
  * One consequence to know about while the data is still mocked: opening a
  * result URL directly works today because the fixtures are imported, but once
  * a real analysis is involved the result will live in memory and a cold load of
@@ -13,26 +17,31 @@
  * an empty screen.
  */
 
-import { createBrowserRouter, Navigate } from 'react-router'
+import { createBrowserRouter } from 'react-router'
 import { AppLayout } from './AppLayout'
+import { ErrorScreen } from './ErrorScreen'
+import { NavigateKeepingSearch } from './NavigateKeepingSearch'
 import { StageRouter } from './StageRouter'
 
 export const router = createBrowserRouter([
   {
     path: '/',
-    element: <Navigate to="/v1/mulai" replace />,
+    element: <NavigateKeepingSearch to="/v1/mulai" />,
   },
   {
     path: '/:mode',
     element: <AppLayout />,
+    // Without this, a crash inside any stage screen renders React Router's
+    // bare fallback — which in a production build is close to a blank page.
+    errorElement: <ErrorScreen />,
     children: [
-      { index: true, element: <Navigate to="mulai" replace /> },
+      { index: true, element: <NavigateKeepingSearch to="mulai" /> },
       { path: ':stage', element: <StageRouter /> },
     ],
   },
   {
     // Anything else, including a mistyped mode, lands on the first screen.
     path: '*',
-    element: <Navigate to="/v1/mulai" replace />,
+    element: <NavigateKeepingSearch to="/v1/mulai" />,
   },
 ])

@@ -7,7 +7,38 @@
     <title>Analisis Tekanan Wawancara — HRV</title>
   </head>
   <body>
-    <div id="root"></div>
+    <!--
+      The contents of #root are a boot fallback, not the app.
+
+      React replaces them the moment it mounts, so nobody ever sees this in
+      normal use. It exists for the case where React never mounts at all — a
+      module that fails to load, a syntax error, a stale dev-server module
+      graph. Without it that failure looks exactly like a blank white page,
+      which says nothing about whether to wait, reload, or start over.
+
+      The inline script below is the same idea for errors thrown before mount:
+      it prints the actual message rather than leaving the page empty. Both are
+      plain HTML and inline CSS on purpose, because at this point neither the
+      stylesheet nor the bundle can be assumed to have loaded.
+    -->
+    <div id="root">
+      <div id="boot-fallback" style="font-family: system-ui, sans-serif; max-width: 40rem; margin: 4rem auto; padding: 0 1.5rem; color: #16234d;">
+        <h1 style="font-size: 1.25rem; margin: 0 0 .5rem;">Aplikasi sedang dimuat…</h1>
+        <p style="margin: 0; color: #6b7591; font-size: .875rem;">
+          Kalau pesan ini tidak hilang dalam beberapa detik, berkas aplikasinya
+          gagal dimuat. Coba muat ulang paksa dengan <strong>Ctrl + Shift + R</strong>.
+        </p>
+        <pre id="boot-error" style="display: none; margin-top: 1rem; padding: 1rem; background: #f1f2f4; border-radius: .5rem; font-size: .75rem; white-space: pre-wrap;"></pre>
+      </div>
+    </div>
+    <script>
+      window.addEventListener('error', function (event) {
+        var box = document.getElementById('boot-error')
+        if (!box) return
+        box.style.display = 'block'
+        box.textContent = String(event.message || event.error || event.type)
+      })
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

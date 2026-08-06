@@ -8,8 +8,10 @@
  * or a typed URL — so it redirects instead of showing a failure.
  */
 
-import { Navigate, useOutletContext, useParams } from 'react-router'
-import type { ModeDefinition, StageSegment } from './modes'
+import { useOutletContext, useParams } from 'react-router'
+import type { StageSegment } from './modes'
+import type { StageContext } from './stageContext'
+import { NavigateKeepingSearch } from './NavigateKeepingSearch'
 import { StartPage } from '../pages/StartPage'
 import { SessionPage } from '../pages/SessionPage'
 import { ProcessingPage } from '../pages/ProcessingPage'
@@ -22,22 +24,25 @@ function isStage(value: string | undefined): value is StageSegment {
 }
 
 export function StageRouter() {
-  const mode = useOutletContext<ModeDefinition>()
+  const context = useOutletContext<StageContext>()
   const { stage } = useParams<{ stage: string }>()
+  const { mode } = context
 
-  if (!isStage(stage)) return <Navigate to={`/${mode.id}/mulai`} replace />
+  if (!isStage(stage)) {
+    return <NavigateKeepingSearch to={`/${mode.id}/mulai`} />
+  }
   if (stage === 'sesi' && !mode.runsInterview) {
-    return <Navigate to={`/${mode.id}/mulai`} replace />
+    return <NavigateKeepingSearch to={`/${mode.id}/mulai`} />
   }
 
   switch (stage) {
     case 'mulai':
-      return <StartPage mode={mode} />
+      return <StartPage {...context} />
     case 'sesi':
       return <SessionPage />
     case 'proses':
-      return <ProcessingPage mode={mode} />
+      return <ProcessingPage {...context} />
     case 'hasil':
-      return <ResultPage mode={mode} />
+      return <ResultPage {...context} />
   }
 }
