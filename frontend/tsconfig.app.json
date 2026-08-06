@@ -1,0 +1,41 @@
+{
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.app.tsbuildinfo",
+    "target": "es2023",
+    "lib": ["ES2023", "DOM"],
+    "module": "esnext",
+    "types": ["vite/client"],
+    "allowArbitraryExtensions": true,
+    "skipLibCheck": true,
+
+    /* Bundler mode */
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+    "jsx": "react-jsx",
+
+    /* Strictness.
+
+       Vite's react-ts template ships WITHOUT `strict`, which we turn on
+       deliberately. The single most dangerous bug this frontend can have is
+       treating a missing measurement as a measured zero: `recovery_pct: null`
+       means "no long enough gap to measure recovery", while `0` would claim
+       "the body did not recover at all". Those are opposite statements about a
+       person.
+
+       With `strict` (and therefore `strictNullChecks`) on, a value typed
+       `number | null` cannot be formatted, compared, or arithmetic'd without
+       the null branch being handled first — the compiler refuses. That turns a
+       documentation rule into something the toolchain enforces. */
+    "strict": true,
+
+    /* Linting */
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "erasableSyntaxOnly": true,
+    "noFallthroughCasesInSwitch": true
+  },
+  "include": ["src"]
+}

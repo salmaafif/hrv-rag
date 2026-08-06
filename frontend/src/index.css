@@ -1,0 +1,66 @@
+@import "tailwindcss";
+
+/*
+ * Design tokens, taken from the KARIRLINK Figma frames.
+ *
+ * Declaring these inside `@theme` (rather than as plain CSS variables) makes
+ * Tailwind generate utilities from them, so `bg-level-high-bg` and
+ * `text-level-high` exist without being written by hand. That keeps two
+ * constraints checkable in one file instead of scattered across every
+ * component that happens to draw a badge.
+ *
+ * FIRST: the Figma's green / amber / red trio is kept, and the text colours
+ * were darkened until each cleared WCAG AA (4.5:1) against its own tinted
+ * background — measured, not eyeballed: low 5.50:1, moderate 5.17:1,
+ * high 5.45:1.
+ *
+ * What this palette does NOT do is survive greyscale. Measured relative
+ * luminance of the three text colours is 11.1 / 12.8 / 10.9, and of the three
+ * background tints 83.7 / 86.8 / 81.7 — differences far too small to tell
+ * apart without hue. Red-green colour blindness collapses low against high in
+ * much the same way.
+ *
+ * That is acceptable here only because colour is never the signal: every badge
+ * in the design carries the words "Rendah", "Sedang", or "Tinggi", and every
+ * chart point that uses these colours is labelled too. If a future screen ever
+ * shows one of these colours WITHOUT an adjacent text label, this palette
+ * stops being sufficient and the level must be encoded by shape or position
+ * as well.
+ *
+ * SECOND: `unknown` is for "could not be measured" — chiefly a recovery value
+ * of null. It is deliberately greyer and flatter than any of the three levels,
+ * because an absence of measurement must never read as a measurement.
+ */
+@theme {
+  /* --- KARIRLINK brand --- */
+  --color-navy: #16234d;        /* logo tile, headings, primary dark button */
+  --color-brand: #3461cc;       /* main action button */
+  --color-brand-soft: #e6ecfb;  /* tinted panels, recommendation rows */
+  --color-amber: #f0b429;       /* logo mark, "latihan lagi", active step */
+  --color-amber-soft: #fdf3dc;  /* tips panel */
+
+  /* --- surfaces --- */
+  --color-canvas: #eef1f8;
+  --color-surface: #ffffff;
+  --color-hairline: #dde3ef;
+
+  /* --- text --- */
+  --color-ink: #16234d;
+  --color-ink-muted: #6b7591;
+
+  /* --- stress levels --- */
+  --color-level-low: #1b6b41;
+  --color-level-low-bg: #dcf1e4;
+  --color-level-moderate: #8a5a13;
+  --color-level-moderate-bg: #fdefc9;
+  --color-level-high: #a5372a;
+  --color-level-high-bg: #fce4e2;
+
+  /* --- absence of a measurement --- */
+  --color-unknown: #5c6370;
+  --color-unknown-bg: #f1f2f4;
+}
+
+body {
+  @apply bg-canvas text-ink antialiased;
+}
