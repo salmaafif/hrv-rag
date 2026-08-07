@@ -94,10 +94,11 @@ def report(path: Path, wear: str, baseline_minutes: float) -> int:
 
     rest_rr, task_rr = split_baseline_and_task(rr_all, baseline_minutes)
 
-    tables = {}
+    tables, series_by_phase = {}, {}
     for phase, rr in ((Phase.CALIBRATION, rest_rr), (Phase.QUESTION, task_rr)):
         try:
             series = rr_series_from_intervals(rr, modality, path.stem, phase)
+            series_by_phase[phase] = series
         except IntervalFormatError as exc:
             label = ("resting period" if phase is Phase.CALIBRATION
                      else "period after the baseline")
@@ -119,7 +120,12 @@ def report(path: Path, wear: str, baseline_minutes: float) -> int:
               "  there, or those minutes were too noisy to measure.")
         return 1
 
-    baseline = BaselineProfile.from_segments(path.stem, tables[Phase.CALIBRATION])
+    # From the series, not the table: the resting period is sampled every 15
+    # seconds rather than every 30, which is what makes a two-minute rest yield
+    # enough windows for a stable median.
+    baseline = BaselineProfile.from_series(
+        path.stem, series_by_phase[Phase.CALIBRATION]
+    )
     spread = baseline.relative_spread("rmssd")
     print(f"\n  baseline RMSSD    : {baseline.values['rmssd']:.1f} ms "
           f"(relative IQR {spread:.0%})")

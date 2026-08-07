@@ -33,16 +33,20 @@ def process_subject(subject: str) -> pd.DataFrame:
     pre = ECGPreprocessor(sampling_rate=loader.sampling_rate(Modality.ECG))
 
     print(f"\n--- {subject} ---")
-    tables = {}
+    tables, series_by_phase = {}, {}
     for phase in (Phase.CALIBRATION, Phase.QUESTION):
         raw = loader.load_phase_signal(subject, phase, Modality.ECG)
         series = pre.run(raw, subject=subject, phase=phase)
         df, seg_result = extract_features(series)
         tables[phase] = df
+        series_by_phase[phase] = series
         print(f"  {phase.value:12s}: {seg_result.summary()}")
 
-    # The baseline is built ONLY from this subject's own calibration phase.
-    baseline = BaselineProfile.from_segments(subject, tables[Phase.CALIBRATION])
+    # The baseline is built ONLY from this subject's own calibration phase, and
+    # from the SERIES rather than the table above: it needs the finer resting hop,
+    # while the table keeps the standard one because its rows are also the
+    # low-stress class this system is scored against.
+    baseline = BaselineProfile.from_series(subject, series_by_phase[Phase.CALIBRATION])
     print(f"  {baseline.describe()}")
 
     # Reactivity is computed for every phase, calibration included — those segments

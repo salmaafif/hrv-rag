@@ -109,3 +109,93 @@ def test_nan_feature_does_not_crash(calibration):
     profile = BaselineProfile.from_segments("TEST", calibration)
     result = profile.reactivity({"rmssd": np.nan})
     assert np.isnan(result["delta_pct_rmssd"])
+
+
+# ----------------------------------------------- resting-phase sampling
+def test_baseline_samples_the_resting_period_more_densely(make_series):
+    """
+    `from_series` uses the finer resting hop; `extract_features` does not.
+
+    That split is the whole point, and getting it wrong is silent. Applying the
+    finer hop inside `extract_features` looks harmless — but on WESAD the resting
+    rows are ALSO the low-stress class the system is scored against, so doubling
+    them doubled one side of the classification set and moved macro-F1 from 0.851
+    to 0.797 without a single measurement having changed.
+
+    Two jobs, two sampling rates: the baseline wants the steadiest central value
+    it can extract from a short recording, the classification set wants segments
+    as independent as the design allows.
+    """
+    from hrv_rag.core.types import Phase
+    from hrv_rag.features.extractor import extract_features
+
+    resting = make_series(n_beats=241, phase=Phase.CALIBRATION)   # 240 s
+
+    table, _ = extract_features(resting)
+    profile = BaselineProfile.from_series("TEST", resting)
+
+    # 240 s: hop 30 gives 7 windows, hop 15 gives 13.
+    assert len(table) == 7
+    assert profile.n_segments == 13
+
+
+def test_task_phase_is_not_sampled_densely(make_series):
+    from hrv_rag.core.types import Phase
+    from hrv_rag.features.extractor import extract_features
+
+    table, _ = extract_features(make_series(n_beats=241, phase=Phase.QUESTION))
+    assert len(table) == 7
+
+
+def test_one_minute_of_rest_yields_no_baseline_at_all(make_series):
+    """
+    The hard floor, and the reason the resting period cannot be shortened to a
+    minute however much anyone would like it to be.
+
+    Features are computed over 60-second windows, and 60 seconds of beats spans
+    only about 59 seconds — measured first beat to last, not from when the timer
+    started. Nothing fits. The result is not a weaker baseline but NO baseline,
+    which leaves the whole session unscoreable, because every number this system
+    reports is a change relative to the person's own quiet state.
+
+    A finer hop does not rescue it: zero windows stay zero.
+    """
+    from hrv_rag.core.types import Phase
+
+    one_minute = make_series(n_beats=60, rr_value=1000.0, phase=Phase.CALIBRATION)
+    with pytest.raises(ValueError, match="no baseline can be built"):
+        BaselineProfile.from_series("TEST", one_minute)
+
+
+def test_two_minutes_of_rest_does_yield_a_baseline(make_series):
+    """Two minutes is the floor that works, and only with the finer hop."""
+    from hrv_rag.core.types import Phase
+
+    two_minutes = make_series(n_beats=120, rr_value=1000.0, phase=Phase.CALIBRATION)
+    profile = BaselineProfile.from_series("TEST", two_minutes)
+    assert profile.n_segments >= 2
+
+
+def test_configured_resting_duration_actually_produces_a_baseline(make_series):
+    """
+    Guards the setting itself, not just the code that reads it.
+
+    `SessionConfig.calibration_sec` has been shortened three times for the sake of
+    the person waiting, and each cut brought it nearer the floor. Below two
+    minutes it stops producing any windows at all — silently, since a shorter wait
+    looks like an improvement right up until the analysis has nothing to divide
+    by. This runs the configured duration through the real segmentation and fails
+    if it yields nothing.
+    """
+    from hrv_rag.config.settings import settings
+    from hrv_rag.core.types import Phase
+
+    seconds = settings.session.calibration_sec
+    resting = make_series(n_beats=seconds, rr_value=1000.0,
+                          phase=Phase.CALIBRATION)
+
+    profile = BaselineProfile.from_series("TEST", resting)
+    assert profile.n_segments >= 2, (
+        f"calibration_sec={seconds} yields only {profile.n_segments} window(s); "
+        f"the median needs at least two to reject a noisy one"
+    )

@@ -52,7 +52,7 @@ def process_modality(subject: str, modality: Modality) -> pd.DataFrame:
     loader = WESADLoader(subject)
     fs = loader.sampling_rate(modality)
 
-    tables = {}
+    tables, series_by_phase = {}, {}
     for phase in (Phase.CALIBRATION, Phase.QUESTION):
         raw = loader.load_phase_signal(subject, phase, modality)
 
@@ -71,6 +71,7 @@ def process_modality(subject: str, modality: Modality) -> pd.DataFrame:
         series = pre.run(raw, subject=subject, phase=phase)
         df, seg = extract_features(series)
         tables[phase] = df
+        series_by_phase[phase] = series
         print(f"    {modality.value:<4} {phase.value:<12} "
               f"{series.n_beats:5d} beats, outliers {series.outlier_ratio:5.1%}, "
               f"{seg.summary()}")
@@ -82,7 +83,11 @@ def process_modality(subject: str, modality: Modality) -> pd.DataFrame:
         print(f"    (no calibration segment survived — reactivity unavailable)")
         return combined
 
-    baseline = BaselineProfile.from_segments(subject, tables[Phase.CALIBRATION])
+    # Finer resting hop, matching how the development and holdout tables are
+    # built — otherwise the ECG and PPG baselines would not be comparable.
+    baseline = BaselineProfile.from_series(
+        subject, series_by_phase[Phase.CALIBRATION]
+    )
     reactivity = pd.DataFrame(
         [baseline.reactivity(r) for r in combined.to_dict("records")]
     )

@@ -40,21 +40,23 @@ export const BASELINE_MAX_MINUTES = 8
  * there is nothing the person could usefully decide, and asking would put a
  * choice in front of them that only makes the screen longer.
  *
- * Three minutes is a compromise between two real costs. Windows are 60 seconds
- * long and advance 30, so the yield is 3 windows at two minutes, 5 at three, and
- * 7 at four. The personal reference is the MEDIAN of those windows and every
- * reactivity percentage is divided by it, so too few makes a shaky divisor —
- * 5 still absorbs one noisy window, 3 barely absorbs any.
+ * TWO MINUTES IS THE FLOOR, not a cautious choice that could be trimmed further.
+ * Features are computed over 60-second windows, so a one-minute rest produces a
+ * beat series spanning only about 59 seconds — measured first beat to last, not
+ * from when the timer started. Nothing fits, and the result is not a weaker
+ * baseline but NO baseline, which leaves the entire session unscoreable because
+ * every number this system reports is a change relative to the person's own
+ * quiet state.
  *
- * Against that: this is dead time before the practice can start, and four
- * minutes of being told to sit still is long enough that people stop sitting
- * still. A baseline they did not actually keep is worse than a shorter one they
- * did.
+ * Two minutes works because the backend samples the resting period every 15
+ * seconds rather than every 30, recovering roughly the window count that three
+ * minutes gave before. That extracts a steadier value from the same data; it
+ * does not conjure more of it.
  *
  * Must stay equal to `SessionConfig.calibration_sec` in the Python settings, so
  * the documented protocol and the one users actually perform are the same.
  */
-export const INTERVIEW_REST_MINUTES = 3
+export const INTERVIEW_REST_MINUTES = 2
 
 export interface SessionState {
   baselineMinutes: number

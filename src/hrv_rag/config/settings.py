@@ -6,8 +6,11 @@ the thesis defence. Every value below therefore carries a comment explaining why
 is what it is, not merely what it is.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
+
+# Safe in this direction only: `core.types` imports nothing from `config`.
+from ..core.types import Phase
 
 # ===========================================================================
 # PATHS
@@ -44,6 +47,34 @@ class SegmentationConfig:
     # when reporting metrics (BACKLOG L2).
     overlap_sec: int = 30
 
+    # Overlap used for the RESTING phase only, giving a 15-second hop there.
+    #
+    # The resting period is short by design — asking someone to sit still is dead
+    # time before the practice can begin, and four minutes of it is long enough
+    # that people stop sitting still. But the personal baseline is the MEDIAN
+    # across its windows, and every reactivity percentage in the whole session is
+    # divided by that median, so too few windows makes a shaky divisor.
+    #
+    # Sampling the same minutes more densely is the way out. Over two minutes,
+    # a 30-second hop yields only 1-2 windows while a 15-second hop yields 2-4 —
+    # roughly what three minutes used to give. It adds no information, because
+    # two minutes contains two minutes of data either way; what it adds is a more
+    # stable central value drawn from it.
+    #
+    # Measured on the five development subjects, the finer hop moves the baseline
+    # RMSSD by 0.07-1.33% over a full WESAD resting phase, so the validated
+    # numbers are unaffected. The one large shift (S10, 20.7% over a two-minute
+    # slice) is the subject with the least steady baseline, and there the denser
+    # sampling is what lets the median reject a noisy minute rather than average
+    # it in — the finer hop corrects the answer rather than disturbing it.
+    #
+    # The cost, stated plainly: windows now share 75% of their data instead of
+    # 50%, so they are even less independent. That is acceptable HERE because
+    # they feed a median, which is a robustness device rather than a statistical
+    # test. It would NOT be acceptable for the segments being classified, which
+    # is why this applies to the resting phase alone.
+    baseline_overlap_sec: int = 45
+
     # Segments with fewer beats than this are discarded. 30 beats per 60 seconds
     # equals 30 bpm — below that it is almost certainly failed detection rather
     # than a real physiological state.
@@ -53,6 +84,25 @@ class SegmentationConfig:
     def hop_sec(self) -> int:
         """Distance the window slides between segments (seconds)."""
         return self.length_sec - self.overlap_sec
+
+    @property
+    def baseline_hop_sec(self) -> int:
+        """Window slide used for the resting phase (seconds)."""
+        return self.length_sec - self.baseline_overlap_sec
+
+    def for_phase(self, phase: Phase) -> "SegmentationConfig":
+        """
+        The segmentation to use for one phase.
+
+        Written as a method on the config rather than left to each caller,
+        because forgetting it would be invisible: the resting phase would simply
+        produce fewer windows, the baseline would rest on one or two of them, and
+        every percentage afterwards would be quietly less reliable with nothing
+        on screen to say so.
+        """
+        if phase is not Phase.CALIBRATION:
+            return self
+        return replace(self, overlap_sec=self.baseline_overlap_sec)
 
 
 # ===========================================================================
@@ -342,23 +392,30 @@ class SessionConfig:
     # state after the user has fitted the device and got ready.
     adaptation_sec: int = 60
 
-    # Personal baseline. 180 s yields 5 segments.
+    # Personal baseline. 120 s at the resting hop of 15 s yields 2-4 segments,
+    # measured across the five development subjects.
     #
-    # Reduced from 240 s (7 segments) on 6 Aug 2026, revising T2b.3. The reason is
-    # the person waiting, not the statistics: this is dead time before the practice
-    # can start, and four minutes of being told to sit still is long enough that
-    # people stop sitting still. A baseline they did not actually keep is worse
-    # than a shorter one they did.
+    # Shortened twice, both times for the person waiting rather than for the
+    # statistics: 240 s originally, 180 s on 6 Aug 2026, and 120 s the day after.
+    # Sitting still is dead time before the practice can begin, and the longer it
+    # runs the less likely someone is to actually keep still — a baseline they did
+    # not really observe is worse than a shorter one they did.
     #
-    # 180 s is a compromise rather than a free choice. The reference is the MEDIAN
-    # across these segments, and every reactivity percentage is divided by it, so
-    # fewer segments means a shakier divisor: 5 still absorbs one noisy window,
-    # 3 (from 120 s) barely absorbs any. 120 s is the hard floor — below it a
-    # 60-second window with a 30-second hop yields nothing at all.
+    # 120 s IS THE HARD FLOOR, and not by convention. Features are computed over
+    # 60-second windows, and a 60-second rest produces a beat series spanning only
+    # about 59 seconds — measured from the first beat to the last, not from when
+    # the timer started. Nothing fits, so the result is not a weak baseline but no
+    # baseline at all, and with no baseline the whole session is unscoreable.
+    # A finer hop does not rescue it: zero windows stay zero.
+    #
+    # What makes 120 s workable is `baseline_overlap_sec`, which samples these
+    # same two minutes every 15 seconds instead of every 30. That recovers about
+    # the window count three minutes gave before, without adding information that
+    # is not there.
     #
     # Kept identical to the web demo's `INTERVIEW_REST_MINUTES`, so the protocol
     # described here and the one users actually perform are the same protocol.
-    calibration_sec: int = 180
+    calibration_sec: int = 120
 
     # Session-level anticipation phase (K9). 120 s yields 3 segments.
     # PER-QUESTION anticipation is deliberately not measured: a 5-10 s window sits
