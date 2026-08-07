@@ -83,6 +83,10 @@ const OPTICAL_OVERRIDES = [
   /\bpolar\s*(oh1|verity)/i,
   /\bwahoo\b.*\btickr\s*fit\b/i,
   /\bgarmin\b.*\binstinct\b/i,
+  // Coospo sells both: the H series (H6, H808S, H9Z) are chest straps, the HW
+  // series (HW9, HW807, HW706) are optical armbands. Matching the brand alone
+  // sent every one of them down the ECG path.
+  /\bcoospo\b.*\bhw\d/i,
 ]
 
 const CHEST_PATTERNS = [

@@ -297,11 +297,35 @@ yang PPG-saja tidak bisa diandalkan untuk kondisi tertekan.
 
 | ID | Tugas | Status |
 |---|---|---|
-| T7.0 | **Dapatkan datasetnya — belum ada di komputer** | blokir |
-| T7.1 | Loader ECG ~2048 Hz | belum |
-| T7.2 | Pemetaan tiga tingkat: neutral→rendah, time pressure→sedang, interruption→tinggi | belum |
-| T7.3 | Macro-F1 tiga kelas | belum |
-| T7.4 | Uji kecukupan KB: apakah KB yang sama tetap bekerja pada tekanan **kognitif**, bukan hanya sosial-evaluatif | belum |
+| T7.0 | **Dataset didapat 6 Agt 2026** lewat `kagglehub` (`qiriro/swell-heart-rate-variability-hrv`, 233 MB). Bukan SWELL asli Radboud | selesai |
+| T7.1 | ~~Loader ECG ~2048 Hz~~ — **tidak mungkin**: paket Kaggle tidak memuat ECG mentah. Lihat catatan di bawah | tulis-ulang |
+| T7.2 | Pemetaan tiga tingkat: neutral→rendah, time pressure→sedang, interruption→tinggi. Ada di `evaluation/labels.py` | selesai |
+| T7.3 | **Macro-F1 tiga kelas SELESAI — dan hasilnya NEGATIF.** 14 subjek, 1.019 menit: accuracy **0,177**, macro-F1 **0,175**, kappa **−0,207**. Di bawah tebakan acak | selesai |
+| T7.4 | Uji kecukupan KB pada tekanan kognitif — **tertunda**: percuma menguji KB sebelum labelnya sendiri terbukti sejalan dengan fisiologi (lihat T7.5) | blokir |
+| T7.5 | **Sebab kegagalan teridentifikasi: kondisi SWELL terancu urutan.** `no_stress` SELALU blok pertama (menit ~10–15) sementara `time_pressure` dan `interruption` diselang-seling belakangan (rata-rata menit ~118). Gradien fisiologisnya justru terbalik dari gradien label: median ΔRMSSD `no_stress` **−20,9%**, `time_pressure` −3,5%, `interruption` **−2,5%**. RMSSD naik seiring waktu pada 5 dari 6 subjek (r sampai +0,64) — habituasi. Diuji juga dengan baseline lokal (blok istirahat tepat sebelum tiap kondisi): kappa membaik −0,207 → −0,094, **tetap di bawah nol**. Jadi bukan soal pilihan baseline | selesai |
+
+---
+
+**Apa yang sebenarnya ada di paket Kaggle.** Tiga lapis, dan hanya satu yang bisa
+dipakai — alasan lengkapnya di docstring `datasets/swell.py`:
+
+| Lapis | Isi | Putusan |
+|---|---|---|
+| `final/*.csv` | 36 fitur, jendela 5 menit | **Ditolak** — tidak ada kolom subjek, hanya `datasetId` konstan. Tanpa identitas subjek, baseline per orang mustahil (Aturan Wajib #2) |
+| `raw/rri/p*.txt` | deret RR per subjek | **Ditolak** — kolom waktunya melangkah persis 0,25 dtk, jadi ini tachogram yang sudah diinterpolasi ke 4 Hz, bukan deret denyut. Nol pasangan berurutan berselisih >20% (deret denyut asli ~1,5%). RMSSD dan pNN50 didefinisikan antar-DENYUT, jadi menghitungnya dari kurva interpolasi menghasilkan angka yang tampak wajar tapi bermakna lain. Sumbu waktunya juga tidak cocok dengan label (RR 150 menit vs label 179 menit) |
+| `raw/labels/*.xlsx` | HR + RMSSD **per menit**, per subjek, dengan kondisi | **Dipakai.** Jendela 1 menit setara segmen 60 dtk; ada blok istirahat eksplisit untuk baseline; aturan skor hanya butuh RMSSD + HR dan keduanya ada |
+
+**Batasan yang wajib ditulis di laporan:** fitur SWELL dihitung oleh penulis
+dataset, bukan oleh kode ini. Aturan Wajib #1 tetap aman (LLM tidak menghitung
+apa pun), tapi reproduksibilitasnya berbeda dari WESAD yang seluruh angkanya
+lahir dari `features/`. Angka SWELL dan WESAD **dilaporkan berdampingan, tidak
+pernah digabung**. Selain itu hanya RMSSD dan HR yang tersedia — tanpa LF/HF,
+pNN50, SDNN — sehingga kueri retrieval dibangun dari 2 dari 5 fitur biasanya.
+
+**Catatan positif yang jarang didapat:** menit-menit SWELL tidak tumpang tindih,
+jadi barisnya benar-benar independen. Keterbatasan L2 **tidak berlaku** untuk
+dataset ini, dan `evaluate_classification` sudah tidak lagi menempelkan peringatan
+overlap pada laporan SWELL.
 
 ---
 
@@ -381,6 +405,7 @@ Bukan bug — ini yang harus jujur disebut dan hampir pasti ditanya penguji.
 | L11 | **PPG WESAD (Empatica E4, 64 Hz) tidak layak untuk RMSSD.** ICC hanya **+0,109** dengan bias +95 ms, dan tidak tertolong oleh pelonggaran ambang (diuji 20–50%) maupun upsampling (64→256 Hz). Yang dapat dipercaya hanya detak jantung (ICC **+0,986**). Lebih tajam lagi: PPG **tidak menghasilkan satu pun segmen layak selama TSST** pada 4 dari 5 subjek dev, jadi kesimpulan ini bahkan belum teruji pada kondisi tertekan. Konsekuensi: UBFC-Phys yang hanya PPG perlu bersandar pada detak jantung (angka diperbarui 6 Agt 2026 setelah bug penjodohan diperbaiki) |
 | L9 | **Dua dari lima subjek pengembangan berpola terbalik**: S6 dan S10 menunjukkan RMSSD/HF/pNN50 NAIK saat TSST, padahal detak jantungnya ikut naik. Dugaan penyebab: (a) TSST menuntut subjek BERBICARA, dan napas dalam saat bicara menaikkan daya pita HF secara artifisial — pita HF memang digerakkan pernapasan; (b) baseline S10 tampak bukan istirahat sejati (RMSSD 14,4 ms, HR 99 bpm saat "diam", IQR relatif 52%). Konsekuensi: RMSSD saja tidak cukup, dan detak jantung — yang naik pada **kelima** subjek (+5,1% s.d. +74%) — adalah penanda paling konsisten |
 | L10 | Persentase perubahan **tidak simetris**: penurunan mentok −100%, kenaikan tak terbatas (teramati +442%). Seluruh peringkasan reaktivitas WAJIB memakai median; memakai rata-rata sempat membalik kesimpulan pNN50 dari −61,2% jadi +61,8% |
+| L12 | **Kondisi SWELL-KW terancu urutan, sehingga labelnya tidak membentuk gradien fisiologis.** `no_stress` selalu blok pertama; `time_pressure` dan `interruption` menyusul jauh belakangan. Reaksi HRV terkuat justru muncul di kondisi yang dilabeli paling ringan, dan RMSSD naik seiring waktu (habituasi). Konsekuensi: aturan skor yang terkalibrasi di WESAD memberi kappa **−0,207** di SWELL, dan baseline lokal hanya menaikkannya ke −0,094. Ini keterbatasan **dataset**, bukan kegagalan metode — penulis SWELL asli pun menyimpulkan HRV bukan prediktor baik untuk stresor perkantoran. Akibat lanjutan: **ambang sedang/tinggi tetap tidak terkalibrasi** (T2c.10 masih terbuka), dan klaim tiga tingkat harus dinyatakan berdasar literatur, bukan terukur |
 | L8 | Sistem bergantung pada layanan pihak ketiga (Gemini). Model dapat diperbarui atau dihentikan Google, sehingga hasil persis bisa tidak terulang di masa depan. Mitigasi: catat versi model (U4.4) dan simpan keluaran mentah (U4.5) |
 
 ---

@@ -86,7 +86,12 @@ function ConnectionPill({ deviceName }: { deviceName: string | null }) {
 
 export function AppLayout() {
   const params = useParams<{ mode: string; stage: string }>()
-  const device = useDeviceConnection()
+  const [devMode] = useDevMode()
+  // With `?dev=1` the sensor is simulated, so screens can be worked on and
+  // demonstrated without physically wearing a strap. Off by default, because a
+  // silent fallback to invented beats would produce a confident report about
+  // somebody who was never measured.
+  const device = useDeviceConnection(devMode)
   const session = useSessionState(device)
   const modeId = toModeId(params.mode)
 

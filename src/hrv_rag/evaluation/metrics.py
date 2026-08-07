@@ -28,13 +28,22 @@ from sklearn.metrics import (accuracy_score, cohen_kappa_score,
                              confusion_matrix, f1_score, precision_score,
                              recall_score)
 
-from .labels import EvaluationRecord, TrueLabel
+from .labels import DATASET_LABELS, EvaluationRecord, TrueLabel
 
 SEGMENT_INDEPENDENCE_NOTE = (
     "Segments overlap by 30 s, so they are not independent observations. The "
     "effective sample size is below the row count and any confidence interval "
     "assuming independence would be too narrow."
 )
+
+#: Datasets whose rows really are independent, so the caveat above must NOT be
+#: attached to them.
+#:
+#: SWELL-KW is read one row per minute with no overlap at all, which makes it the
+#: cleaner of the two on this point. Printing the WESAD caveat underneath its
+#: numbers would be a false statement about the data — and one that understates
+#: the result, since it tells the reader the sample is weaker than it is.
+INDEPENDENT_ROW_DATASETS = {"SWELL"}
 
 
 @dataclass
@@ -90,6 +99,13 @@ def evaluate_classification(records: list[EvaluationRecord],
     twice as long as TSST, so always answering "low" would already score around 65%.
     Kappa measures agreement above what chance would produce, which is the honest
     figure here.
+
+    The class list comes from the DATASET, via `DATASET_LABELS`, not from the
+    labels that happen to turn up in `records`. Two datasets genuinely differ here
+    — WESAD is binary, SWELL-KW has three levels — and deriving the list from the
+    sample would silently change the meaning of macro-F1 whenever a class was
+    missing from a partial run. CLAUDE.md is explicit that metrics are reported per
+    dataset and never pooled, and this is where that is enforced.
     """
     judged = [r for r in records if not r.abstained]
     n_abstained = len(records) - len(judged)
@@ -105,12 +121,14 @@ def evaluate_classification(records: list[EvaluationRecord],
 
     y_true = [r.truth.value for r in judged]
     y_pred = [r.predicted.value for r in judged]
-    order = [TrueLabel.LOW.value, TrueLabel.HIGH.value]
+    order = [label.value for label in
+             DATASET_LABELS.get(dataset, [TrueLabel.LOW, TrueLabel.HIGH])]
 
     per_class = f1_score(y_true, y_pred, labels=order, average=None,
                          zero_division=0)
 
-    notes = [SEGMENT_INDEPENDENCE_NOTE]
+    notes = ([] if dataset in INDEPENDENT_ROW_DATASETS
+             else [SEGMENT_INDEPENDENCE_NOTE])
     if n_abstained:
         notes.append(
             f"{n_abstained} segments abstained and are excluded from accuracy; "

@@ -4,7 +4,12 @@
     "target": "es2023",
     "lib": ["ES2023", "DOM"],
     "module": "esnext",
-    "types": ["vite/client"],
+    /* `web-bluetooth` is not part of the standard DOM lib, because the API is
+       Chromium-only. Adding it here lets the compiler check the sensor code
+       instead of forcing casts to `any` around every GATT call — which is
+       exactly the code where a silent mistake produces heart-rate numbers that
+       look perfectly reasonable and are wrong. */
+    "types": ["vite/client", "web-bluetooth"],
     "allowArbitraryExtensions": true,
     "skipLibCheck": true,
 

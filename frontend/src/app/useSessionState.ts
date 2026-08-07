@@ -182,12 +182,19 @@ export function useSessionState(device: DeviceConnection): SessionState {
 
       const send = async () => {
         try {
+          // Beats collected live from the sensor take precedence over an
+          // uploaded file, matching the rule above that a connected device wins:
+          // it is the more deliberate, more recent choice, and its timing lines
+          // up with the interview because the same clock produced both.
+          const beats = device.rrIntervals
           const base: AnalyzeRequest = {
             baseline_minutes: baselineMinutes,
             modality,
-            // Real beat intervals and CSV text arrive with the Bluetooth and
-            // file-parsing work; the dummy backend ignores both for now.
-            ...(file ? { csv: await file.text() } : {}),
+            ...(beats.length
+              ? { rr_ms: beats }
+              : file
+                ? { csv: await file.text() }
+                : {}),
           }
 
           const analysed =
@@ -213,7 +220,7 @@ export function useSessionState(device: DeviceConnection): SessionState {
 
       void send()
     },
-    [baselineMinutes, file, modality, questionTimeline],
+    [baselineMinutes, device.rrIntervals, file, modality, questionTimeline],
   )
 
   return {

@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Uji Web Bluetooth — interval RR</title>
+<!--
+  bluetooth-test.html — apakah alat ini benar-benar mengirim interval RR?
+
+  Halaman ini SENGAJA berdiri sendiri, di luar aplikasi React. Ia menjawab satu
+  pertanyaan tunggal sebelum ada keputusan apa pun yang dibangun di atasnya:
+  apakah strap yang dipegang pengguna mengirimkan interval antar-denyut, atau
+  hanya angka detak jantung.
+
+  Bedanya menentukan segalanya. RMSSD didefinisikan sebagai selisih antar denyut
+  berurutan, jadi tanpa interval, variabilitas tidak sekadar kurang teliti — ia
+  tidak ada. Sebagian strap murah menyalakan penanda RR tetapi mengirim nilai
+  yang tidak masuk akal, sehingga halaman ini menampilkan angka mentahnya, bukan
+  sekadar "berhasil".
+
+  Semuanya lewat Heart Rate Service standar Bluetooth SIG (0x180D), bukan
+  protokol khusus vendor.
+-->
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 16px/1.6 system-ui, sans-serif; max-width: 46rem; margin: 2rem auto;
+         padding: 0 1.25rem; }
+  h1 { font-size: 1.4rem; }
+  button { font: inherit; font-weight: 600; padding: .7rem 1.4rem; border-radius: .6rem;
+           border: 0; background: #2952d9; color: #fff; cursor: pointer; }
+  button:disabled { opacity: .5; cursor: default; }
+  .card { border: 1px solid #8883; border-radius: .8rem; padding: 1rem 1.25rem;
+          margin-top: 1.25rem; }
+  .big { font-size: 2.6rem; font-weight: 700; line-height: 1.1; }
+  .ok { color: #1a7f37; } .bad { color: #c0362c; } .muted { opacity: .7; font-size: .9rem; }
+  code, pre { font-family: ui-monospace, monospace; font-size: .85rem; }
+  pre { background: #8881; padding: .75rem; border-radius: .5rem; overflow-x: auto;
+        max-height: 14rem; }
+</style>
+</head>
+<body>
+
+<h1>Uji Web Bluetooth — apakah alatmu mengirim interval RR?</h1>
+
+<p class="muted">
+  Pakai Chrome atau Edge di laptop/Android. Tidak akan jalan di iPhone atau iPad —
+  semua browser di iOS memakai WebKit, yang tidak mendukung Web Bluetooth.
+  Pastikan juga aplikasi HP bawaan alatmu sedang <strong>tidak</strong> tersambung,
+  karena strap umumnya hanya menerima satu koneksi.
+</p>
+
+<p><button id="connect">Hubungkan alat</button></p>
+
+<div id="support" class="card"></div>
+
+<div class="card">
+  <div>Detak jantung</div>
+  <div class="big"><span id="bpm">—</span> <span class="muted">bpm</span></div>
+  <div id="rrStatus" class="muted">Belum ada data.</div>
+</div>
+
+<div class="card">
+  <div><strong>Interval RR yang masuk</strong> <span class="muted">(milidetik)</span></div>
+  <pre id="rrLog">menunggu…</pre>
+  <p class="muted">
+    Nilai wajar untuk orang istirahat: sekitar 600–1200 ms. Kalau kolom ini tetap
+    kosong padahal bpm berjalan, alatmu hanya mengirim detak jantung — dan modul
+    HRV tidak bisa memakainya.
+  </p>
+</div>
+
+<div class="card">
+  <div><strong>Catatan</strong></div>
+  <pre id="log"></pre>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const note = (msg) => { $('log').textContent += msg + '\n'; };
+
+// Heart Rate Service dan karakteristik pengukurannya, keduanya baku.
+const HR_SERVICE = 'heart_rate';
+const HR_MEASUREMENT = 'heart_rate_measurement';
+
+const rrValues = [];
+
+$('support').innerHTML = navigator.bluetooth
+  ? '<span class="ok">Browser ini mendukung Web Bluetooth.</span>'
+  : '<span class="bad">Browser ini TIDAK mendukung Web Bluetooth.</span> ' +
+    'Pakai Chrome atau Edge di laptop atau Android. Di iPhone/iPad tidak ada ' +
+    'browser yang bisa, karena semuanya memakai WebKit.';
+
+/**
+ * Bongkar satu paket Heart Rate Measurement.
+ *
+ * Byte pertama adalah penanda. Bit 0 memberi tahu apakah nilai detak jantung
+ * memakai 8 atau 16 bit — melewatkan ini menggeser semua byte sesudahnya. Bit 3
+ * menyatakan ada data energi terpakai yang harus dilompati, dan bit 4 — yang
+ * menjadi alasan halaman ini ada — menyatakan interval RR ikut disertakan.
+ *
+ * Interval dikirim dalam satuan 1/1024 detik, bukan milidetik.
+ */
+function parseHeartRate(view) {
+  const flags = view.getUint8(0);
+  const is16Bit = flags & 0x01;
+  const hasEnergy = flags & 0x08;
+  const hasRR = flags & 0x10;
+
+  let offset = 1;
+  const bpm = is16Bit ? view.getUint16(offset, true) : view.getUint8(offset);
+  offset += is16Bit ? 2 : 1;
+  if (hasEnergy) offset += 2;
+
+  const rr = [];
+  if (hasRR) {
+    for (; offset + 1 < view.byteLength; offset += 2) {
+      rr.push((view.getUint16(offset, true) / 1024) * 1000);
+    }
+  }
+  return { bpm, hasRR: Boolean(hasRR), rr, flags };
+}
+
+let announced = false;
+
+function onMeasurement(event) {
+  const { bpm, hasRR, rr, flags } = parseHeartRate(event.target.value);
+  $('bpm').textContent = bpm;
+
+  if (!announced) {
+    announced = true;
+    note('penanda byte pertama: 0b' + flags.toString(2).padStart(8, '0'));
+    $('rrStatus').innerHTML = hasRR
+      ? '<span class="ok">Alat ini MENGIRIM interval RR. Bisa dipakai.</span>'
+      : '<span class="bad">Alat ini TIDAK mengirim interval RR — hanya detak ' +
+        'jantung. Variabilitas tidak bisa dihitung darinya.</span>';
+  }
+
+  if (rr.length) {
+    rrValues.push(...rr);
+    $('rrLog').textContent = rrValues
+      .slice(-40).map((v) => v.toFixed(0)).join('  ');
+  }
+}
+
+$('connect').addEventListener('click', async () => {
+  $('connect').disabled = true;
+  try {
+    // Menyaring pada Heart Rate Service supaya daftar perangkat hanya berisi
+    // alat yang relevan. Panggilan ini WAJIB berasal dari klik pengguna —
+    // browser menolak permintaan Bluetooth yang berjalan sendiri.
+    const device = await navigator.bluetooth.requestDevice({
+      filters: [{ services: [HR_SERVICE] }],
+    });
+    note('terpilih: ' + (device.name || '(tanpa nama)'));
+
+    device.addEventListener('gattserverdisconnected', () => {
+      note('terputus.');
+      $('connect').disabled = false;
+    });
+
+    const server = await device.gatt.connect();
+    const service = await server.getPrimaryService(HR_SERVICE);
+    const characteristic = await service.getCharacteristic(HR_MEASUREMENT);
+
+    characteristic.addEventListener('characteristicvaluechanged', onMeasurement);
+    await characteristic.startNotifications();
+    note('tersambung. Menunggu denyut…');
+  } catch (error) {
+    note('GAGAL: ' + error.message);
+    // Pesan yang paling sering muncul, diterjemahkan supaya tidak membingungkan.
+    if (/User cancelled/i.test(error.message)) {
+      note('  (kamu menutup dialog pemilihan alat)');
+    } else if (/GATT/i.test(error.message)) {
+      note('  (biasanya karena alat sedang dipegang aplikasi lain, atau ' +
+           'terlalu jauh; matikan koneksi di aplikasi HP lalu coba lagi)');
+    }
+    $('connect').disabled = false;
+  }
+});
+</script>
+
+</body>
+</html>

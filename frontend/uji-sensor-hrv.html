@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Uji Sensor HRV — Web Bluetooth</title>
+<style>
+  :root{--navy:#1a2b4a;--blue:#2f6fed;--green:#12a150;--red:#c0392b;--amber:#e08a00;--grey:#5b6b85;--line:#d5dbe8;--bg:#f7f9fc}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:'Segoe UI',system-ui,-apple-system,Arial,sans-serif;background:var(--bg);color:#233;line-height:1.5}
+  .wrap{max-width:920px;margin:0 auto;padding:24px 18px 60px}
+  h1{font-size:22px;color:var(--navy);margin:0 0 4px}
+  .sub{color:var(--grey);font-size:13.5px;margin-bottom:20px}
+  .card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:18px;margin-bottom:16px}
+  button{font:inherit;font-weight:600;border:0;border-radius:9px;padding:11px 18px;cursor:pointer;transition:.15s}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  .primary{background:var(--blue);color:#fff}.primary:hover:not(:disabled){background:#1d59d4}
+  .ghost{background:#eef2f9;color:var(--navy)}.ghost:hover:not(:disabled){background:#e2e8f4}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  .verdict{border-radius:12px;padding:16px 18px;margin-bottom:16px;font-weight:700;font-size:16px;display:none}
+  .v-wait{background:#eef2f9;color:var(--grey);display:block;font-weight:600}
+  .v-ok{background:#e6f7ee;color:#0b6e38;border:2px solid var(--green);display:block}
+  .v-bad{background:#fdecea;color:#8e2419;border:2px solid var(--red);display:block}
+  .verdict small{display:block;font-weight:500;font-size:13px;margin-top:6px;opacity:.9}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+  .stat{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+  .stat .lab{font-size:11.5px;color:var(--grey);text-transform:uppercase;letter-spacing:.4px}
+  .stat .val{font-size:26px;font-weight:700;color:var(--navy);font-variant-numeric:tabular-nums;margin-top:2px}
+  .stat .val span{font-size:13px;font-weight:500;color:var(--grey)}
+  h2{font-size:15px;color:var(--navy);margin:0 0 10px}
+  canvas{width:100%;height:150px;display:block;background:var(--bg);border:1px solid var(--line);border-radius:8px}
+  .log{font-family:Consolas,ui-monospace,monospace;font-size:12px;background:#12182a;color:#c8d4ea;border-radius:8px;padding:12px;height:150px;overflow-y:auto;white-space:pre-wrap}
+  .note{font-size:13px;color:var(--grey);margin-top:10px}
+  .warn{background:#fff8e6;border:1px solid #f0d191;border-radius:9px;padding:12px 14px;font-size:13px;color:#7a5200;margin-bottom:16px}
+  code{background:#eef2f9;padding:1px 5px;border-radius:4px;font-size:12.5px}
+  .pill{display:inline-block;padding:3px 9px;border-radius:20px;font-size:12px;font-weight:600}
+  .pill-ok{background:#e6f7ee;color:#0b6e38}.pill-no{background:#fdecea;color:#8e2419}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Uji Sensor HRV — Web Bluetooth</h1>
+  <div class="sub">Memastikan sensor benar-benar mengirim <strong>RR-interval</strong>, bukan hanya detak jantung rata-rata. Jalankan ini pada hari perangkat tiba, selagi masih dalam masa retur.</div>
+
+  <div class="warn">
+    <strong>Syarat:</strong> Chrome / Edge / Opera di desktop atau Android. Halaman harus dibuka lewat <code>https://</code> atau <code>http://localhost</code> — jika dibuka sebagai <code>file://</code> tombol tidak akan bekerja. Cara tercepat: jalankan <code>python -m http.server</code> di folder ini lalu buka <code>http://localhost:8000/uji-sensor-hrv.html</code>.
+  </div>
+
+  <div id="verdict" class="verdict v-wait">Belum terhubung — klik “Hubungkan Sensor” lalu pilih perangkat.</div>
+
+  <div class="card">
+    <div class="row">
+      <button id="btnConnect" class="primary">Hubungkan Sensor</button>
+      <button id="btnStop" class="ghost" disabled>Putuskan</button>
+      <button id="btnCsv" class="ghost" disabled>Unduh CSV</button>
+      <button id="btnJson" class="ghost" disabled>Unduh JSON</button>
+      <button id="btnReset" class="ghost" disabled>Reset Hitungan</button>
+    </div>
+    <div class="note" id="devInfo">Perangkat: —</div>
+  </div>
+
+  <div class="card">
+    <h2>Pembacaan Langsung</h2>
+    <div class="grid">
+      <div class="stat"><div class="lab">Detak Jantung</div><div class="val"><span id="hr">—</span> <span>bpm</span></div></div>
+      <div class="stat"><div class="lab">Field RR</div><div class="val" style="font-size:18px" id="rrFlag">—</div></div>
+      <div class="stat"><div class="lab">RR Terakhir</div><div class="val"><span id="rrLast">—</span> <span>ms</span></div></div>
+      <div class="stat"><div class="lab">Total RR</div><div class="val" id="rrCount">0</div></div>
+      <div class="stat"><div class="lab">Outlier</div><div class="val"><span id="outPct">—</span> <span>%</span></div></div>
+      <div class="stat"><div class="lab">RMSSD sementara</div><div class="val"><span id="rmssd">—</span> <span>ms</span></div></div>
+      <div class="stat"><div class="lab">Durasi</div><div class="val" id="dur">0:00</div></div>
+      <div class="stat"><div class="lab">Baterai</div><div class="val"><span id="batt">—</span> <span>%</span></div></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Tachogram (deret RR)</h2>
+    <canvas id="chart" width="1200" height="300"></canvas>
+    <div class="note">Garis putus-putus = batas fisiologis 300–2000 ms. Titik merah = RR yang ditandai outlier menurut kriteria T1.5 (di luar 0,3–2,0 s <em>atau</em> selisih &gt;20% dari RR sebelumnya).</div>
+  </div>
+
+  <div class="card">
+    <h2>Log</h2>
+    <div class="log" id="log">Menunggu koneksi…</div>
+  </div>
+
+  <div class="card">
+    <h2>Cara membaca hasilnya</h2>
+    <div class="note" style="font-size:13.5px">
+      <p style="margin:6px 0"><span class="pill pill-ok">LULUS</span> &nbsp;Field RR terdeteksi <strong>dan</strong> outlier ≤ 5% saat duduk diam ±5 menit. Sebagai acuan, ECG dada pada WESAD menghasilkan outlier 0,0–4,2%. Sensor layak dipakai.</p>
+      <p style="margin:6px 0"><span class="pill pill-no">GAGAL</span> &nbsp;Field RR tidak muncul sama sekali → perangkat hanya mengirim bpm rata-rata, <strong>kembalikan segera</strong>. Atau outlier &gt; 10% → sinyal terlalu kotor; periksa kelembapan elektroda dan posisi sabuk, ulangi; kalau tetap tinggi, perangkat tidak layak untuk RMSSD.</p>
+      <p style="margin:6px 0">Basahi elektroda sabuk dengan sedikit air atau gel sebelum merekam, dan pasang tepat di bawah tulang dada. Elektroda kering adalah penyebab outlier tinggi yang paling sering.</p>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  const HR_SERVICE='heart_rate', HR_CHAR='heart_rate_measurement';
+  const BAT_SERVICE='battery_service', BAT_CHAR='battery_level';
+
+  const $=id=>document.getElementById(id);
+  const logEl=$('log');
+  let device=null, char=null, rrAll=[], sawRRFlag=false, everConnected=false, t0=null, timer=null;
+
+  function log(m){
+    const ts=new Date().toLocaleTimeString('id-ID');
+    logEl.textContent += `\n[${ts}] ${m}`;
+    logEl.scrollTop=logEl.scrollHeight;
+  }
+  function setVerdict(cls, main, sub){
+    const v=$('verdict');
+    v.className='verdict '+cls;
+    v.innerHTML = main + (sub? `<small>${sub}</small>`:'');
+  }
+
+  // Kriteria outlier T1.5: RR di luar 0,3–2,0 s ATAU selisih >20% dari RR SEBELUMNYA
+  function markOutliers(rr){
+    const flags=rr.map(()=>false);
+    for(let i=0;i<rr.length;i++){
+      if(rr[i]<300||rr[i]>2000){flags[i]=true;continue;}
+      if(i>0 && Math.abs(rr[i]-rr[i-1])/rr[i-1] > 0.20) flags[i]=true;
+    }
+    return flags;
+  }
+  function rmssdOf(rr,flags){
+    const clean=rr.filter((_,i)=>!flags[i]);
+    if(clean.length<3) return null;
+    let s=0,n=0;
+    for(let i=1;i<clean.length;i++){const d=clean[i]-clean[i-1];s+=d*d;n++;}
+    return n? Math.sqrt(s/n):null;
+  }
+
+  function refresh(){
+    const flags=markOutliers(rrAll);
+    const nOut=flags.filter(Boolean).length;
+    const pct = rrAll.length? (nOut/rrAll.length*100):0;
+    $('rrCount').textContent=rrAll.length;
+    $('outPct').textContent = rrAll.length? pct.toFixed(1):'—';
+    const r=rmssdOf(rrAll,flags);
+    $('rmssd').textContent = r!=null? r.toFixed(1):'—';
+    draw(rrAll,flags);
+
+    if(!everConnected) return;
+    if(!sawRRFlag){
+      setVerdict('v-bad','✗ TIDAK ADA RR-INTERVAL — perangkat tidak layak',
+        'Sensor hanya mengirim detak jantung rata-rata. RMSSD/SDNN tidak dapat dihitung. Kembalikan perangkat selagi masih dalam masa retur.');
+    } else if(rrAll.length<60){
+      setVerdict('v-ok','✓ Field RR terdeteksi — lanjutkan merekam',
+        `Baru ${rrAll.length} denyut terkumpul. Rekam sambil duduk diam ±5 menit (±300 denyut) agar persentase outlier bermakna.`);
+    } else if(pct<=5){
+      setVerdict('v-ok',`✓ LULUS — RR terdeteksi, outlier ${pct.toFixed(1)}%`,
+        'Setara mutu ECG dada pada WESAD (0,0–4,2%). Sensor layak dipakai untuk analisis HRV.');
+    } else if(pct<=10){
+      setVerdict('v-wait',`⚠ Batas — outlier ${pct.toFixed(1)}%`,
+        'Masih di bawah gerbang 10%, tapi di atas mutu WESAD. Basahi elektroda, betulkan posisi sabuk, lalu Reset dan ulangi.');
+    } else {
+      setVerdict('v-bad',`✗ GAGAL — outlier ${pct.toFixed(1)}% (gerbang 10%)`,
+        'Sinyal terlalu kotor untuk RMSSD. Periksa kelembapan elektroda dan posisi sabuk lalu ulangi; jika tetap tinggi, perangkat tidak layak.');
+    }
+  }
+
+  function draw(rr,flags){
+    const c=$('chart'), g=c.getContext('2d');
+    const W=c.width,H=c.height,pad=28;
+    g.clearRect(0,0,W,H);
+    const show=rr.slice(-300), sf=flags.slice(-300);
+    if(!show.length){g.fillStyle='#8a97b1';g.font='16px Segoe UI';g.fillText('Belum ada data RR',pad,H/2);return;}
+    const lo=Math.min(300,Math.min(...show)-50), hi=Math.max(2000,Math.max(...show)+50);
+    const x=i=>pad+i*(W-2*pad)/Math.max(show.length-1,1);
+    const y=v=>H-pad-((v-lo)/(hi-lo))*(H-2*pad);
+    g.strokeStyle='#d5dbe8';g.lineWidth=1;g.setLineDash([5,5]);
+    [300,2000].forEach(v=>{g.beginPath();g.moveTo(pad,y(v));g.lineTo(W-pad,y(v));g.stroke();});
+    g.setLineDash([]);
+    g.strokeStyle='#2f6fed';g.lineWidth=2;g.beginPath();
+    show.forEach((v,i)=> i? g.lineTo(x(i),y(v)) : g.moveTo(x(i),y(v)));
+    g.stroke();
+    show.forEach((v,i)=>{ if(sf[i]){g.fillStyle='#c0392b';g.beginPath();g.arc(x(i),y(v),3.5,0,7);g.fill();} });
+    g.fillStyle='#5b6b85';g.font='12px Segoe UI';
+    g.fillText(Math.round(hi)+' ms',4,y(hi)+12); g.fillText(Math.round(lo)+' ms',4,y(lo));
+  }
+
+  function onData(e){
+    const dv=e.target.value, flags=dv.getUint8(0);
+    let i=1;
+    const hr=(flags&0x01)? dv.getUint16(i,true) : dv.getUint8(i);
+    i+=(flags&0x01)?2:1;
+    if(flags&0x08) i+=2;                 // Energy Expended
+    $('hr').textContent=hr;
+    if(flags&0x10){
+      if(!sawRRFlag){ sawRRFlag=true; log('✓ Bit RR (0x10) MENYALA — perangkat mengirim RR-interval.'); }
+      const batch=[];
+      for(; i+1<dv.byteLength; i+=2) batch.push(dv.getUint16(i,true)/1024*1000);
+      batch.forEach(v=>rrAll.push(Math.round(v*10)/10));
+      if(batch.length) $('rrLast').textContent=batch[batch.length-1].toFixed(1);
+      $('rrFlag').innerHTML='<span class="pill pill-ok">ADA</span>';
+    } else {
+      $('rrFlag').innerHTML='<span class="pill pill-no">TIDAK ADA</span>';
+    }
+    refresh();
+  }
+
+  async function connect(){
+    if(!navigator.bluetooth){
+      setVerdict('v-bad','Browser ini tidak mendukung Web Bluetooth','Gunakan Chrome, Edge, atau Opera di desktop/Android. Safari dan Firefox tidak didukung.');
+      return;
+    }
+    try{
+      log('Membuka pemilih perangkat…');
+      device=await navigator.bluetooth.requestDevice({
+        filters:[{services:[HR_SERVICE]}], optionalServices:[BAT_SERVICE]
+      });
+      $('devInfo').textContent='Perangkat: '+(device.name||'(tanpa nama)')+'  ·  id '+device.id;
+      log('Terpilih: '+(device.name||'(tanpa nama)'));
+      device.addEventListener('gattserverdisconnected',()=>{ log('Koneksi terputus.'); stopTimer(); $('btnConnect').disabled=false; $('btnStop').disabled=true; });
+
+      const server=await device.gatt.connect();
+      log('GATT tersambung.');
+      const svc=await server.getPrimaryService(HR_SERVICE);
+      char=await svc.getCharacteristic(HR_CHAR);
+      await char.startNotifications();
+      char.addEventListener('characteristicvaluechanged',onData);
+      log('Notifikasi 0x2A37 aktif. Menunggu paket…');
+      everConnected=true;
+      if(!t0){ t0=Date.now(); startTimer(); }
+
+      try{
+        const bs=await server.getPrimaryService(BAT_SERVICE);
+        const bc=await bs.getCharacteristic(BAT_CHAR);
+        const bv=await bc.readValue();
+        $('batt').textContent=bv.getUint8(0);
+      }catch(_){ log('Battery Service tidak tersedia (tidak masalah).'); }
+
+      $('btnConnect').disabled=true; $('btnStop').disabled=false;
+      $('btnCsv').disabled=false; $('btnJson').disabled=false; $('btnReset').disabled=false;
+      setVerdict('v-wait','Terhubung — menunggu paket pertama…','Jika setelah ±10 detik “Field RR” tetap TIDAK ADA, perangkat tidak mengirim RR-interval.');
+    }catch(err){
+      log('Gagal: '+err.message);
+      if(err.name!=='NotFoundError') setVerdict('v-bad','Gagal terhubung', err.message);
+    }
+  }
+
+  function startTimer(){ timer=setInterval(()=>{
+    const s=Math.floor((Date.now()-t0)/1000);
+    $('dur').textContent=Math.floor(s/60)+':'+String(s%60).padStart(2,'0');
+  },1000); }
+  function stopTimer(){ if(timer){clearInterval(timer);timer=null;} }
+
+  function download(name,text,mime){
+    const b=new Blob([text],{type:mime}), u=URL.createObjectURL(b);
+    const a=document.createElement('a'); a.href=u; a.download=name; a.click();
+    setTimeout(()=>URL.revokeObjectURL(u),1500);
+  }
+
+  $('btnConnect').onclick=connect;
+  $('btnStop').onclick=()=>{ if(device&&device.gatt.connected) device.gatt.disconnect(); };
+  $('btnReset').onclick=()=>{ rrAll=[]; t0=Date.now(); log('Hitungan direset.'); refresh(); };
+  $('btnCsv').onclick=()=>{
+    const flags=markOutliers(rrAll);
+    let csv='index,rr_ms,outlier\n';
+    rrAll.forEach((v,i)=> csv+=`${i},${v},${flags[i]?1:0}\n`);
+    download('rr_uji_sensor.csv',csv,'text/csv');
+  };
+  $('btnJson').onclick=()=>{
+    const flags=markOutliers(rrAll);
+    const nOut=flags.filter(Boolean).length;
+    download('rr_uji_sensor.json', JSON.stringify({
+      perangkat: device? (device.name||null):null,
+      dicatat_pada: new Date().toISOString(),
+      jumlah_rr: rrAll.length,
+      outlier: nOut,
+      outlier_persen: rrAll.length? +(nOut/rrAll.length*100).toFixed(2):null,
+      rmssd_ms: (()=>{const r=rmssdOf(rrAll,flags);return r!=null? +r.toFixed(2):null;})(),
+      kriteria_outlier: 'RR di luar 300-2000 ms atau selisih >20% dari RR sebelumnya (T1.5)',
+      rr_ms: rrAll
+    },null,2),'application/json');
+  };
+
+  refresh();
+})();
+</script>
+</body>
+</html>

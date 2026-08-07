@@ -61,6 +61,17 @@ describe('recogniseWearLocation', () => {
     )
   })
 
+  it('separates the two Coospo families, which share a brand name', () => {
+    // H series is a chest strap, HW series is an optical armband. The brand
+    // pattern alone sent both down the ECG path.
+    expect(recogniseWearLocation('Coospo H6')).toBe('chest')
+    expect(recogniseWearLocation('Coospo H808S')).toBe('chest')
+    expect(recogniseWearLocation('Coospo H9Z')).toBe('chest')
+    expect(recogniseWearLocation('Coospo HW9')).toBe('wrist')
+    expect(recogniseWearLocation('Coospo HW807')).toBe('wrist')
+    expect(recogniseWearLocation('Coospo HW706')).toBe('wrist')
+  })
+
   it('returns null for anything it does not actually recognise', () => {
     // Null means "ask the person". Guessing here would silently miscalibrate
     // how much the whole session's reading is trusted.
