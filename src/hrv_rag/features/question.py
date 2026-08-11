@@ -55,18 +55,43 @@ def _median_features(rows: pd.DataFrame, columns: list[str]) -> dict[str, float]
 def segments_for_window(segments: pd.DataFrame, start_sec: float,
                         end_sec: float) -> pd.DataFrame:
     """
-    Select segments whose midpoint falls inside a time window.
+    Select segments that lie MOSTLY inside a time window.
 
-    The MIDPOINT is used rather than the start or the end. With 60-second windows
-    sliding every 30 seconds, a segment that merely touches the edge of an answer
-    is mostly made of something else — silence, or the previous question. Requiring
-    the midpoint to land inside means the segment is genuinely dominated by the
-    window it is assigned to.
+    A segment counts when more than half of it falls within the window. With
+    60-second segments sliding every 30 seconds, a segment that merely touches the
+    edge of an answer is mostly made of something else — silence, or the previous
+    question — so it would describe the wrong moment.
+
+    This used to test whether the segment's MIDPOINT landed inside, which is the
+    same rule everywhere except at an exact tie, and the tie is not rare: it is
+    precisely what the configured session timing produces. With a 90-second answer
+    followed by a 60-second gap, the segment spanning [60, 120) has its midpoint at
+    90.0 — the very instant the gap begins — so it was counted as recovery data
+    despite being half answer data. Recovery was then measured partly from the
+    stress it was supposed to be measuring the retreat from, which understated it.
+    On the reference S2 numbers that turned 53% recovery into 40%, and flipped the
+    reported resilience quadrant from "responsive but flexible" to "low resilience".
+    The user would have been told the opposite of what the recording showed.
+
+    Requiring a strict majority also restores what `SessionConfig` claims: a
+    60-second gap yields exactly one recovery segment, not two.
+
+    A consequence worth stating rather than hiding: no segment can ever satisfy a
+    window shorter than the segment itself, so windows under 60 seconds return
+    nothing and the caller reports "not computable". That is the honest answer. A
+    60-second measurement cannot describe a 30-second stretch, and this is the same
+    reasoning that already sets `short_gap_sec` deliberately too short to produce a
+    recovery figure for ordinary questions.
     """
     if segments.empty:
         return segments
-    midpoint = (segments["start_sec"] + segments["end_sec"]) / 2.0
-    return segments[(midpoint >= start_sec) & (midpoint < end_sec)]
+
+    seg_start = segments["start_sec"]
+    seg_end = segments["end_sec"]
+    overlap = (
+        np.minimum(seg_end, end_sec) - np.maximum(seg_start, start_sec)
+    ).clip(lower=0.0)
+    return segments[overlap > (seg_end - seg_start) / 2.0]
 
 
 def measure_question(question: Question, segments: pd.DataFrame,

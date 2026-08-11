@@ -8,36 +8,52 @@
  * or a typed URL — so it redirects instead of showing a failure.
  */
 
-import { Navigate, useOutletContext, useParams } from 'react-router'
-import type { ModeDefinition, StageSegment } from './modes'
+import { useOutletContext, useParams } from 'react-router'
+import type { StageSegment } from './modes'
+import type { StageContext } from './stageContext'
+import { NavigateKeepingSearch } from './NavigateKeepingSearch'
 import { StartPage } from '../pages/StartPage'
 import { SessionPage } from '../pages/SessionPage'
+import { UploadPage } from '../pages/UploadPage'
 import { ProcessingPage } from '../pages/ProcessingPage'
 import { ResultPage } from '../pages/ResultPage'
 
-const STAGES: readonly StageSegment[] = ['mulai', 'sesi', 'proses', 'hasil']
+const STAGES: readonly StageSegment[] = [
+  'mulai',
+  'sesi',
+  'unggah',
+  'proses',
+  'hasil',
+]
 
 function isStage(value: string | undefined): value is StageSegment {
   return STAGES.includes(value as StageSegment)
 }
 
 export function StageRouter() {
-  const mode = useOutletContext<ModeDefinition>()
+  const context = useOutletContext<StageContext>()
   const { stage } = useParams<{ stage: string }>()
+  const { mode } = context
 
-  if (!isStage(stage)) return <Navigate to={`/${mode.id}/mulai`} replace />
-  if (stage === 'sesi' && !mode.runsInterview) {
-    return <Navigate to={`/${mode.id}/mulai`} replace />
+  if (!isStage(stage)) {
+    return <NavigateKeepingSearch to={`/${mode.id}/mulai`} />
+  }
+  // Both of these belong to V3 alone: only V3 runs an interview, and only V3
+  // has a recording that could not have existed before that interview.
+  if ((stage === 'sesi' || stage === 'unggah') && !mode.runsInterview) {
+    return <NavigateKeepingSearch to={`/${mode.id}/mulai`} />
   }
 
   switch (stage) {
     case 'mulai':
-      return <StartPage mode={mode} />
+      return <StartPage {...context} />
     case 'sesi':
-      return <SessionPage />
+      return <SessionPage {...context} />
+    case 'unggah':
+      return <UploadPage {...context} />
     case 'proses':
-      return <ProcessingPage mode={mode} />
+      return <ProcessingPage {...context} />
     case 'hasil':
-      return <ResultPage mode={mode} />
+      return <ResultPage {...context} />
   }
 }

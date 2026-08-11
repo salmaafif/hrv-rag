@@ -127,55 +127,67 @@ class BasePreprocessor(ABC):
 
     def correct_ectopic(self, rr_ms: np.ndarray
                         ) -> tuple[np.ndarray, np.ndarray]:
-        """
-        Flag and repair ectopic or misdetected beats.
+        """Flag and repair ectopic beats — see `correct_ectopic` below."""
+        return correct_ectopic(rr_ms, self.quality_cfg)
 
-        Two criteria per CLAUDE.md:
-        1. Outside the physiological range 0.3-2.0 seconds (200 bpm to 30 bpm).
-        2. Differing by more than 20% from the immediately preceding interval.
 
-        The second criterion is evaluated against the ORIGINAL (uncorrected)
-        values throughout. Two consequences matter:
+def correct_ectopic(rr_ms: np.ndarray, cfg: QualityConfig | None = None
+                    ) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Flag and repair ectopic or misdetected beats.
 
-        - Using original values stops flagging from cascading: the decision for
-          beat i does not depend on how beat i-1 was corrected.
-        - A single ectopic beat normally produces two deviant intervals (one short,
-          then a compensatory long one). This criterion flags both, which is
-          exactly the desired behaviour.
+    A module-level function as well as a method, because it needs no waveform. A
+    recording uploaded as an RR-interval CSV arrives with peak detection already
+    done by the device, so it never passes through a preprocessor — but it still
+    needs exactly this correction, and a second copy would be free to drift away
+    from this one.
 
-        Historical note: an earlier version of this code compared against "the last
-        accepted interval" in an attempt to prevent cascading. That was wrong — the
-        reference value could freeze and reject beats in a long chain (measured at
-        59.5% on S2 under stress, where the literal criterion gives only 1.5%).
+    Two criteria per CLAUDE.md:
+    1. Outside the physiological range 0.3-2.0 seconds (200 bpm to 30 bpm).
+    2. Differing by more than 20% from the immediately preceding interval.
 
-        Flagged values are replaced by linear interpolation from the valid beats
-        around them. Interpolation is preferred over deletion so the time axis stays
-        intact; deleting beats would silently shorten the segment.
-        """
-        n = rr_ms.size
-        if n == 0:
-            return rr_ms, np.zeros(0, dtype=bool)
+    The second criterion is evaluated against the ORIGINAL (uncorrected) values
+    throughout. Two consequences matter:
 
-        cfg = self.quality_cfg
-        rr = rr_ms.astype(float).copy()
-        is_outlier = np.zeros(n, dtype=bool)
+    - Using original values stops flagging from cascading: the decision for beat i
+      does not depend on how beat i-1 was corrected.
+    - A single ectopic beat normally produces two deviant intervals (one short,
+      then a compensatory long one). This criterion flags both, which is exactly
+      the desired behaviour.
 
-        # --- Criterion 1: physiological bounds ---
-        lo_ms, hi_ms = cfg.rr_min_sec * 1000.0, cfg.rr_max_sec * 1000.0
-        is_outlier |= (rr < lo_ms) | (rr > hi_ms)
+    Historical note: an earlier version compared against "the last accepted
+    interval" in an attempt to prevent cascading. That was wrong — the reference
+    value could freeze and reject beats in a long chain (measured at 59.5% on S2
+    under stress, where the literal criterion gives only 1.5%).
 
-        # --- Criterion 2: >20% jump from the preceding interval ---
-        # Computed in one pass over the original array rather than in a loop, so no
-        # corrected value can ever become a reference.
-        rel_diff = np.abs(np.diff(rr_ms)) / rr_ms[:-1]
-        is_outlier[1:] |= rel_diff > cfg.max_rel_diff
+    Flagged values are replaced by linear interpolation from the valid beats around
+    them. Interpolation is preferred over deletion so the time axis stays intact;
+    deleting beats would silently shorten the segment.
+    """
+    cfg = cfg or settings.quality
+    n = rr_ms.size
+    if n == 0:
+        return rr_ms, np.zeros(0, dtype=bool)
 
-        # --- Repair by interpolation ---
-        n_bad = int(is_outlier.sum())
-        if 0 < n_bad < n:
-            idx = np.arange(n)
-            rr[is_outlier] = np.interp(
-                idx[is_outlier], idx[~is_outlier], rr[~is_outlier]
-            )
+    rr = rr_ms.astype(float).copy()
+    is_outlier = np.zeros(n, dtype=bool)
 
-        return rr, is_outlier
+    # --- Criterion 1: physiological bounds ---
+    lo_ms, hi_ms = cfg.rr_min_sec * 1000.0, cfg.rr_max_sec * 1000.0
+    is_outlier |= (rr < lo_ms) | (rr > hi_ms)
+
+    # --- Criterion 2: >20% jump from the preceding interval ---
+    # Computed in one pass over the original array rather than in a loop, so no
+    # corrected value can ever become a reference.
+    rel_diff = np.abs(np.diff(rr_ms)) / rr_ms[:-1]
+    is_outlier[1:] |= rel_diff > cfg.max_rel_diff
+
+    # --- Repair by interpolation ---
+    n_bad = int(is_outlier.sum())
+    if 0 < n_bad < n:
+        idx = np.arange(n)
+        rr[is_outlier] = np.interp(
+            idx[is_outlier], idx[~is_outlier], rr[~is_outlier]
+        )
+
+    return rr, is_outlier

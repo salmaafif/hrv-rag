@@ -1,44 +1,79 @@
 /**
  * ResultPage.tsx — stage 3: what the analysis found.
  *
- * V2 and V3 share this screen unchanged, since both report one result per
- * question from the same endpoint. V1 reports one result per minute and gets
- * the timeline chart instead — the chart drawn in the Figma results frame
- * actually belongs here, because only the timeline endpoint returns the
- * continuous series it needs.
+ * Two shapes come back from the two endpoints, so this page picks between two
+ * views. V2 and V3 share `SessionResult` unchanged, since both report one
+ * result per question from the same endpoint. V1's timeline view arrives next.
+ *
+ * The result lives in memory, so opening this URL cold has nothing to show.
+ * That redirects back to the start of the mode rather than rendering an empty
+ * shell, which would look like the analysis had produced nothing.
  */
 
+import { Button } from '../components/Button'
 import { Card } from '../components/Card'
-import type { ModeDefinition } from '../app/modes'
+import { SessionResult } from '../components/SessionResult'
+import { NavigateKeepingSearch } from '../app/NavigateKeepingSearch'
+import { useNavigateKeepingSearch } from '../app/useNavigateKeepingSearch'
+import type { StageContext } from '../app/stageContext'
 
-interface StageProps {
-  mode: ModeDefinition
-}
+export function ResultPage({ mode, session }: StageContext) {
+  const navigate = useNavigateKeepingSearch()
+  const result = session.result
 
-export function ResultPage({ mode }: StageProps) {
-  const perQuestion = mode.endpoint.endsWith('session')
+  if (result === null) {
+    return <NavigateKeepingSearch to={`/${mode.id}/mulai`} />
+  }
 
   return (
     <div className="space-y-6">
-      <Card eyebrow="Ringkasan sesi kamu">
-        <p className="rounded-lg border border-dashed border-hairline p-6 text-center text-sm text-ink-muted">
-          Kalimat ringkasan dari LLM ditambahkan di tahap berikutnya.
-        </p>
-      </Card>
+      {!result.baseline.is_stable && (
+        <Card className="border-level-moderate/40 bg-level-moderate-bg">
+          <p className="text-sm font-semibold text-level-moderate">
+            Periode tenang di awal rekaman kurang stabil
+          </p>
+          <p className="mt-1 text-sm text-level-moderate">
+            {result.baseline.warning}
+          </p>
+          <p className="mt-2 text-sm text-level-moderate">
+            Seluruh penilaian di bawah membandingkan ke periode itu, jadi
+            bacalah hasilnya dengan lebih hati-hati.
+          </p>
+        </Card>
+      )}
 
-      <Card title={perQuestion ? 'Tekanan per pertanyaan' : 'Tekanan per menit'}>
-        <p className="rounded-lg border border-dashed border-hairline p-6 text-center text-sm text-ink-muted">
-          {perQuestion
-            ? 'Daftar pertanyaan dengan tingkat tekanan, penjelasan, dan catatan pemulihan.'
-            : 'Grafik linimasa per menit sepanjang rekaman.'}
-        </p>
-      </Card>
+      {!result.meta.trustworthy && (
+        <Card className="border-level-high/40 bg-level-high-bg">
+          <p className="text-sm font-semibold text-level-high">
+            Penjelasan di bawah belum dapat dipercaya sepenuhnya
+          </p>
+          <p className="mt-1 text-sm text-level-high">
+            Pemeriksaan otomatis menemukan bahwa kalimat penjelasannya memuat
+            hal yang tidak didukung data. Tingkat tekanannya sendiri tetap sah —
+            itu ditentukan oleh aturan, bukan oleh model bahasa.
+          </p>
+        </Card>
+      )}
 
-      <Card title="Rekomendasi latihan">
-        <p className="rounded-lg border border-dashed border-hairline p-6 text-center text-sm text-ink-muted">
-          Saran dari LLM ditambahkan di tahap berikutnya.
-        </p>
-      </Card>
+      {'questions' in result ? (
+        <SessionResult result={result} />
+      ) : (
+        <Card title="Tekanan per menit">
+          <p className="rounded-lg border border-dashed border-hairline p-6 text-center text-sm text-ink-muted">
+            Grafik linimasa ditambahkan di tahap berikutnya.
+          </p>
+        </Card>
+      )}
+
+      <Button
+        variant="accent"
+        onClick={() => {
+          session.restart()
+          navigate(`/${mode.id}/mulai`)
+        }}
+      >
+        Latihan lagi
+      </Button>
     </div>
   )
 }

@@ -54,6 +54,44 @@ dibangun lebih dulu dengan data tiruan (mock) mengikuti bentuk ini**.
 - `baseline_minutes` — berapa menit awal dipakai sebagai baseline (bawaan: 4)
 - `modality` — `"ECG"` atau `"PPG"`
 
+#### Format CSV interval RR — DITETAPKAN 6 Agt 2026
+
+**Tanpa header, satu kolom angka, satuan milidetik, satu interval per baris:**
+
+```
+856
+842
+871
+863
+```
+
+Dipilih karena itulah keluaran mentah aplikasi pengukur denyut (Polar Sensor
+Logger, Elite HRV, dan sejenisnya), sehingga pengguna tidak perlu menyunting
+berkas sebelum mengunggah — dan menyuruh orang menyunting berkas justru
+mengundang kesalahan yang lebih parah daripada yang dicegahnya.
+
+Konsekuensinya berkas tidak membawa penanda satuan sama sekali, jadi berkas yang
+salah satuan tidak bisa dibedakan dari yang benar hanya dari bentuknya.
+`preprocessing/intervals.py` karena itu memeriksa terhadap fisiologi manusia dan
+**menolak**, bukan menebak. Dua kekeliruan yang mudah terjadi:
+
+| Isi berkas | Median | Ditolak dengan alasan |
+|---|---|---|
+| Detik (`0.856`) | < 10 | Semua nilai di luar rentang 0,3–2,0 dtk; tanpa penolakan, 100% denyut ditandai outlier dan laporannya jadi "tidak ada data" yang membingungkan |
+| **Detak jantung** (`70`) | 10–300 | **Paling berbahaya.** BPM dan interval adalah kebalikan satu sama lain, jadi membacanya tertukar tidak sekadar salah skala — ia **membalik kesimpulan**. Jantung yang berpacu dilaporkan melambat, dan tekanan yang meningkat terbaca sebagai menenang |
+
+Yang ditoleransi: baris header bila ada, baris kosong, nilai desimal, dan kolom
+kedua (diabaikan). Yang tidak ditoleransi: baris rusak di tengah berkas —
+melewatinya diam-diam akan memendekkan rekaman dan menggeser seluruh stempel
+waktu sesudahnya.
+
+**Catatan metodologis untuk sidang.** Masukan berupa interval RR **menggantikan**
+tahap filter dan deteksi puncak, bukan melewatinya: alatnya sudah mengerjakan itu
+pada sinyal mentah sebelum berkasnya keluar. Artinya untuk berkas unggahan, cabang
+ECG dan PPG tidak berbeda sama sekali — modalitas hanya bertahan sebagai label yang
+masuk ke prompt (Aturan Wajib #5). Pemisahan dua berkas yang diwajibkan CLAUDE.md
+tetap berlaku untuk jalur dataset penelitian, yang memang mulai dari gelombang.
+
 **Keluaran**:
 ```json
 {

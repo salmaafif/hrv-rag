@@ -30,13 +30,23 @@ from pathlib import Path
 from ..core.schemas import Assessment, LLMResponse
 
 
-def cache_key(subject: str, phase: str, segment: int, kb_version: str,
-              prompt_version: str, model: str, temperature: float,
-              pinned: str | None) -> str:
-    """Identity of one assessment under one exact configuration."""
+def cache_key(subject: str, phase: str, segment: int, modality: str,
+              kb_version: str, prompt_version: str, model: str,
+              temperature: float, pinned: str | None) -> str:
+    """
+    Identity of one assessment under one exact configuration.
+
+    `modality` belongs in here even though it names the recording rather than the
+    settings. WESAD is the whole reason the modality comparison is possible: the
+    same subject, the same phase and the same 60 seconds exist twice, once as ECG
+    and once as PPG. Without modality in the key those two are the same entry, so
+    asking for the PPG assessment would hand back the ECG one that was already
+    stored — and the paired comparison in T6.4 would be ECG measured against
+    itself, reporting perfect agreement that was never computed.
+    """
     pin = pinned or "none"
-    return (f"{subject}|{phase}|{segment}|{kb_version}|{prompt_version}"
-            f"|{model}|{temperature}|{pin}")
+    return (f"{subject}|{phase}|{segment}|{modality}|{kb_version}"
+            f"|{prompt_version}|{model}|{temperature}|{pin}")
 
 
 class AssessmentCache:

@@ -211,6 +211,14 @@ export interface QuestionTimelineEntry {
 export interface AnalyzeRequest {
   /** Beat-to-beat intervals in milliseconds, when coming from Bluetooth. */
   rr_ms?: number[]
+  /**
+   * Raw CSV text, when the source is an uploaded file.
+   *
+   * Exactly one of `rr_ms` and `csv` is sent. The recording never travels as a
+   * `.pkl`: the WESAD files run to hundreds of megabytes, which is not
+   * something anyone will upload to a hosted demo.
+   */
+  csv?: string
   /** How many minutes at the start of the recording form the baseline. */
   baseline_minutes: number
   modality: Modality

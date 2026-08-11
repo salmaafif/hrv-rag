@@ -85,10 +85,26 @@ def main() -> None:
     dev = list(settings.split.dev_subjects)
     data = data[data["subject"].isin(dev)]
 
+    # Report who is actually in the table, not who was supposed to be. Printing the
+    # configured list meant the header claimed five subjects whatever the CSV held,
+    # so a table that had been overwritten by a single-subject run still announced
+    # "S2, S6, S10, S14, S17" — and the inflated macro-F1 underneath it looked
+    # trustworthy. Thresholds get frozen from this output and carried into the
+    # thesis, so it has to describe the data it read.
+    present = sorted(data["subject"].unique(), key=lambda s: dev.index(s))
+    missing = [s for s in dev if s not in present]
+
     print("Calibrating the stress rule on DEVELOPMENT subjects only.")
-    print(f"  subjects : {', '.join(dev)}")
+    print(f"  subjects : {', '.join(present)}")
     print(f"  segments : {len(data)}")
-    print(f"  test subjects ({len(settings.split.test_subjects)}) remain sealed.\n")
+    print(f"  test subjects ({len(settings.split.test_subjects)}) remain sealed.")
+    if missing:
+        sys.exit(
+            f"\n  ABORTED: {', '.join(missing)} missing from {FEATURES_CSV.name}.\n"
+            f"  Calibrating on a subset would freeze thresholds fitted to fewer\n"
+            f"  people than the protocol specifies. Rerun scripts/run_features.py."
+        )
+    print()
 
     base = settings.stress_rule
     results = []

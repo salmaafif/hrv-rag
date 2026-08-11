@@ -44,22 +44,38 @@ def baseline() -> BaselineProfile:
 
 
 # ------------------------------------------------------- window selection
-def test_window_selects_by_midpoint(segments):
+def test_window_selects_segments_mostly_inside(segments):
     """
-    A segment belongs to the window containing its MIDPOINT.
+    A segment belongs to a window when MORE THAN HALF of it lies inside.
 
-    Selecting by overlap instead would drag in segments that merely touch the edge
-    of an answer while being mostly composed of something else.
+    Anything looser drags in segments that merely touch the edge of a window while
+    being mostly composed of something else.
     """
     rows = segments_for_window(segments, 45.0, 105.0)
-    midpoints = ((rows["start_sec"] + rows["end_sec"]) / 2).tolist()
-    assert midpoints == [60.0, 90.0]
+    assert rows["start_sec"].tolist() == [30, 60]
 
 
-def test_window_upper_bound_is_exclusive(segments):
-    """A midpoint exactly on the upper bound belongs to the NEXT window."""
-    rows = segments_for_window(segments, 0.0, 60.0)
-    assert ((rows["start_sec"] + rows["end_sec"]) / 2).tolist() == [30.0]
+def test_window_rejects_segment_exactly_half_inside(segments):
+    """
+    An exact 50/50 split does NOT count — "half inside" is not "mostly inside".
+
+    This is the tie the configured session timing actually produces, and treating it
+    as a member is what let answer data leak into the recovery window.
+    """
+    # Segment [60,120) is precisely half inside [90,150).
+    rows = segments_for_window(segments, 90.0, 150.0)
+    assert 60 not in rows["start_sec"].tolist()
+    assert rows["start_sec"].tolist() == [90]
+
+
+def test_window_shorter_than_a_segment_selects_nothing(segments):
+    """
+    A 60-second segment cannot describe a 30-second window, so none is returned.
+
+    The caller then reports "not computable" rather than quoting a number measured
+    over the wrong span.
+    """
+    assert segments_for_window(segments, 90.0, 120.0).empty
 
 
 def test_empty_window_returns_empty(segments):
@@ -91,15 +107,50 @@ def test_reactivity_computed_against_baseline(segments, baseline):
 
 def test_recovery_computed_when_gap_exists(segments, baseline):
     """
-    Answer covers midpoints 90 and 120 (RMSSD median 29), gap covers midpoint 150
-    (RMSSD 45). Baseline 50, so the deviation was 21 and 16 of it returned: 76.2%.
+    Answer [75,135) takes segments 60 and 90 (RMSSD 30 and 28, median 29). The gap
+    is 60 s — the length `SessionConfig.recovery_gap_sec` actually schedules — and
+    takes segments 120 and 150 (RMSSD 45 and 50, median 47.5).
+
+    Baseline 50, so the deviation was 21 ms and 18.5 of it came back: 88.1%.
     """
     q = Question(number=1, text="?", qtype=QuestionType.BEHAVIOURAL,
                  answer_start_sec=75.0, answer_end_sec=135.0,
-                 gap_end_sec=165.0, is_difficult=True)
+                 gap_end_sec=195.0, is_difficult=True)
     m = measure_question(q, segments, baseline)
     assert m.recovery.is_computable
-    assert m.recovery.percent == pytest.approx(76.19, abs=0.1)
+    assert m.recovery.percent == pytest.approx(88.10, abs=0.1)
+
+
+def test_recovery_ignores_segment_still_half_inside_the_answer(baseline):
+    """
+    Regression test for the contamination that flipped a user-visible verdict.
+
+    Timing here is exactly what the real configuration produces: a 90-second answer
+    followed by a 60-second gap. Segment [60,120) straddles the boundary — half
+    answer, half gap — and its midpoint sits precisely on the instant the gap opens.
+    Counting it as recovery drags the stressed value into the measurement it is
+    supposed to be compared against, which understates how much the person settled.
+
+    The clean gap segment alone reports 100% recovery. Including the straddler
+    dropped that to 55%, which is the difference between telling someone they
+    recovered fully and telling someone they barely recovered at all.
+    """
+    segments = pd.DataFrame({
+        "start_sec": [0, 30, 60, 90],
+        "end_sec": [60, 90, 120, 150],
+        # Answer segments sit at 30 ms; the clean gap segment is back at baseline.
+        "rmssd": [30.0, 30.0, 40.0, 50.0],
+        "mean_hr": [85.0, 85.0, 78.0, 70.0],
+        "outlier_pct": [1.0, 1.0, 1.0, 1.0],
+    })
+    q = Question(number=1, text="?", qtype=QuestionType.BEHAVIOURAL,
+                 answer_start_sec=0.0, answer_end_sec=90.0,
+                 gap_end_sec=150.0, is_difficult=True)
+    m = measure_question(q, segments, baseline)
+
+    assert m.recovery.is_computable
+    # Only segment [90,150) counts, so recovery is (30-50)/(30-50) = 100%.
+    assert m.recovery.percent == pytest.approx(100.0, abs=0.1)
 
 
 def test_no_gap_means_recovery_not_computable(segments, baseline):

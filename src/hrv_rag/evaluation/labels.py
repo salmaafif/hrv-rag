@@ -27,9 +27,17 @@ from ..core.types import Phase
 
 
 class TrueLabel(str, Enum):
-    """Ground-truth stress level derived from the dataset."""
+    """
+    Ground-truth stress level derived from the dataset.
+
+    Ordinal, not nominal: LOW < MODERATE < HIGH. MODERATE exists only because
+    SWELL-KW supplies a genuine middle condition. WESAD never uses it — a subject
+    there is either resting or undergoing TSST — so which labels are in play is a
+    property of the DATASET and is declared per mapping below, never assumed.
+    """
 
     LOW = "low"
+    MODERATE = "moderate"
     HIGH = "high"
 
 
@@ -39,6 +47,30 @@ WESAD_PHASE_TO_LABEL: dict[Phase, TrueLabel] = {
     Phase.QUESTION: TrueLabel.HIGH,
 }
 
+#: SWELL-KW condition -> ground truth, the three-level gradient WESAD cannot give.
+#:
+#: The ordering follows the experiment's own design rather than an interpretation
+#: of it. Neutral is the ordinary working condition; time pressure removes a third
+#: of the available time; interruption adds eight unexpected emails ON TOP of the
+#: task. Each step adds a demand without removing the previous one.
+#:
+#: `calibration` is the rest block, and it anchors each subject's personal
+#: baseline instead of being scored — the same role WESAD's baseline phase plays.
+SWELL_PHASE_TO_LABEL: dict[str, TrueLabel] = {
+    "no_stress": TrueLabel.LOW,
+    "time_pressure": TrueLabel.MODERATE,
+    "interruption": TrueLabel.HIGH,
+}
+
+#: Which labels each dataset can actually produce. Reported metrics must be built
+#: from this rather than from whatever happens to appear in a sample, or a class
+#: that is merely absent from one day's data looks like a class the system failed
+#: on (see `evaluate_classification`).
+DATASET_LABELS: dict[str, list[TrueLabel]] = {
+    "WESAD": [TrueLabel.LOW, TrueLabel.HIGH],
+    "SWELL": [TrueLabel.LOW, TrueLabel.MODERATE, TrueLabel.HIGH],
+}
+
 
 def true_label(phase: str, dataset: str = "WESAD") -> TrueLabel | None:
     """
@@ -46,32 +78,48 @@ def true_label(phase: str, dataset: str = "WESAD") -> TrueLabel | None:
 
     Returning None rather than raising lets a caller feed in a whole table and have
     unlabelled rows filtered naturally, without special-casing at every call site.
+    Rest and calibration blocks return None for exactly that reason: they define
+    the baseline, so scoring the system against them would be marking it on the
+    reference it was handed.
     """
-    if dataset != "WESAD":
-        raise NotImplementedError(
-            f"Label mapping for {dataset} is not defined yet "
-            f"(SWELL-KW and UBFC-Phys are BACKLOG stages 7 and 8)."
-        )
-    try:
-        return WESAD_PHASE_TO_LABEL.get(Phase(phase))
-    except ValueError:
-        return None
+    if dataset == "WESAD":
+        try:
+            return WESAD_PHASE_TO_LABEL.get(Phase(phase))
+        except ValueError:
+            return None
+    if dataset == "SWELL":
+        return SWELL_PHASE_TO_LABEL.get(phase)
+    raise NotImplementedError(
+        f"Label mapping for {dataset} is not defined yet "
+        f"(UBFC-Phys is BACKLOG stage 8)."
+    )
 
 
-def predicted_label(stress_level: str) -> TrueLabel | None:
+def predicted_label(stress_level: str,
+                    dataset: str = "WESAD") -> TrueLabel | None:
     """
-    Map the model's four-way output onto the binary ground truth.
+    Map the system's four-way output onto whatever labels the dataset supports.
 
-        low       -> LOW
-        moderate  -> HIGH
-        high      -> HIGH
-        uncertain -> None (abstention)
+    On WESAD, `moderate` is folded into HIGH, because there is no middle condition
+    to map it to: the subject is either at rest or undergoing TSST, so any
+    elevation above baseline belongs on the stressed side.
 
-    `moderate` is folded into HIGH because WESAD offers no middle condition: the
-    subject is either at rest or undergoing TSST. Any elevation above baseline
-    therefore belongs on the stressed side. This mapping will need revisiting for
-    SWELL-KW, which genuinely has three levels.
+    On SWELL-KW the three levels are kept apart, and that is the point of using it.
+    The upper threshold of the scoring rule could never be calibrated on WESAD —
+    with only two conditions, "moderate" and "high" both landed in the same class
+    and every candidate threshold scored identically (BACKLOG T2c.10). SWELL is the
+    first dataset where that boundary is answerable at all.
+
+    `uncertain` is an abstention under either mapping.
     """
+    if dataset == "SWELL":
+        return {
+            "low": TrueLabel.LOW,
+            "moderate": TrueLabel.MODERATE,
+            "high": TrueLabel.HIGH,
+            "uncertain": None,
+        }.get(stress_level)
+
     return {
         "low": TrueLabel.LOW,
         "moderate": TrueLabel.HIGH,

@@ -89,13 +89,21 @@ class FaithfulnessReport:
     n_cited_unretrieved_only: int = 0
     examples: list[str] = field(default_factory=list)
 
+    #: Assessments that broke at least one rule. Counted per assessment, because an
+    #: output that both invents a number and fabricates a citation is still one bad
+    #: output. Adding the two counters instead double-counts it, and `max(0.0, ...)`
+    #: below then hides the symptom by clipping the impossible negative away: ten
+    #: assessments of which six broke both rules reported a clean rate of 0% when
+    #: four were in fact spotless. This is the faithfulness figure for T5.6, so it
+    #: has to be countable by hand from the same records.
+    n_violating: int = 0
+
     @property
     def clean_rate(self) -> float:
         """Fraction of outputs with no citation or numeric violation."""
         if not self.n_total:
             return 0.0
-        bad = self.n_unknown_reference + self.n_invented_number
-        return max(0.0, (self.n_total - bad) / self.n_total)
+        return (self.n_total - self.n_violating) / self.n_total
 
     def summary(self) -> str:
         lines = [
@@ -138,6 +146,8 @@ def measure_faithfulness(assessments: list) -> FaithfulnessReport:
                 f"{a.session_id} seg {a.segment_index}: numbers "
                 f"{a.invented_numbers} do not appear in the prompt"
             )
+        if a.unknown_references or a.invented_numbers:
+            report.n_violating += 1
     return report
 
 

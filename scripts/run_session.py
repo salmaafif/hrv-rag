@@ -108,6 +108,10 @@ def report_subject(subject: str, data) -> None:
           f"{'recovery':>15}  {'LEVEL':<9} score")
     print("  " + "-" * 82)
 
+    # Question numbers are carried alongside their values. Reactivities used to be a
+    # bare list whose position was read back as the question number, but questions
+    # with no usable segment are skipped without appending — so once one was
+    # dropped, every later question was named one lower than it really was.
     reactivities, recoveries = [], []
     for question in timeline.questions:
         m = measure_question(question, stressed, baseline)
@@ -122,7 +126,7 @@ def report_subject(subject: str, data) -> None:
 
         recovery = (f"{m.recovery.percent:.0f}%" if m.recovery.is_computable
                     else "not computable")
-        reactivities.append(d_rmssd)
+        reactivities.append((question.number, d_rmssd))
         if m.recovery.is_computable:
             recoveries.append(m.recovery.percent)
 
@@ -136,10 +140,18 @@ def report_subject(subject: str, data) -> None:
         print()
         return
 
-    median_reactivity = float(np.median(reactivities))
+    median_reactivity = float(np.median([d for _, d in reactivities]))
     median_recovery = float(np.median(recoveries)) if recoveries else None
     quadrant = resilience_quadrant(median_reactivity, median_recovery)
-    most = int(np.argmin(reactivities)) + 1
+
+    # The strongest reaction is the LARGEST one, in whichever direction it went.
+    #
+    # Taking the signed minimum assumed RMSSD always falls under pressure. It does
+    # not: S6 and S10 show RMSSD RISING during TSST while heart rate rises too, and
+    # for them the signed minimum picks the question that moved LEAST — the calmest
+    # one is reported as the most triggering. `resilience_quadrant` a few lines up
+    # already judges reactivity by absolute value, so this now agrees with it.
+    most, _ = max(reactivities, key=lambda pair: abs(pair[1]))
 
     print(f"\n  median reactivity : {median_reactivity:.1f}%")
     print(f"  median recovery   : "

@@ -6,7 +6,12 @@ pandas
 
 # --- RAG + LLM ---
 google-genai               # SDK Gemini terkini (pengganti google-generativeai)
-python-dotenv              # baca GEMINI_API_KEY dari .env
+python-dotenv              # baca kunci dari .env
+httpx                      # model swa-inang (Ollama lewat OpenWebUI).
+                           # Sudah terpasang sebagai dependensi google-genai,
+                           # tapi ditulis eksplisit: kode kita memakainya
+                           # langsung, jadi tidak boleh bergantung pada
+                           # kebetulan bahwa paket lain membawanya.
 # Tidak memakai chromadb: 23 chunk cukup disimpan sebagai matriks numpy.
 # Catatan: TIDAK memakai llama-index/langchain. Sesuai CLAUDE.md, retrieval
 # ditulis manual (cosine similarity) karena KB hanya ~15 chunk dan kode manual

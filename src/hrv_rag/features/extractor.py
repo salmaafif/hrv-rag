@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import pandas as pd
 
+from ..config.settings import SegmentationConfig, settings
 from ..core.types import RRSeries
 from .frequency_domain import frequency_features
 from .segmentation import SegmentationResult, segment_rr_series
@@ -44,8 +45,32 @@ def extract_features(series: RRSeries) -> tuple[pd.DataFrame, SegmentationResult
     The `SegmentationResult` is returned as well so the caller can report how many
     windows were dropped and why. That quality information also travels into the
     prompt, allowing the LLM to adjust its confidence score.
+
+    The standard hop is used for EVERY phase, including the resting one.
+
+    That is deliberate, and was briefly got wrong. The resting phase does get
+    sampled more densely — but only when building the personal baseline, which is
+    what `BaselineProfile.from_series` is for. Applying that density here as well
+    looks harmless and is not: on WESAD these rows are also the low-stress class,
+    so doubling them doubled one side of the classification set and dropped
+    macro-F1 from 0.851 to 0.797 without a single measurement having changed.
+
+    Two different jobs, two different sampling rates. The baseline wants the
+    steadiest possible central value from a short recording; the classification
+    set wants segments that are as independent as the design allows.
     """
-    result = segment_rr_series(series)
+    return extract_features_with(series, settings.segmentation)
+
+
+def extract_features_with(series: RRSeries, seg_cfg: SegmentationConfig
+                          ) -> tuple[pd.DataFrame, SegmentationResult]:
+    """
+    Same as `extract_features`, with the segmentation stated explicitly.
+
+    Exists so `BaselineProfile.from_series` can ask for the denser resting hop
+    without that density leaking into the table everything else is built from.
+    """
+    result = segment_rr_series(series, seg_cfg=seg_cfg)
 
     rows = []
     for seg in result.segments:

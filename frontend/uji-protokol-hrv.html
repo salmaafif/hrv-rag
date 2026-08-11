@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Uji Protokol HRV — 3 Blok (Web Bluetooth)</title>
+<style>
+  :root{--navy:#1a2b4a;--blue:#2f6fed;--green:#12a150;--red:#c0392b;--amber:#e08a00;--grey:#5b6b85;--line:#d5dbe8;--bg:#f7f9fc}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:'Segoe UI',system-ui,-apple-system,Arial,sans-serif;background:var(--bg);color:#233;line-height:1.5}
+  .wrap{max-width:1020px;margin:0 auto;padding:22px 18px 70px}
+  h1{font-size:22px;color:var(--navy);margin:0 0 4px}
+  .sub{color:var(--grey);font-size:13.5px;margin-bottom:18px}
+  .card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:18px;margin-bottom:16px}
+  h2{font-size:15px;color:var(--navy);margin:0 0 12px}
+  button{font:inherit;font-weight:600;border:0;border-radius:9px;padding:11px 18px;cursor:pointer;transition:.15s}
+  button:disabled{opacity:.4;cursor:not-allowed}
+  .primary{background:var(--blue);color:#fff}.primary:hover:not(:disabled){background:#1d59d4}
+  .go{background:var(--green);color:#fff}.go:hover:not(:disabled){background:#0e8442}
+  .ghost{background:#eef2f9;color:var(--navy)}.ghost:hover:not(:disabled){background:#e2e8f4}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  .verdict{border-radius:12px;padding:16px 18px;margin-bottom:16px;font-weight:700;font-size:16px}
+  .v-wait{background:#eef2f9;color:var(--grey);font-weight:600}
+  .v-ok{background:#e6f7ee;color:#0b6e38;border:2px solid var(--green)}
+  .v-warn{background:#fff8e6;color:#7a5200;border:2px solid var(--amber)}
+  .v-bad{background:#fdecea;color:#8e2419;border:2px solid var(--red)}
+  .verdict small{display:block;font-weight:500;font-size:13px;margin-top:6px;opacity:.92}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px}
+  .stat{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:11px 13px}
+  .stat .lab{font-size:11px;color:var(--grey);text-transform:uppercase;letter-spacing:.4px}
+  .stat .val{font-size:24px;font-weight:700;color:var(--navy);font-variant-numeric:tabular-nums;margin-top:2px}
+  .stat .val span{font-size:12px;font-weight:500;color:var(--grey)}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left}
+  th{background:var(--navy);color:#fff;font-size:12px}
+  tr:nth-child(even) td{background:#fafbfe}
+  td.num{font-variant-numeric:tabular-nums}
+  canvas{width:100%;height:150px;display:block;background:var(--bg);border:1px solid var(--line);border-radius:8px}
+  .log{font-family:Consolas,ui-monospace,monospace;font-size:12px;background:#12182a;color:#c8d4ea;border-radius:8px;padding:11px;height:130px;overflow-y:auto;white-space:pre-wrap}
+  .note{font-size:12.5px;color:var(--grey);margin-top:10px}
+  .warn{background:#fff8e6;border:1px solid #f0d191;border-radius:9px;padding:11px 13px;font-size:13px;color:#7a5200;margin-bottom:16px}
+  code{background:#eef2f9;padding:1px 5px;border-radius:4px;font-size:12.5px}
+  .pill{display:inline-block;padding:3px 9px;border-radius:20px;font-size:11.5px;font-weight:700}
+  .pill-ok{background:#e6f7ee;color:#0b6e38}.pill-no{background:#fdecea;color:#8e2419}.pill-w{background:#fff3d6;color:#7a5200}
+  .phase-now{font-size:30px;font-weight:800;color:var(--navy);margin:6px 0}
+  .phase-timer{font-size:46px;font-weight:800;color:var(--blue);font-variant-numeric:tabular-nums;line-height:1}
+  .phase-instr{background:#eaf2ff;border-left:4px solid var(--blue);padding:12px 14px;border-radius:0 8px 8px 0;margin-top:12px;font-size:14px}
+  .dev{border:1px solid var(--line);border-radius:10px;padding:12px;margin-bottom:10px;background:var(--bg)}
+  .dev h3{margin:0 0 8px;font-size:13.5px;color:var(--navy)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Uji Protokol HRV — 3 Blok</h1>
+  <div class="sub">Menguji apakah sensor tetap menghasilkan data layak saat pengguna <strong>berbicara di bawah tekanan</strong> — kondisi yang paling menentukan untuk KARIRLINK. Mendukung 1 atau 2 perangkat sekaligus.</div>
+
+  <div class="warn">
+    <strong>Syarat:</strong> Chrome / Edge / Opera. Buka lewat <code>https://</code> atau <code>http://localhost</code> — <code>file://</code> tidak akan bekerja.
+    Jalankan <code>python -m http.server</code> di folder ini lalu buka <code>http://localhost:8000/uji-protokol-hrv.html</code>.
+    <br><strong>Bila halaman tampil tetapi semua angka diam:</strong> buka Console. Perhitungan dimuat sebagai modul dari
+    <code>uji-protokol-hrv.logic.js</code>, dan sebagian mesin Windows melaporkan berkas <code>.js</code> dengan MIME type
+    yang ditolak browser untuk modul. Jalan pintasnya: <code>npm run dev --prefix frontend</code> lalu buka
+    <code>http://localhost:5173/uji-protokol-hrv.html</code> — sudah diuji bekerja.
+  </div>
+
+  <div id="verdict" class="verdict v-wait">Hubungkan perangkat untuk memulai.</div>
+
+  <div class="card">
+    <h2>1 · Perangkat</h2>
+    <div class="dev">
+      <h3>Perangkat A <span style="font-weight:400;color:#5b6b85">— utama (mis. Coospo HW9)</span></h3>
+      <div class="row">
+        <button id="btnA" class="primary">Hubungkan A</button>
+        <span id="infoA" style="font-size:13px;color:#5b6b85">belum terhubung</span>
+      </div>
+      <div class="grid" style="margin-top:10px">
+        <div class="stat"><div class="lab">Field RR</div><div class="val" style="font-size:16px" id="rrflagA">—</div></div>
+        <div class="stat"><div class="lab">RR asli?</div><div class="val" style="font-size:16px" id="synthA">—</div></div>
+        <div class="stat"><div class="lab">HR</div><div class="val"><span id="hrA">—</span> <span>bpm</span></div></div>
+        <div class="stat"><div class="lab">Total RR</div><div class="val" id="cntA">0</div></div>
+      </div>
+    </div>
+    <div class="dev">
+      <h3>Perangkat B <span style="font-weight:400;color:#5b6b85">— opsional, pembanding (mis. chest strap H808S)</span></h3>
+      <div class="row">
+        <button id="btnB" class="ghost">Hubungkan B</button>
+        <span id="infoB" style="font-size:13px;color:#5b6b85">belum terhubung</span>
+      </div>
+      <div class="grid" style="margin-top:10px">
+        <div class="stat"><div class="lab">Field RR</div><div class="val" style="font-size:16px" id="rrflagB">—</div></div>
+        <div class="stat"><div class="lab">RR asli?</div><div class="val" style="font-size:16px" id="synthB">—</div></div>
+        <div class="stat"><div class="lab">HR</div><div class="val"><span id="hrB">—</span> <span>bpm</span></div></div>
+        <div class="stat"><div class="lab">Total RR</div><div class="val" id="cntB">0</div></div>
+      </div>
+    </div>
+    <div class="note">Kedua perangkat dibaca oleh halaman yang sama dengan <strong>satu sumber waktu</strong>, sehingga tidak mungkin terjadi kesalahan penjodohan antar-sensor.</div>
+  </div>
+
+  <div class="card">
+    <h2>2 · Protokol</h2>
+    <div class="row">
+      <button id="btnStart" class="go" disabled>Mulai Protokol</button>
+      <button id="btnNext" class="ghost" disabled>Lanjut Blok Berikutnya</button>
+      <button id="btnStop" class="ghost" disabled>Hentikan</button>
+    </div>
+    <div style="text-align:center;padding:16px 0 4px">
+      <div class="phase-now" id="phaseName">Belum mulai</div>
+      <div class="phase-timer" id="phaseTimer">0:00</div>
+    </div>
+    <div class="phase-instr" id="phaseInstr">Tekan “Mulai Protokol” setelah perangkat terpasang dan lolos pemeriksaan di atas.</div>
+  </div>
+
+  <div class="card">
+    <h2>3 · Hasil per Blok</h2>
+    <div style="overflow-x:auto">
+      <table id="tbl">
+        <thead><tr>
+          <th>Blok</th><th>Alat</th><th class="num">n RR</th><th class="num">Outlier %</th>
+          <th class="num">Segmen layak</th><th class="num">Dibuang</th>
+          <th class="num">mean HR</th><th class="num">RMSSD per segmen (ms)</th>
+        </tr></thead>
+        <tbody id="tbody"><tr><td colspan="8" style="color:#8a97b1">Belum ada data.</td></tr></tbody>
+      </table>
+    </div>
+    <div class="note">
+      Segmen = jendela 60 dtk, overlap 30 dtk. “Layak” = berisi ≥ 30 denyut <em>dan</em> outlier ≤ 10%.
+      Kolom <strong>Dibuang</strong> memisahkan dua sebab yang sangat berbeda: <em>pendek</em> berarti sensor berhenti
+      mengirim (denyutnya hilang), <em>berisik</em> berarti sensor mengirim tapi hasilnya tidak dapat dipercaya.
+      Penyebut “Segmen layak” mencakup keduanya — jendela yang hilang tidak boleh menguap dari hitungan.
+      Acuan ECG dada pada WESAD: outlier 0,0–4,2%.
+      Kolom terakhir menampilkan <strong>median (min–maks)</strong> antar segmen; rentang yang lebar pada blok yang sama
+      adalah tanda bahaya tersendiri, dan sengaja dibiarkan untuk kamu nilai sendiri karena tidak ada ambang yang bisa dipertanggungjawabkan.
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>4 · Perubahan Istirahat → Tertekan</h2>
+    <div class="grid" id="deltaGrid">
+      <div class="stat"><div class="lab">Δ mean HR</div><div class="val"><span id="dHR">—</span> <span>%</span></div></div>
+      <div class="stat"><div class="lab">Δ RMSSD</div><div class="val"><span id="dRM">—</span> <span>%</span></div></div>
+      <div class="stat"><div class="lab">Outlier saat tertekan</div><div class="val"><span id="dOut">—</span> <span>%</span></div></div>
+      <div class="stat"><div class="lab">Hasil segmen tertekan</div><div class="val" style="font-size:18px" id="dYield">—</div></div>
+    </div>
+    <div class="note">Yang diharapkan bila sensor bekerja: <strong>HR naik</strong> saat blok tertekan. Bila HR tidak naik sama sekali, kemungkinan besar peserta tidak benar-benar tertekan — ulangi dengan stresor yang lebih menuntut sebelum menyimpulkan apa pun tentang sensornya.</div>
+  </div>
+
+  <div class="card">
+    <h2>5 · Tachogram</h2>
+    <canvas id="chart" width="1300" height="300"></canvas>
+    <div class="note">Garis biru = perangkat A, hijau = perangkat B. Titik merah = RR yang ditandai outlier. Latar berwarna menandai blok.</div>
+  </div>
+
+  <div class="card">
+    <h2>6 · Ekspor & Log</h2>
+    <div class="row" style="margin-bottom:10px">
+      <button id="btnCsv" class="ghost" disabled>Unduh CSV</button>
+      <button id="btnJson" class="ghost" disabled>Unduh JSON</button>
+      <button id="btnReset" class="ghost">Reset</button>
+    </div>
+    <div class="log" id="log">Menunggu…</div>
+  </div>
+
+  <div class="card">
+    <h2>Cara membaca hasilnya</h2>
+    <div class="note" style="font-size:13.5px">
+      <p style="margin:6px 0"><span class="pill pill-ok">LULUS</span> Outlier blok tertekan ≤ 10%, sebagian besar segmen layak, <em>dan</em> RMSSD istirahat berada di 20–60 ms. Ketiganya harus terpenuhi.</p>
+      <p style="margin:6px 0"><span class="pill pill-w">BATAS</span> Outlier 10–20%, hasil segmen turun tajam, atau RMSSD istirahat di luar rentang wajar. Perbaiki posisi/kekencangan band, ulangi sekali.</p>
+      <p style="margin:6px 0"><span class="pill pill-no">GAGAL</span> Outlier &gt; 20% atau nol segmen layak di blok tertekan. Ini mereplikasi temuan L11 pada perangkat modern — hasil yang sah untuk dilaporkan, tetapi berarti sensor ini tidak dapat dipakai untuk RMSSD.</p>
+      <p style="margin:10px 0 6px"><strong>Kenapa RMSSD istirahat ikut menjadi syarat kelulusan:</strong> gerbang outlier hanya menangkap <em>lonjakan</em> antar denyut. Deret yang salah secara sistematis — misalnya dihaluskan di dalam firmware — justru mulus, sehingga lolos gerbang itu tanpa hambatan sambil membawa angka yang keliru. Besaran RMSSD adalah pemeriksaan yang tidak bisa ditipu dengan cara yang sama.</p>
+      <p style="margin:10px 0 6px"><strong>Batas penafsiran:</strong> dengan satu perangkat, outlier rendah <em>belum</em> membuktikan RMSSD akurat. Uji satu-perangkat dapat <em>membantah</em>, tidak dapat <em>memastikan</em>. Untuk memastikan, hubungkan perangkat B (chest strap) dan bandingkan kolom RMSSD-nya.</p>
+    </div>
+  </div>
+</div>
+
+<!--
+  A module, not a classic script, so the arithmetic can live in a file that
+  Vitest is able to import. Everything below is browser-only: GATT, DOM, canvas.
+  Every number is computed by ./uji-protokol-hrv.logic.js, which mirrors the
+  Python pipeline function for function and is pinned to it by a test fixture
+  generated from Python itself (scripts/make_protocol_fixture.py).
+-->
+<script type="module">
+  import {
+    RR_MIN_MS, RR_MAX_MS, SEGMENT_MIN_BEATS,
+    parseHeartRateMeasurement, correctEctopic, beatTimes,
+    phaseStats, classifyRrSource, looksDerivedFromBpm, judgeDeviceTest,
+  } from './uji-protokol-hrv.logic.js';
+
+  const HR_SVC='heart_rate', HR_CH='heart_rate_measurement', BAT_SVC='battery_service';
+  const $=id=>document.getElementById(id);
+  const logEl=$('log');
+
+  const PHASES=[
+    {key:'istirahat', nama:'Blok 1 — Istirahat', dur:300,
+     instr:'Duduk tegak dan diam. Bernapas normal. <strong>Jangan bicara.</strong> Tangan santai di paha.'},
+    {key:'tertekan',  nama:'Blok 2 — Tertekan',  dur:180,
+     instr:'Hitung mundur dari <strong>1022 dikurangi 13</strong> berulang, <strong>ucapkan setiap jawaban dengan suara keras</strong>. Jika salah atau lupa, ulangi dari 1022. Usahakan tubuh tetap diam — yang bergerak hanya mulut.'},
+    {key:'pemulihan', nama:'Blok 3 — Pemulihan', dur:180,
+     instr:'Berhenti berhitung. Duduk diam kembali, bernapas normal, tidak bicara.'}
+  ];
+
+  const dev = { A:mkDev('A'), B:mkDev('B') };
+  let running=false, phaseIdx=-1, phaseT0=0, tick=null, sessionT0=null;
+
+  // `lastT` is the timestamp of the most recent beat, kept so a delayed BLE
+  // packet cannot place its beats before one already recorded.
+  function mkDev(id){ return {id, obj:null, char:null, rr:[], t:[], phase:[], hr:null, lastT:null,
+    sawRR:false, synthHits:0, synthTot:0, uniq:new Set(), connected:false}; }
+
+  function log(m){ const ts=new Date().toLocaleTimeString('id-ID');
+    logEl.textContent += `\n[${ts}] ${m}`; logEl.scrollTop=logEl.scrollHeight; }
+
+  function setVerdict(cls,main,sub){ const v=$('verdict'); v.className='verdict '+cls;
+    v.innerHTML=main+(sub?`<small>${sub}</small>`:''); }
+
+  /** Statistics for one block of one device — all arithmetic lives in the module. */
+  function statsFor(d,key){
+    const idx=[]; for(let i=0;i<d.rr.length;i++) if(d.phase[i]===key) idx.push(i);
+    if(!idx.length) return null;
+    return phaseStats(idx.map(i=>d.rr[i]), idx.map(i=>d.t[i]));
+  }
+
+  /** "34,2 (28,9–41,0)" — median across eligible segments, with the spread. */
+  function rmssdText(s){
+    const vals=s.rmssdSegments.filter(v=>v!==null);
+    if(!vals.length) return s.rmssd!=null? `(${s.rmssd.toFixed(1)} tanpa segmen layak)` : '—';
+    if(vals.length===1) return vals[0].toFixed(1);
+    return `${s.rmssdMedian.toFixed(1)} (${Math.min(...vals).toFixed(1)}–${Math.max(...vals).toFixed(1)})`;
+  }
+
+  function refresh(){
+    ['A','B'].forEach(k=>{
+      const d=dev[k];
+      $('cnt'+k).textContent=d.rr.length;
+      $('hr'+k).textContent = d.hr!=null? Math.round(d.hr):'—';
+      $('rrflag'+k).innerHTML = !d.connected? '—'
+        : d.sawRR? '<span class="pill pill-ok">ADA</span>' : '<span class="pill pill-no">TIDAK ADA</span>';
+      if(!d.connected){ $('synth'+k).innerHTML='—'; }
+      else {
+        const verdict=classifyRrSource({matches:d.synthHits, samples:d.synthTot, uniqueValues:d.uniq.size});
+        $('synth'+k).innerHTML =
+          verdict==='menilai'  ? '<span class="pill pill-w">menilai…</span>' :
+          verdict==='sintetis' ? '<span class="pill pill-no">SINTETIS</span>'
+                               : '<span class="pill pill-ok">ASLI</span>';
+      }
+    });
+
+    // tabel
+    const rows=[];
+    PHASES.forEach(p=>{
+      ['A','B'].forEach(k=>{
+        if(!dev[k].connected) return;
+        const s=statsFor(dev[k],p.key);
+        if(!s) return;
+        const oCls = s.outlierPct<=10? 'pill-ok' : s.outlierPct<=20? 'pill-w':'pill-no';
+        const dropped = (s.segDroppedShort||s.segDroppedNoisy)
+          ? `${s.segDroppedShort} pendek / ${s.segDroppedNoisy} berisik` : '—';
+        rows.push(`<tr><td>${p.nama.replace('Blok ','B')}</td><td>${k}</td>
+          <td class="num">${s.nBeats}</td>
+          <td class="num"><span class="pill ${oCls}">${s.outlierPct.toFixed(1)}%</span></td>
+          <td class="num">${s.segEligible} / ${s.segTotal}</td>
+          <td class="num" style="font-size:12px">${dropped}</td>
+          <td class="num">${s.meanHr!=null?s.meanHr.toFixed(1):'—'}</td>
+          <td class="num">${rmssdText(s)}</td></tr>`);
+      });
+    });
+    $('tbody').innerHTML = rows.length? rows.join('') : '<tr><td colspan="8" style="color:#8a97b1">Belum ada data.</td></tr>';
+
+    // delta (perangkat A)
+    const a=statsFor(dev.A,'istirahat'), b=statsFor(dev.A,'tertekan');
+    if(b){
+      const aRm = a? (a.rmssdMedian ?? a.rmssd) : null, bRm = b.rmssdMedian ?? b.rmssd;
+      $('dHR').textContent=(a&&a.meanHr&&b.meanHr)?((b.meanHr-a.meanHr)/a.meanHr*100).toFixed(1):'—';
+      $('dRM').textContent=(aRm&&bRm)?((bRm-aRm)/aRm*100).toFixed(1):'—';
+      $('dOut').textContent=b.outlierPct.toFixed(1);
+      $('dYield').textContent=`${b.segEligible} / ${b.segTotal}`;
+      const v=judgeDeviceTest(a,b);
+      setVerdict({lulus:'v-ok', batas:'v-warn', gagal:'v-bad'}[v.level] || 'v-wait', v.headline, v.detail);
+    }
+    draw();
+  }
+
+  function draw(){
+    const c=$('chart'), g=c.getContext('2d'), W=c.width, H=c.height, pad=30;
+    g.clearRect(0,0,W,H);
+    const any = dev.A.rr.length || dev.B.rr.length;
+    if(!any){ g.fillStyle='#8a97b1'; g.font='16px Segoe UI'; g.fillText('Belum ada data RR',pad,H/2); return; }
+    const allT=[...dev.A.t,...dev.B.t], allR=[...dev.A.rr,...dev.B.rr];
+    const tMin=Math.min(...allT), tMax=Math.max(...allT);
+    const lo=Math.min(300,Math.min(...allR)-40), hi=Math.max(1400,Math.max(...allR)+40);
+    const X=t=>pad+(t-tMin)/Math.max(tMax-tMin,1)*(W-2*pad);
+    const Y=v=>H-pad-((v-lo)/(hi-lo))*(H-2*pad);
+    // latar fase
+    const cols={istirahat:'#eef4ff',tertekan:'#fff1e6',pemulihan:'#eafaf1'};
+    PHASES.forEach(p=>{
+      const ts=dev.A.t.filter((_,i)=>dev.A.phase[i]===p.key);
+      if(ts.length<2) return;
+      g.fillStyle=cols[p.key]; g.fillRect(X(ts[0]),pad-10,X(ts[ts.length-1])-X(ts[0]),H-2*pad+20);
+      g.fillStyle='#8a97b1'; g.font='11px Segoe UI'; g.fillText(p.key, X(ts[0])+4, pad-14);
+    });
+    g.strokeStyle='#d5dbe8'; g.setLineDash([5,5]);
+    [RR_MIN_MS,RR_MAX_MS].forEach(v=>{ if(v>lo&&v<hi){g.beginPath();g.moveTo(pad,Y(v));g.lineTo(W-pad,Y(v));g.stroke();} });
+    g.setLineDash([]);
+    [['A','#2f6fed'],['B','#12a150']].forEach(([k,col])=>{
+      const d=dev[k]; if(!d.rr.length) return;
+      const f=correctEctopic(d.rr).isOutlier;
+      g.strokeStyle=col; g.lineWidth=1.8; g.beginPath();
+      d.rr.forEach((v,i)=> i? g.lineTo(X(d.t[i]),Y(v)) : g.moveTo(X(d.t[i]),Y(v)));
+      g.stroke();
+      g.fillStyle='#c0392b';
+      d.rr.forEach((v,i)=>{ if(f[i]){g.beginPath();g.arc(X(d.t[i]),Y(v),3,0,7);g.fill();} });
+    });
+    g.fillStyle='#5b6b85'; g.font='11px Segoe UI';
+    g.fillText(Math.round(hi)+' ms',3,Y(hi)+11); g.fillText(Math.round(lo)+' ms',3,Y(lo));
+  }
+
+  function onData(k,e){
+    const d=dev[k];
+    const {bpm, hasRrIntervals, rrMs} = parseHeartRateMeasurement(e.target.value);
+    d.hr=bpm;
+    if(!hasRrIntervals){ refresh(); return; }
+    if(!d.sawRR){ d.sawRR=true; log(`[${k}] bit RR (0x10) menyala.`); }
+
+    const arrival = sessionT0!=null ? (performance.now()-sessionT0)/1000 : 0;
+    const cur = running && phaseIdx>=0 ? PHASES[phaseIdx].key : 'pra';
+    // Beats are spread backwards from the packet's arrival, so several beats in
+    // one notification no longer land on a single instant.
+    const stamps = beatTimes(rrMs, arrival, d.lastT);
+
+    rrMs.forEach((v,j)=>{
+      d.rr.push(v); d.t.push(stamps[j]); d.phase.push(cur);
+      d.uniq.add(Math.round(v));
+      if(bpm>0){ d.synthTot++; if(looksDerivedFromBpm(v,bpm)) d.synthHits++; }
+    });
+    d.lastT = stamps[stamps.length-1];
+    refresh();
+  }
+
+  async function connect(k){
+    if(!navigator.bluetooth){ setVerdict('v-bad','Browser ini tidak mendukung Web Bluetooth','Gunakan Chrome, Edge, atau Opera.'); return; }
+    const d=dev[k];
+    try{
+      log(`[${k}] membuka pemilih perangkat…`);
+      d.obj=await navigator.bluetooth.requestDevice({ filters:[{services:[HR_SVC]}], optionalServices:[BAT_SVC] });
+      $('info'+k).textContent=(d.obj.name||'(tanpa nama)');
+      d.obj.addEventListener('gattserverdisconnected',()=>{ d.connected=false; log(`[${k}] terputus.`); refresh(); });
+      const srv=await d.obj.gatt.connect();
+      const svc=await srv.getPrimaryService(HR_SVC);
+      d.char=await svc.getCharacteristic(HR_CH);
+      await d.char.startNotifications();
+      d.char.addEventListener('characteristicvaluechanged', ev=>onData(k,ev));
+      d.connected=true;
+      log(`[${k}] tersambung: ${d.obj.name||'(tanpa nama)'}`);
+      $('btn'+k).disabled=true;
+      $('btnStart').disabled=false;
+      $('btnCsv').disabled=false; $('btnJson').disabled=false;
+      setVerdict('v-wait','Terhubung — periksa baris “Field RR” dan “RR asli?” sebelum memulai',
+        'Tunggu ±20 denyut agar penilaian RR sintetis selesai.');
+      refresh();
+    }catch(err){ log(`[${k}] gagal: ${err.message}`); }
+  }
+
+  function startPhase(i){
+    phaseIdx=i;
+    if(i>=PHASES.length){ stop(true); return; }
+    const p=PHASES[i];
+    phaseT0=performance.now();
+    $('phaseName').textContent=p.nama;
+    $('phaseInstr').innerHTML=p.instr;
+    log(`▶ ${p.nama} (${p.dur} dtk)`);
+  }
+  function stop(selesai){
+    running=false; clearInterval(tick); tick=null;
+    $('btnStart').disabled=false; $('btnNext').disabled=true; $('btnStop').disabled=true;
+    $('phaseName').textContent= selesai? 'Protokol selesai' : 'Dihentikan';
+    $('phaseInstr').innerHTML= selesai
+      ? 'Selesai. Periksa tabel per blok dan ringkasan perubahan di atas, lalu unduh datanya.'
+      : 'Protokol dihentikan lebih awal.';
+    $('phaseTimer').textContent='0:00';
+    log(selesai? '■ protokol selesai.' : '■ dihentikan.');
+    refresh();
+  }
+
+  $('btnA').onclick=()=>connect('A');
+  $('btnB').onclick=()=>connect('B');
+  $('btnStart').onclick=()=>{
+    if(!dev.A.sawRR && !dev.B.sawRR){
+      setVerdict('v-bad','Tidak ada field RR — protokol tidak bisa dijalankan','Perangkat hanya mengirim bpm rata-rata. Kembalikan selagi masih dalam masa retur.');
+      return;
+    }
+    running=true; sessionT0=performance.now();
+    ['A','B'].forEach(k=>{ dev[k].rr=[]; dev[k].t=[]; dev[k].phase=[]; dev[k].lastT=null; });
+    $('btnStart').disabled=true; $('btnNext').disabled=false; $('btnStop').disabled=false;
+    startPhase(0);
+    tick=setInterval(()=>{
+      const p=PHASES[phaseIdx]; if(!p) return;
+      const el=(performance.now()-phaseT0)/1000, sisa=Math.max(0,p.dur-el);
+      $('phaseTimer').textContent=Math.floor(sisa/60)+':'+String(Math.floor(sisa%60)).padStart(2,'0');
+      if(sisa<=0) startPhase(phaseIdx+1);
+      refresh();
+    },500);
+  };
+  $('btnNext').onclick=()=>{ if(running) startPhase(phaseIdx+1); };
+  $('btnStop').onclick=()=>stop(false);
+  $('btnReset').onclick=()=>{
+    ['A','B'].forEach(k=>{ const d=dev[k];
+      d.rr=[]; d.t=[]; d.phase=[]; d.lastT=null; d.uniq=new Set(); d.synthHits=0; d.synthTot=0; });
+    setVerdict('v-wait','Hitungan direset — perangkat masih tersambung.',
+      'Penilaian RR sintetis dimulai lagi dari nol; tunggu ±20 denyut.');
+    log('hitungan direset.'); refresh(); };
+
+  function dl(name,txt,mime){ const b=new Blob([txt],{type:mime}), u=URL.createObjectURL(b);
+    const a=document.createElement('a'); a.href=u; a.download=name; a.click(); setTimeout(()=>URL.revokeObjectURL(u),1500); }
+
+  // The raw interval series is exported alongside the summary, never instead of
+  // it: every figure on screen has to be recomputable from the numbers in the
+  // file, otherwise the test result is a screenshot rather than a measurement.
+  $('btnCsv').onclick=()=>{
+    let csv='alat,index,t_dtk,rr_ms,fase,outlier,rr_terkoreksi_ms\n';
+    ['A','B'].forEach(k=>{ const d=dev[k]; if(!d.rr.length) return;
+      const {corrected,isOutlier}=correctEctopic(d.rr);
+      d.rr.forEach((v,i)=> csv+=`${k},${i},${d.t[i].toFixed(3)},${v},${d.phase[i]},${isOutlier[i]?1:0},${corrected[i].toFixed(3)}\n`); });
+    dl('uji_protokol_rr.csv',csv,'text/csv');
+  };
+  $('btnJson').onclick=()=>{
+    const out={ dicatat_pada:new Date().toISOString(),
+      kriteria_outlier:`RR di luar ${RR_MIN_MS}-${RR_MAX_MS} ms atau selisih >20% dari RR ASLI sebelumnya; diperbaiki dengan interpolasi`,
+      segmen:`jendela 60 dtk overlap 30 dtk; layak bila berisi >= ${SEGMENT_MIN_BEATS} denyut dan outlier <= 10%`,
+      cap_waktu:'denyut disebar mundur dari waktu tiba paket BLE, bukan dari akumulasi interval',
+      protokol:PHASES.map(p=>({fase:p.key,durasi_dtk:p.dur})), perangkat:{} };
+    ['A','B'].forEach(k=>{ const d=dev[k]; if(!d.connected) return;
+      out.perangkat[k]={ nama:d.obj?.name||null,
+        rr_sumber:classifyRrSource({matches:d.synthHits, samples:d.synthTot, uniqueValues:d.uniq.size}),
+        per_fase:Object.fromEntries(PHASES.map(p=>[p.key,statsFor(d,p.key)])),
+        rr_ms:d.rr, t_dtk:d.t.map(x=>+x.toFixed(3)), fase:d.phase }; });
+    const a=statsFor(dev.A,'istirahat'), b=statsFor(dev.A,'tertekan');
+    if(b) out.putusan=judgeDeviceTest(a,b);
+    dl('uji_protokol_rr.json',JSON.stringify(out,null,2),'application/json');
+  };
+
+  refresh();
+</script>
+</body>
+</html>

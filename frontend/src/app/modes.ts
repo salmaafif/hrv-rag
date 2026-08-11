@@ -18,8 +18,16 @@ export type ModeId = 'v1' | 'v2' | 'v3'
 
 export const MODE_IDS: readonly ModeId[] = ['v1', 'v2', 'v3']
 
-/** Path segments that can appear under `/:mode/`. */
-export type StageSegment = 'mulai' | 'sesi' | 'proses' | 'hasil'
+/**
+ * Path segments that can appear under `/:mode/`.
+ *
+ * `unggah` belongs to V3 alone, and its position is the point. The heart data
+ * is recorded DURING the interview, so in V3 the file cannot exist until the
+ * interview is over — uploading is something you do afterwards, not a way of
+ * starting. V1 and V2 are the opposite case: their recording was made before
+ * anyone opened this app, so their upload sits on the start screen.
+ */
+export type StageSegment = 'mulai' | 'sesi' | 'unggah' | 'proses' | 'hasil'
 
 export interface ModeDefinition {
   id: ModeId
@@ -41,6 +49,14 @@ export interface ModeDefinition {
   steps: readonly string[]
   /** Which stage index each route segment highlights. */
   stepOfSegment: Readonly<Record<StageSegment, number | null>>
+  /**
+   * Where the start screen leads once a data source is ready.
+   *
+   * V3 goes to the interview it runs itself; the others go straight to
+   * analysis, because their recording either already exists as a file or was
+   * captured outside this app.
+   */
+  nextAfterStart: StageSegment
 }
 
 const TIMELINE_STEPS = ['Siapkan data', 'Rekaman', 'Lihat hasil'] as const
@@ -54,7 +70,8 @@ export const MODES: Readonly<Record<ModeId, ModeDefinition>> = {
     endpoint: '/api/v1/analyze/timeline',
     runsInterview: false,
     steps: TIMELINE_STEPS,
-    stepOfSegment: { mulai: 0, sesi: null, proses: 1, hasil: 2 },
+    stepOfSegment: { mulai: 0, sesi: null, unggah: null, proses: 1, hasil: 2 },
+    nextAfterStart: 'proses',
   },
   v2: {
     id: 'v2',
@@ -63,7 +80,8 @@ export const MODES: Readonly<Record<ModeId, ModeDefinition>> = {
     endpoint: '/api/v1/analyze/session',
     runsInterview: false,
     steps: ['Siapkan data', 'Isi pertanyaan', 'Lihat hasil'],
-    stepOfSegment: { mulai: 0, sesi: null, proses: 1, hasil: 2 },
+    stepOfSegment: { mulai: 0, sesi: null, unggah: null, proses: 1, hasil: 2 },
+    nextAfterStart: 'proses',
   },
   v3: {
     id: 'v3',
@@ -72,7 +90,8 @@ export const MODES: Readonly<Record<ModeId, ModeDefinition>> = {
     endpoint: '/api/v1/analyze/session',
     runsInterview: true,
     steps: SESSION_STEPS,
-    stepOfSegment: { mulai: 0, sesi: 1, proses: 1, hasil: 2 },
+    stepOfSegment: { mulai: 0, sesi: 1, unggah: 1, proses: 1, hasil: 2 },
+    nextAfterStart: 'sesi',
   },
 }
 

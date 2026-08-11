@@ -48,10 +48,10 @@ const SEEDS: QuestionSeed[] = [
     recoveryPct: 68,
     recoveryNote: '',
     penjelasan:
-      'Tubuhmu tetap tenang saat menjawab pertanyaan pembuka ini, dan cepat ' +
-      'kembali ke kondisi semula setelahnya.',
+      'Kamu tetap tenang saat menjawab pertanyaan pembuka ini, dan cepat ' +
+      'kembali santai setelahnya.',
     saran:
-      'Pertahankan ritme bicara seperti ini saat masuk ke pertanyaan berikutnya.',
+      'Pertahankan ritme bicara seperti ini di pertanyaan berikutnya.',
   },
   {
     number: 2,
@@ -62,11 +62,11 @@ const SEEDS: QuestionSeed[] = [
     recoveryPct: 41,
     recoveryNote: '',
     penjelasan:
-      'Ada kenaikan tekanan yang sedang saat kamu menjawab, dan tubuhmu baru ' +
-      'sebagian mereda sebelum pertanyaan berikutnya dimulai.',
+      'Tekananmu naik sedang saat menjawab, dan baru mereda sebagian sebelum ' +
+      'pertanyaan berikutnya mulai.',
     saran:
-      'Siapkan dua atau tiga kelebihan yang paling ingin kamu sampaikan, ' +
-      'supaya tidak perlu menyusun jawabannya di tempat.',
+      'Siapkan dua atau tiga kelebihan yang paling ingin kamu sampaikan, jadi ' +
+      'kamu tidak perlu menyusunnya mendadak.',
   },
   {
     number: 3,
@@ -77,12 +77,12 @@ const SEEDS: QuestionSeed[] = [
     recoveryPct: null,
     recoveryNote: 'jeda sebelum pertanyaan berikutnya kurang dari 30 detik',
     penjelasan:
-      'Pertanyaan ini memicu respons tekanan yang paling kuat sepanjang sesi. ' +
-      'Jeda sesudahnya terlalu singkat, jadi belum terlihat seberapa cepat ' +
-      'kamu kembali tenang.',
+      'Ini pertanyaan dengan tekanan paling besar sepanjang sesi. Jeda ' +
+      'sesudahnya terlalu pendek, jadi belum kelihatan seberapa cepat kamu ' +
+      'kembali tenang.',
     saran:
-      'Susun satu contoh kekurangan yang sudah kamu perbaiki, lengkap dengan ' +
-      'langkah yang kamu ambil, lalu latih menyampaikannya.',
+      'Siapkan satu contoh kekurangan yang sedang kamu perbaiki, lengkap ' +
+      'dengan langkah yang sudah kamu ambil, lalu latih menceritakannya.',
   },
   {
     number: 4,
@@ -93,12 +93,12 @@ const SEEDS: QuestionSeed[] = [
     recoveryPct: 33,
     recoveryNote: '',
     penjelasan:
-      'Pembacaan di pertanyaan ini kurang tegas: sebagian tanda menunjukkan ' +
-      'kamu tenang, sebagian lain menunjukkan sebaliknya. Berbicara panjang ' +
-      'bisa memunculkan pola seperti ini.',
+      'Pembacaan di pertanyaan ini kurang jelas. Sebagian tanda menunjukkan ' +
+      'kamu tenang, sebagian lain sebaliknya — berbicara panjang memang bisa ' +
+      'memunculkan pola seperti ini.',
     saran:
-      'Coba jawab dengan kalimat yang lebih pendek dan beri jeda napas di ' +
-      'antara poin, lalu lihat apakah pembacaannya jadi lebih jelas.',
+      'Coba jawab dengan kalimat yang lebih pendek, dan beri jeda napas di ' +
+      'antara poin.',
   },
   {
     number: 5,
@@ -109,11 +109,12 @@ const SEEDS: QuestionSeed[] = [
     recoveryPct: 12,
     recoveryNote: '',
     penjelasan:
-      'Tekananmu naik tinggi di pertanyaan ini dan hanya sedikit mereda ' +
+      'Tekananmu naik tinggi di pertanyaan ini, dan hanya sedikit mereda ' +
       'sesudahnya.',
     saran:
-      'Tentukan satu rentang angka sebelum wawancara dan latih mengucapkannya ' +
-      'sekali dengan lantang, supaya tidak perlu memutuskan saat ditanya.',
+      'Tentukan rentang angkanya sebelum wawancara, lalu ucapkan sekali ' +
+      'dengan lantang untuk latihan. Jadi kamu tidak perlu memutuskan ' +
+      'mendadak saat ditanya.',
   },
   {
     number: 6,
@@ -124,10 +125,10 @@ const SEEDS: QuestionSeed[] = [
     recoveryPct: 74,
     recoveryNote: '',
     penjelasan:
-      'Kamu menutup sesi dalam kondisi tenang, setenang saat memulainya.',
+      'Kamu menutup sesi dengan tenang, sama seperti saat memulainya.',
     saran:
-      'Siapkan satu pertanyaan tentang tim atau cara kerja sehari-hari, supaya ' +
-      'bagian penutup ini terasa semudah tadi.',
+      'Siapkan satu pertanyaan tentang cara kerja tim sehari-hari, jadi bagian ' +
+      'penutup ini terasa semudah tadi.',
   },
 ]
 
@@ -214,12 +215,12 @@ export const mockSession: SessionResponse = {
   summary: summarise(questions),
   narrative: {
     ringkasan_sesi:
-      'Secara keseluruhan kamu cukup tenang, tetapi dua pertanyaan memberi ' +
-      'tekanan yang jelas lebih besar daripada sisanya. Keduanya sama-sama ' +
-      'meminta kamu menilai diri sendiri.',
+      'Secara umum kamu cukup tenang. Tapi ada dua pertanyaan yang membuat ' +
+      'tekananmu naik jauh lebih tinggi daripada yang lain, dan keduanya ' +
+      'sama-sama meminta kamu menilai diri sendiri.',
     penyemangat:
-      'Kamu menyelesaikan seluruh sesi tanpa terhenti, dan menutupnya setenang ' +
-      'saat memulai.',
+      'Kamu menyelesaikan seluruh sesi tanpa berhenti, dan menutupnya ' +
+      'setenang saat memulai. Itu bukan hal kecil.',
   },
   meta: {
     kb_version: 'kb_v2.0',

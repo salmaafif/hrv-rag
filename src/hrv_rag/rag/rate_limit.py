@@ -40,8 +40,15 @@ T = TypeVar("T")
 
 #: HTTP statuses worth retrying. 429 is quota; the 5xx family is transient trouble
 #: on the server side. A 400 or 401 would never be fixed by waiting.
+#:
+#: The last group covers a self-hosted model: a rented GPU instance can refuse
+#: connections for a few seconds while it wakes, and the proxy in front of it can
+#: drop a connection mid-request. Both clear on their own, and treating them as
+#: fatal would throw away a batch run for a hiccup. An authentication failure or a
+#: missing model still fails immediately, because waiting will not fix those.
 _RETRYABLE = ("429", "RESOURCE_EXHAUSTED", "500", "502", "503", "504",
-              "UNAVAILABLE", "INTERNAL", "DEADLINE_EXCEEDED")
+              "UNAVAILABLE", "INTERNAL", "DEADLINE_EXCEEDED",
+              "ConnectError", "ConnectTimeout", "RemoteProtocolError")
 
 #: Pulls the server-suggested wait out of a 429 message, e.g. "retry in 28.5s".
 _RETRY_DELAY = re.compile(r"retryDelay['\"]?:\s*['\"]?(\d+(?:\.\d+)?)")
@@ -89,7 +96,8 @@ def _suggested_delay(message: str) -> float | None:
 
 
 def call_with_retry(fn: Callable[[], T], max_attempts: int = 5,
-                    base_delay: float = 15.0) -> T:
+                    base_delay: float = 15.0,
+                    is_retryable: Callable[[Exception], bool] | None = None) -> T:
     """
     Run `fn`, retrying quota rejections and transient server errors.
 
@@ -100,13 +108,23 @@ def call_with_retry(fn: Callable[[], T], max_attempts: int = 5,
     Server errors back off faster than quota errors. A 503 usually clears within
     seconds, whereas a quota reset can take a minute, so the two are paced
     differently instead of sharing one delay.
+
+    `is_retryable` lets a caller decide structurally instead of by looking for
+    substrings. The Gemini SDK only exposes its status inside prose, so matching
+    text is the best available there. HTTP callers can do better, and must: a
+    self-hosted instance is reached at an arbitrary port, and a URL like
+    `http://host:11503/...` carries "503" inside an error message that has nothing
+    to do with a server being busy. Substring matching would then retry a fatal
+    401 five times across four minutes before reporting the real problem.
     """
     for attempt in range(1, max_attempts + 1):
         try:
             return fn()
         except Exception as exc:                     # noqa: BLE001
             message = str(exc)
-            if not any(code in message for code in _RETRYABLE):
+            retry = (is_retryable(exc) if is_retryable is not None
+                     else any(code in message for code in _RETRYABLE))
+            if not retry:
                 raise
             if attempt == max_attempts:
                 raise RuntimeError(

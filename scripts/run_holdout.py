@@ -49,20 +49,26 @@ def build_features(subjects: list[str]) -> pd.DataFrame:
         loader = WESADLoader(subject)
         pre = ECGPreprocessor(sampling_rate=loader.sampling_rate(Modality.ECG))
 
-        tables = {}
+        tables, series_by_phase = {}, {}
         for phase in (Phase.CALIBRATION, Phase.QUESTION):
             raw = loader.load_phase_signal(subject, phase, Modality.ECG)
             series = pre.run(raw, subject=subject, phase=phase)
             df, seg = extract_features(series)
             tables[phase] = df
+            series_by_phase[phase] = series
             print(f"  {subject} {phase.value:<12} {seg.summary()}")
 
         if tables[Phase.CALIBRATION].empty:
             print(f"  {subject}: no calibration segment — skipped")
             continue
 
-        baseline = BaselineProfile.from_segments(subject,
-                                                 tables[Phase.CALIBRATION])
+        # Built from the series, with the finer resting hop — the SAME way the
+        # development subjects are processed. A sealed test set measured by a
+        # different procedure than the one it is meant to validate would not be a
+        # test of anything.
+        baseline = BaselineProfile.from_series(
+            subject, series_by_phase[Phase.CALIBRATION]
+        )
         combined = pd.concat(tables.values(), ignore_index=True)
         reactivity = pd.DataFrame(
             [baseline.reactivity(r) for r in combined.to_dict("records")]

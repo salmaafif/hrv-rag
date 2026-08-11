@@ -6,8 +6,11 @@ the thesis defence. Every value below therefore carries a comment explaining why
 is what it is, not merely what it is.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
+
+# Safe in this direction only: `core.types` imports nothing from `config`.
+from ..core.types import Phase
 
 # ===========================================================================
 # PATHS
@@ -44,6 +47,34 @@ class SegmentationConfig:
     # when reporting metrics (BACKLOG L2).
     overlap_sec: int = 30
 
+    # Overlap used for the RESTING phase only, giving a 15-second hop there.
+    #
+    # The resting period is short by design — asking someone to sit still is dead
+    # time before the practice can begin, and four minutes of it is long enough
+    # that people stop sitting still. But the personal baseline is the MEDIAN
+    # across its windows, and every reactivity percentage in the whole session is
+    # divided by that median, so too few windows makes a shaky divisor.
+    #
+    # Sampling the same minutes more densely is the way out. Over two minutes,
+    # a 30-second hop yields only 1-2 windows while a 15-second hop yields 2-4 —
+    # roughly what three minutes used to give. It adds no information, because
+    # two minutes contains two minutes of data either way; what it adds is a more
+    # stable central value drawn from it.
+    #
+    # Measured on the five development subjects, the finer hop moves the baseline
+    # RMSSD by 0.07-1.33% over a full WESAD resting phase, so the validated
+    # numbers are unaffected. The one large shift (S10, 20.7% over a two-minute
+    # slice) is the subject with the least steady baseline, and there the denser
+    # sampling is what lets the median reject a noisy minute rather than average
+    # it in — the finer hop corrects the answer rather than disturbing it.
+    #
+    # The cost, stated plainly: windows now share 75% of their data instead of
+    # 50%, so they are even less independent. That is acceptable HERE because
+    # they feed a median, which is a robustness device rather than a statistical
+    # test. It would NOT be acceptable for the segments being classified, which
+    # is why this applies to the resting phase alone.
+    baseline_overlap_sec: int = 45
+
     # Segments with fewer beats than this are discarded. 30 beats per 60 seconds
     # equals 30 bpm — below that it is almost certainly failed detection rather
     # than a real physiological state.
@@ -53,6 +84,25 @@ class SegmentationConfig:
     def hop_sec(self) -> int:
         """Distance the window slides between segments (seconds)."""
         return self.length_sec - self.overlap_sec
+
+    @property
+    def baseline_hop_sec(self) -> int:
+        """Window slide used for the resting phase (seconds)."""
+        return self.length_sec - self.baseline_overlap_sec
+
+    def for_phase(self, phase: Phase) -> "SegmentationConfig":
+        """
+        The segmentation to use for one phase.
+
+        Written as a method on the config rather than left to each caller,
+        because forgetting it would be invisible: the resting phase would simply
+        produce fewer windows, the baseline would rest on one or two of them, and
+        every percentage afterwards would be quietly less reliable with nothing
+        on screen to say so.
+        """
+        if phase is not Phase.CALIBRATION:
+            return self
+        return replace(self, overlap_sec=self.baseline_overlap_sec)
 
 
 # ===========================================================================
@@ -324,6 +374,76 @@ class LLMConfig:
     # loudly rather than returning half an answer, which is the desired behaviour.
     max_output_tokens: int = 8192
 
+    # Which backend answers. "gemini" or "ollama"; the environment variable
+    # LLM_PROVIDER overrides it, so a run can switch backend without editing code.
+    #
+    # Gemini remains the default deliberately. Every number already reported was
+    # produced with it, and a default that silently changed the backend would make
+    # older results irreproducible without anyone noticing.
+    provider: str = "gemini"
+
+
+@dataclass(frozen=True)
+class OllamaConfig:
+    """
+    Parameters for a self-hosted model reached through OpenWebUI's Ollama proxy.
+
+    WHY THIS EXISTS. The free Gemini tier allows 20 calls a day, which is not
+    enough to run the ablations the thesis needs (BACKLOG T5.8), and depending on
+    a model the vendor can update without notice is a stated limitation (L8). A
+    self-hosted model removes both: the call budget becomes the GPU rental, and
+    the weights are pinned by a digest that cannot change underneath a result.
+
+    WHAT IT DOES NOT CHANGE. The classification figures — WESAD holdout accuracy
+    0.852, macro-F1 0.839, kappa 0.678 — come from the frozen scoring rule and
+    involve no API call at all (`scripts/run_holdout.py`). Swapping the backend
+    touches the narrative, faithfulness and run-to-run consistency, and nothing
+    else.
+    """
+
+    # Model tag exactly as `ollama list` reports it, e.g. "qwen3:32b". Empty by
+    # design: there is no sensible default, and a wrong tag must fail loudly at
+    # startup rather than have Ollama quietly serve some other model. Set it in
+    # .env as OLLAMA_MODEL.
+    model: str = ""
+
+    # OpenWebUI mounts Ollama's OWN api under /ollama. That native route is used
+    # rather than the OpenAI-compatible /api/chat/completions because only the
+    # native one accepts a full JSON Schema in `format`, which is what keeps the
+    # structured-output guarantee that `response_schema` gives on Gemini. Losing
+    # it would reintroduce malformed-JSON failures the pipeline was built to be
+    # free of. Going through OpenWebUI rather than straight to port 11434 keeps
+    # the authentication: a Vast.ai instance has a public address, and a bare
+    # Ollama port is an open GPU for anyone who scans it.
+    chat_path: str = "/ollama/api/chat"
+    tags_path: str = "/ollama/api/tags"
+
+    # A fixed seed makes generation reproducible in a way the Gemini API does not
+    # expose at all. This upgrades the consistency check (T5.4) from "three runs
+    # happened to agree" to "identical under a fixed seed, and this much spread
+    # without one" — a far stronger claim, and one an examiner can re-run.
+    seed: int = 20260811
+
+    # Context window, in tokens.
+    #
+    # This is the parameter most likely to corrupt results silently. Ollama's own
+    # default is small, and a prompt longer than the window is TRUNCATED rather
+    # than rejected — so the retrieved knowledge chunks, which sit in the middle
+    # of the prompt, would simply not reach the model while it still returned a
+    # confident, well-formed answer. The RAG system would appear to work while
+    # having stopped being a RAG system. Set well above the longest prompt (five
+    # chunks plus features is roughly 2-3k tokens) and never lowered silently.
+    num_ctx: int = 16384
+
+    # Generous, because the FIRST call after an instance starts must load the
+    # weights into VRAM, and on a large model that alone can take minutes. A
+    # tight timeout here looks exactly like a broken endpoint.
+    timeout_sec: float = 600.0
+
+    # A rented GPU has no quota, so pacing exists only to avoid queueing requests
+    # faster than one machine can serve them.
+    requests_per_minute: int = 60
+
 
 # ===========================================================================
 # SESSION PROTOCOL (approved — see BACKLOG K9 & Q1/Q2)
@@ -342,9 +462,30 @@ class SessionConfig:
     # state after the user has fitted the device and got ready.
     adaptation_sec: int = 60
 
-    # Personal baseline. 240 s yields 7 segments, enough for the median to resist
-    # one or two noisy segments.
-    calibration_sec: int = 240
+    # Personal baseline. 120 s at the resting hop of 15 s yields 2-4 segments,
+    # measured across the five development subjects.
+    #
+    # Shortened twice, both times for the person waiting rather than for the
+    # statistics: 240 s originally, 180 s on 6 Aug 2026, and 120 s the day after.
+    # Sitting still is dead time before the practice can begin, and the longer it
+    # runs the less likely someone is to actually keep still — a baseline they did
+    # not really observe is worse than a shorter one they did.
+    #
+    # 120 s IS THE HARD FLOOR, and not by convention. Features are computed over
+    # 60-second windows, and a 60-second rest produces a beat series spanning only
+    # about 59 seconds — measured from the first beat to the last, not from when
+    # the timer started. Nothing fits, so the result is not a weak baseline but no
+    # baseline at all, and with no baseline the whole session is unscoreable.
+    # A finer hop does not rescue it: zero windows stay zero.
+    #
+    # What makes 120 s workable is `baseline_overlap_sec`, which samples these
+    # same two minutes every 15 seconds instead of every 30. That recovers about
+    # the window count three minutes gave before, without adding information that
+    # is not there.
+    #
+    # Kept identical to the web demo's `INTERVIEW_REST_MINUTES`, so the protocol
+    # described here and the one users actually perform are the same protocol.
+    calibration_sec: int = 120
 
     # Session-level anticipation phase (K9). 120 s yields 3 segments.
     # PER-QUESTION anticipation is deliberately not measured: a 5-10 s window sits
@@ -405,6 +546,7 @@ class Settings:
     stress_rule: StressRuleConfig = field(default_factory=StressRuleConfig)
     rag: RAGConfig = field(default_factory=RAGConfig)
     llm: LLMConfig = field(default_factory=LLMConfig)
+    ollama: OllamaConfig = field(default_factory=OllamaConfig)
     session: SessionConfig = field(default_factory=SessionConfig)
     split: SplitConfig = field(default_factory=SplitConfig)
 
