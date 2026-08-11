@@ -139,7 +139,7 @@ class SessionPipeline:
             modality=modality.value,
             kb_version=self.pipeline.index.kb_version,
             prompt_version=self.cfg.prompt_version,
-            model=self.cfg.model,
+            model=self.pipeline.interpreter.model_label,
         )
 
         # An unsteady baseline weakens everything derived from it, so it is flagged

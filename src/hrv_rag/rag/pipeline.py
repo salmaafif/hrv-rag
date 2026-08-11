@@ -22,7 +22,7 @@ from ..config.settings import LLMConfig, settings
 from ..core.schemas import Assessment, AssessmentInput
 from .guards import (find_fabricated_citations, find_invented_numbers,
                      find_unknown_references)
-from .llm import GeminiInterpreter
+from .llm import BaseInterpreter, make_interpreter
 from .prompt import build_prompt
 from .query_builder import build_query
 from .retrieval import KBIndex
@@ -39,11 +39,11 @@ class AssessmentPipeline:
     """
 
     def __init__(self, index: KBIndex | None = None,
-                 interpreter: GeminiInterpreter | None = None,
+                 interpreter: BaseInterpreter | None = None,
                  cfg: LLMConfig | None = None) -> None:
         self.cfg = cfg or settings.llm
         self.index = index or KBIndex.load()
-        self.interpreter = interpreter or GeminiInterpreter(self.cfg)
+        self.interpreter = interpreter or make_interpreter(self.cfg)
 
     def assess(self, data: AssessmentInput,
                temperature: float | None = None) -> Assessment:
@@ -79,7 +79,10 @@ class AssessmentPipeline:
             phase=data.phase.value,
             kb_version=self.index.kb_version,
             prompt_version=self.cfg.prompt_version,
-            model=self.cfg.model,
+            # What actually answered, not what was configured — the two differ as
+            # soon as more than one backend exists, and provenance must name the
+            # real one (U4.4).
+            model=self.interpreter.model_label,
             temperature=temp,
             retrieved_ids=retrieved_ids,
             retrieval_scores=[c.similarity for c in chunks],

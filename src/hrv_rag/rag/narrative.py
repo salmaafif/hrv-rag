@@ -31,7 +31,7 @@ from ..core.schemas import SessionNarrative, StressLevel
 from ..features.stress_level import StressVerdict
 from .guards import (find_fabricated_citations, find_invented_numbers,
                      find_unknown_references)
-from .llm import GeminiInterpreter
+from .llm import BaseInterpreter, make_interpreter
 from .prompt import format_context, load_template
 from .query_builder import FEATURE_LABELS, _magnitude_word
 from .retrieval import KBIndex
@@ -140,11 +140,11 @@ class NarrativeWriter:
     """Turns a finished session into Indonesian feedback, in one call."""
 
     def __init__(self, index: KBIndex | None = None,
-                 interpreter: GeminiInterpreter | None = None,
+                 interpreter: BaseInterpreter | None = None,
                  cfg: LLMConfig | None = None) -> None:
         self.cfg = cfg or settings.llm
         self.index = index or KBIndex.load()
-        self.interpreter = interpreter or GeminiInterpreter(self.cfg)
+        self.interpreter = interpreter or make_interpreter(self.cfg)
 
     def write(self, inputs: list[NarrativeInput], session_id: str,
               modality: str, device: str, signal_quality: str,
@@ -190,7 +190,7 @@ class NarrativeWriter:
             retrieval_scores=[c.similarity for c in chunks],
             kb_version=self.index.kb_version,
             prompt_name=self.cfg.narrative_prompt,
-            model=self.cfg.model,
+            model=self.interpreter.model_label,
             temperature=self.cfg.temperature,
             invented_numbers=find_invented_numbers(checked, prompt),
             unknown_references=(

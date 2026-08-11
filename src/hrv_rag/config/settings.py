@@ -374,6 +374,76 @@ class LLMConfig:
     # loudly rather than returning half an answer, which is the desired behaviour.
     max_output_tokens: int = 8192
 
+    # Which backend answers. "gemini" or "ollama"; the environment variable
+    # LLM_PROVIDER overrides it, so a run can switch backend without editing code.
+    #
+    # Gemini remains the default deliberately. Every number already reported was
+    # produced with it, and a default that silently changed the backend would make
+    # older results irreproducible without anyone noticing.
+    provider: str = "gemini"
+
+
+@dataclass(frozen=True)
+class OllamaConfig:
+    """
+    Parameters for a self-hosted model reached through OpenWebUI's Ollama proxy.
+
+    WHY THIS EXISTS. The free Gemini tier allows 20 calls a day, which is not
+    enough to run the ablations the thesis needs (BACKLOG T5.8), and depending on
+    a model the vendor can update without notice is a stated limitation (L8). A
+    self-hosted model removes both: the call budget becomes the GPU rental, and
+    the weights are pinned by a digest that cannot change underneath a result.
+
+    WHAT IT DOES NOT CHANGE. The classification figures — WESAD holdout accuracy
+    0.852, macro-F1 0.839, kappa 0.678 — come from the frozen scoring rule and
+    involve no API call at all (`scripts/run_holdout.py`). Swapping the backend
+    touches the narrative, faithfulness and run-to-run consistency, and nothing
+    else.
+    """
+
+    # Model tag exactly as `ollama list` reports it, e.g. "qwen3:32b". Empty by
+    # design: there is no sensible default, and a wrong tag must fail loudly at
+    # startup rather than have Ollama quietly serve some other model. Set it in
+    # .env as OLLAMA_MODEL.
+    model: str = ""
+
+    # OpenWebUI mounts Ollama's OWN api under /ollama. That native route is used
+    # rather than the OpenAI-compatible /api/chat/completions because only the
+    # native one accepts a full JSON Schema in `format`, which is what keeps the
+    # structured-output guarantee that `response_schema` gives on Gemini. Losing
+    # it would reintroduce malformed-JSON failures the pipeline was built to be
+    # free of. Going through OpenWebUI rather than straight to port 11434 keeps
+    # the authentication: a Vast.ai instance has a public address, and a bare
+    # Ollama port is an open GPU for anyone who scans it.
+    chat_path: str = "/ollama/api/chat"
+    tags_path: str = "/ollama/api/tags"
+
+    # A fixed seed makes generation reproducible in a way the Gemini API does not
+    # expose at all. This upgrades the consistency check (T5.4) from "three runs
+    # happened to agree" to "identical under a fixed seed, and this much spread
+    # without one" — a far stronger claim, and one an examiner can re-run.
+    seed: int = 20260811
+
+    # Context window, in tokens.
+    #
+    # This is the parameter most likely to corrupt results silently. Ollama's own
+    # default is small, and a prompt longer than the window is TRUNCATED rather
+    # than rejected — so the retrieved knowledge chunks, which sit in the middle
+    # of the prompt, would simply not reach the model while it still returned a
+    # confident, well-formed answer. The RAG system would appear to work while
+    # having stopped being a RAG system. Set well above the longest prompt (five
+    # chunks plus features is roughly 2-3k tokens) and never lowered silently.
+    num_ctx: int = 16384
+
+    # Generous, because the FIRST call after an instance starts must load the
+    # weights into VRAM, and on a large model that alone can take minutes. A
+    # tight timeout here looks exactly like a broken endpoint.
+    timeout_sec: float = 600.0
+
+    # A rented GPU has no quota, so pacing exists only to avoid queueing requests
+    # faster than one machine can serve them.
+    requests_per_minute: int = 60
+
 
 # ===========================================================================
 # SESSION PROTOCOL (approved — see BACKLOG K9 & Q1/Q2)
@@ -476,6 +546,7 @@ class Settings:
     stress_rule: StressRuleConfig = field(default_factory=StressRuleConfig)
     rag: RAGConfig = field(default_factory=RAGConfig)
     llm: LLMConfig = field(default_factory=LLMConfig)
+    ollama: OllamaConfig = field(default_factory=OllamaConfig)
     session: SessionConfig = field(default_factory=SessionConfig)
     split: SplitConfig = field(default_factory=SplitConfig)
 
