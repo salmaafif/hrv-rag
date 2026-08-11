@@ -117,7 +117,7 @@ Perubahan arah setelah bukti terkumpul: LLM tidak lagi menentukan label.
 | T2c.5 | `core/schemas.py` — `SessionNarrative`, **tanpa** field tingkat tekanan | selesai |
 | T2c.6 | `rag/narrative.py` — satu panggilan per sesi, kueri dibangun dari sesi utuh | selesai |
 | T2c.7 | `run_session.py` menampilkan label tanpa API | selesai |
-| T2c.8 | Uji narasi ujung-ke-ujung dengan API | blokir (kuota) |
+
 | T2c.9 | **Kalibrasi ambang SELESAI & DIBEKUKAN** (3 Agt 2026). 81 kombinasi disapu pada 5 subjek dev. Hanya satu nilai berubah: RMSSD sedang −15% → −20%. macro-F1 dev naik 0,831 → 0,851 | selesai |
 | T2c.10 | **Ambang TINGGI tidak dapat dikalibrasi dengan WESAD** — dataset biner, sehingga sedang & tinggi dipetakan ke kelas sama. Lima kombinasi teratas berskor identik. Nilai dari literatur dipertahankan; butuh SWELL-KW atau laporan-diri pengguna | blokir |
 
@@ -346,7 +346,9 @@ overlap pada laporan SWELL.
 
 | ID | Tugas | Status |
 |---|---|---|
-| T9.1 | Backend FastAPI | belum |
+| T9.1 | **Backend FastAPI SELESAI** — `src/hrv_rag/api/`. Dua endpoint sesuai kontrak `types/api.ts`: `/api/v1/analyze/timeline` (V1, per jendela) dan `/api/v1/analyze/session` (V2/V3, per pertanyaan). Otentikasi lewat `X-API-Key`; **tanpa kunci terkonfigurasi layanan menolak semua**, bukan mengizinkan semua. CORS dari daftar origin, bukan `*`, karena endpoint ini membelanjakan kuota Gemini sungguhan. Angka teknis **ditahan secara bawaan** dan hanya keluar bila `include_technical` diminta eksplisit — aturan "pengguna tidak melihat RMSSD" tidak bisa dipaksakan dari API, jadi yang aman dibuat jadi bawaan. 22 tes | selesai |
+| T9.1b | **Degradasi anggun terverifikasi.** Label berasal dari aturan skor yang luring dan deterministik, jadi kuota habis / model tak terjangkau / guard menangkap angka karangan **hanya menghilangkan prosa**, bukan angkanya. `meta.trustworthy` menandai narasi yang tidak boleh ditampilkan apa adanya. Sesuai permintaan PRD KARIRLINK bahwa modul ini gagal secara lunak | selesai |
+| T2c.8 | **Uji narasi ujung-ke-ujung dengan API — SELESAI 7 Agt 2026.** Dijalankan lewat backend pada rekaman 7 menit: 4 jendela baseline, RMSSD 34,4 ms, label `low`, narasi Bahasa Indonesia keluar utuh, `trustworthy: true` (nol angka karangan, nol sitasi palsu). Satu panggilan per sesi sesuai arsitektur gabungan | selesai |
 | T9.2 | Dashboard Chart.js: timeline tekanan per pertanyaan | belum |
 | T9.3 | Terapkan K4 — layar hanya menampilkan bahasa awam | belum |
 | T9.4 | Bahasa perilaku, bukan label sifat ("butuh 90 detik kembali tenang", bukan "regulasi emosi rendah") | belum |
