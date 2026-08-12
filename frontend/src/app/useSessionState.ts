@@ -62,6 +62,18 @@ export interface SessionState {
   baselineMinutes: number
   setBaselineMinutes: (minutes: number) => void
 
+  /**
+   * Seconds of RR already buffered when the session screen mounted.
+   *
+   * The sensor hook collects beats from the moment it connects, and nothing ever
+   * cleared that buffer — so the array sent to the backend could begin minutes
+   * before the timestamps describing it. Recording the distance is better than
+   * discarding the beats: those early minutes are the person sitting still with
+   * the sensor on, which is exactly what a two-minute baseline is short of.
+   */
+  sessionOffsetSec: number
+  markSessionStart: () => void
+
   fileName: string | null
   setFile: (file: File | null) => void
   fileWornAt: WearLocation | null
@@ -119,11 +131,25 @@ export interface SessionState {
 
 export function useSessionState(device: DeviceConnection): SessionState {
   const [baselineMinutes, setBaselineMinutesRaw] = useState(4)
+  const [sessionOffsetSec, setSessionOffsetSec] = useState(0)
   const [file, setFileRaw] = useState<File | null>(null)
   const [fileWornAt, setFileWornAtState] = useState<WearLocation | null>(null)
   const [questionTimeline, setQuestionTimelineState] = useState<
     QuestionTimelineEntry[] | null
   >(null)
+
+  /**
+   * Freeze the distance between the two clocks, at the instant they diverge.
+   *
+   * Called once when the session screen mounts. Measured from the beats the
+   * sensor has already produced rather than from a wall clock, because it is the
+   * ARRAY that has to be indexed correctly — a wall-clock difference would not
+   * account for beats the sensor dropped while nobody was looking.
+   */
+  const markSessionStart = useCallback(() => {
+    const buffered = device.rrIntervals.reduce((total, ms) => total + ms, 0)
+    setSessionOffsetSec(buffered / 1000)
+  }, [device.rrIntervals])
 
   const [status, setStatus] = useState<AnalysisStatus>('idle')
   const [result, setResult] = useState<TimelineResponse | SessionResponse | null>(
@@ -191,6 +217,7 @@ export function useSessionState(device: DeviceConnection): SessionState {
           const beats = device.rrIntervals
           const base: AnalyzeRequest = {
             baseline_minutes: baselineMinutes,
+            offset_sec: beats.length ? sessionOffsetSec : 0,
             modality,
             ...(beats.length
               ? { rr_ms: beats }
@@ -222,12 +249,15 @@ export function useSessionState(device: DeviceConnection): SessionState {
 
       void send()
     },
-    [baselineMinutes, device.rrIntervals, file, modality, questionTimeline],
+    [baselineMinutes, device.rrIntervals, file, modality, questionTimeline,
+     sessionOffsetSec],
   )
 
   return {
     baselineMinutes,
     setBaselineMinutes,
+    sessionOffsetSec,
+    markSessionStart,
     fileName: file?.name ?? null,
     setFile,
     fileWornAt,

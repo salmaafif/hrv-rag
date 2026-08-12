@@ -137,8 +137,8 @@ def test_split_is_by_elapsed_time_not_beat_count():
     600 ms beats fit 100 into a minute, 1000 ms beats only 60. Both must yield one
     minute of baseline, not the same number of beats.
     """
-    fast, _ = split_baseline_and_task(rr(300, 600.0), baseline_minutes=1.0)
-    slow, _ = split_baseline_and_task(rr(300, 1000.0), baseline_minutes=1.0)
+    fast, _, _ = split_baseline_and_task(rr(300, 600.0), baseline_minutes=1.0)
+    slow, _, _ = split_baseline_and_task(rr(300, 1000.0), baseline_minutes=1.0)
 
     assert fast.sum() == pytest.approx(60_000, abs=600)
     assert slow.sum() == pytest.approx(60_000, abs=1000)
@@ -146,5 +146,5 @@ def test_split_is_by_elapsed_time_not_beat_count():
 
 
 def test_split_returns_everything_after_the_baseline():
-    rest, task = split_baseline_and_task(rr(300, 1000.0), baseline_minutes=1.0)
+    rest, task, _ = split_baseline_and_task(rr(300, 1000.0), baseline_minutes=1.0)
     assert rest.size + task.size == 300

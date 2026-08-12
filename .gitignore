@@ -9,6 +9,10 @@ archive/
 # Python
 __pycache__/
 *.egg-info/
+
+# Menjalankan npx dari akar repo (bukan dari frontend/) meninggalkan
+# cache vitest di sini. Jalankan tes frontend dari dalam frontend/.
+node_modules/
 *.py[cod]
 .ipynb_checkpoints/
 venv/

@@ -169,10 +169,16 @@ def rr_series_from_intervals(
 
 
 def split_baseline_and_task(
-    rr_ms: np.ndarray, baseline_minutes: float
-) -> tuple[np.ndarray, np.ndarray]:
+    rr_ms: np.ndarray, baseline_minutes: float, offset_sec: float = 0.0
+) -> tuple[np.ndarray, np.ndarray, float]:
     """
     Cut one continuous recording into its resting period and everything after.
+
+    Returns `(resting, task, rest_end_sec)`, where `rest_end_sec` is where the cut
+    actually landed measured from the first beat of the recording. Callers need
+    that number to translate between the two clocks below, and deriving it a
+    second time from `baseline_minutes` would be subtly wrong: the cut falls on a
+    beat boundary, not on the requested second.
 
     Reactivity is defined against the person's OWN baseline (Mandatory Rule #2), so
     a single uploaded file has to supply both halves. The split is by elapsed time
@@ -180,11 +186,40 @@ def split_baseline_and_task(
     splitting on beats would give an anxious person a shorter resting period than a
     calm one — shrinking exactly the reference their reactivity is measured against.
 
-    The cut relies entirely on the person having done what they were asked: start
-    recording, sit still for the stated minutes, then begin. Nothing downstream can
-    detect it if they did not, which is why the frontend states the instruction
-    prominently rather than in passing.
+    TWO CLOCKS, AND WHY `offset_sec` EXISTS.
+
+    A recording does not necessarily begin when the resting period does. A sensor
+    connected over Bluetooth starts producing beats the moment it pairs, while the
+    session — and every timestamp the session reports — begins later, when the
+    person presses start. `offset_sec` is the distance between those two instants:
+    how much of the recording had already been captured before the session clock
+    reached zero. It is 0 for an uploaded file, where the two coincide.
+
+    THE PRELUDE IS KEPT, NOT DISCARDED. Those early minutes are resting data —
+    the person was sitting still fitting the sensor and reading the screen — and
+    a two-minute rest is short enough that throwing them away is a real loss
+    (`scripts/analyse_baseline_duration.py`: a two-minute baseline can land 43%
+    from the truth, worst case 102%).
+
+    But they are only PROBABLY resting: nobody watched, and nobody asked. So the
+    prelude may contribute at most as much as the observed resting period does,
+    which caps the unverified half at fifty percent rather than letting a long
+    setup drown out the minutes we actually asked for. That rule needs no
+    threshold of its own — it is stated entirely in terms of the rest that was
+    requested.
     """
     elapsed = np.cumsum(rr_ms) / 1000.0
-    cut = baseline_minutes * 60.0
-    return rr_ms[elapsed <= cut], rr_ms[elapsed > cut]
+    requested = baseline_minutes * 60.0
+
+    rest_end = offset_sec + requested
+    # The prelude may match the observed rest in length, and no more.
+    rest_start = max(0.0, offset_sec - requested)
+
+    resting = rr_ms[(elapsed > rest_start) & (elapsed <= rest_end)]
+    task = rr_ms[elapsed > rest_end]
+
+    # Where the cut LANDED, not where it was aimed. Empty means the recording
+    # ended before the resting period did; the caller reports that as its own
+    # failure, so the honest value here is the whole recording.
+    actual_end = float(elapsed[elapsed <= rest_end].max()) if resting.size else 0.0
+    return resting, task, actual_end

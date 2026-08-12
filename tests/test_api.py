@@ -282,9 +282,15 @@ def test_timeline_windows_carry_authoritative_seconds(client):
                           headers={"X-API-Key": KEY}).json()
 
     first = payload["timeline"][0]
-    assert first["end_sec"] - first["start_sec"] == 60
-    # The first window starts after the resting period, not at zero.
-    assert first["start_sec"] >= 120
+    # `approx`, because both ends are rounded to a tenth from a start that now
+    # falls on a beat boundary rather than on a whole second. 179.3 - 119.3 is
+    # exactly 60 in decimal and 59.999... in binary floating point.
+    assert first["end_sec"] - first["start_sec"] == pytest.approx(60)
+    # The first window starts where the resting period ENDED, which is a beat
+    # boundary near the requested two minutes rather than exactly on it. It used
+    # to read 120.0 because the code added `baseline_minutes * 60` — the same
+    # assumption that put every question window in the wrong place.
+    assert first["start_sec"] == pytest.approx(120, abs=2)
 
 
 def test_modality_travels_with_the_result(client):

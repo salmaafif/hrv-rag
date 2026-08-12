@@ -222,6 +222,21 @@ export interface AnalyzeRequest {
   /** How many minutes at the start of the recording form the baseline. */
   baseline_minutes: number
   modality: Modality
+  /**
+   * Seconds of recording that already existed when the session clock reached
+   * zero.
+   *
+   * A Bluetooth sensor streams from the moment it pairs, while every timestamp
+   * below is measured from the moment the person pressed start. Those two
+   * instants are not the same, and the gap between them is however long fitting
+   * the band and reading the screen took. Left unstated, it shifts the resting
+   * period and every question window by that amount — silently, because the
+   * response stays complete and merely describes different minutes.
+   *
+   * Zero for an uploaded file, where the recording and the session begin
+   * together.
+   */
+  offset_sec?: number
 }
 
 export interface SessionRequest extends AnalyzeRequest {

@@ -27,8 +27,9 @@ def analyze_timeline(request: TimelineRequest) -> dict:
     modality = Modality(request.modality)
     try:
         prepared = prepare(request.rr_ms, request.csv, request.baseline_minutes,
-                           modality, request.session_id)
-        body = build_timeline(prepared, request.baseline_minutes)
+                           modality, request.session_id,
+                           request.offset_sec)
+        body = build_timeline(prepared)
     except AnalysisError as exc:
         # 422, not 500: the recording is the problem, and the message says how.
         raise HTTPException(422, str(exc)) from None

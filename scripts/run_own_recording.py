@@ -92,7 +92,7 @@ def report(path: Path, wear: str, baseline_minutes: float) -> int:
     print(f"  worn on           : {wear} -> {modality.value}")
     print(f"  baseline claimed  : first {baseline_minutes:g} minutes\n")
 
-    rest_rr, task_rr = split_baseline_and_task(rr_all, baseline_minutes)
+    rest_rr, task_rr, _ = split_baseline_and_task(rr_all, baseline_minutes)
 
     tables, series_by_phase = {}, {}
     for phase, rr in ((Phase.CALIBRATION, rest_rr), (Phase.QUESTION, task_rr)):

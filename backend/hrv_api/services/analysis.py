@@ -55,6 +55,35 @@ class Prepared:
     task_table: pd.DataFrame
     duration_sec: float
 
+    #: Where the resting period ended, measured from the first beat of the
+    #: RECORDING. Not `baseline_minutes * 60`: the cut lands on a beat boundary.
+    rest_end_sec: float = 0.0
+
+    #: How much recording was already captured when the session clock reached
+    #: zero. Zero for an uploaded file; non-zero whenever a Bluetooth sensor was
+    #: connected before the person pressed start.
+    offset_sec: float = 0.0
+
+    @property
+    def question_shift_sec(self) -> float:
+        """
+        Add this to a SESSION timestamp to get a TASK-TABLE timestamp.
+
+        Three clocks meet here and only two of them ever appear in the API:
+
+          recording : from the first beat the sensor produced
+          session   : from the moment the person pressed start
+          task table: from the first beat AFTER the resting period
+
+        Callers speak in session seconds, because that is what the person's
+        screen measured and what a human typing a timeline can actually observe.
+        The segment table is indexed in task seconds, because segmentation runs on
+        the task series alone and starts it at zero. This is the one number that
+        joins them, and it is a property rather than a duplicated expression so
+        the two endpoints cannot drift into disagreeing about where a question was.
+        """
+        return self.offset_sec - self.rest_end_sec
+
 
 def _intervals_from_request(rr_ms: list[float] | None, csv: str | None
                             ) -> np.ndarray:
@@ -80,7 +109,7 @@ def _intervals_from_request(rr_ms: list[float] | None, csv: str | None
 
 def prepare(rr_ms: list[float] | None, csv: str | None,
             baseline_minutes: float, modality: Modality,
-            session_id: str) -> Prepared:
+            session_id: str, offset_sec: float = 0.0) -> Prepared:
     """
     Turn a raw recording into a personal baseline plus a feature table.
 
@@ -89,7 +118,9 @@ def prepare(rr_ms: list[float] | None, csv: str | None,
     a recording too short, a resting period too noisy to anchor anything.
     """
     intervals = _intervals_from_request(rr_ms, csv)
-    rest_rr, task_rr = split_baseline_and_task(intervals, baseline_minutes)
+    rest_rr, task_rr, rest_end_sec = split_baseline_and_task(
+        intervals, baseline_minutes, offset_sec
+    )
 
     try:
         rest = rr_series_from_intervals(rest_rr, modality, session_id,
@@ -128,6 +159,7 @@ def prepare(rr_ms: list[float] | None, csv: str | None,
         baseline=baseline, baseline_unstable=unstable, baseline_note=note,
         task_table=task_table,
         duration_sec=float(np.sum(intervals) / 1000.0),
+        rest_end_sec=rest_end_sec, offset_sec=offset_sec,
     )
 
 
@@ -146,7 +178,7 @@ def _disagree(verdict) -> bool:
 
 
 # ==================================================================== V1
-def build_timeline(prepared: Prepared, baseline_minutes: float) -> dict:
+def build_timeline(prepared: Prepared) -> dict:
     """
     Score every 60-second window after the resting period.
 
@@ -154,6 +186,12 @@ def build_timeline(prepared: Prepared, baseline_minutes: float) -> dict:
     every 30 seconds. `start_sec` and `end_sec` remain the authoritative fields —
     the contract says so, and rounding a half-minute away would make two distinct
     windows look like one.
+
+    Times are reported in SESSION seconds, the same clock the caller supplies
+    question timings in. This used to add `baseline_minutes * 60` to reach the
+    same place, which was right only while the recording and the session started
+    together — the assumption a connected Bluetooth sensor quietly breaks.
+    `prepared.question_shift_sec` carries the real distance instead.
     """
     points, reactivities = [], []
 
@@ -165,7 +203,7 @@ def build_timeline(prepared: Prepared, baseline_minutes: float) -> dict:
         d_rmssd = reactivity.get("delta_pct_rmssd", float("nan"))
         d_hr = reactivity.get("delta_pct_mean_hr", float("nan"))
 
-        start = baseline_minutes * 60.0 + float(row["start_sec"])
+        start = float(row["start_sec"]) - prepared.question_shift_sec
         points.append({
             "minute": round(start / 60.0 + 1.0, 1),
             "start_sec": round(start, 1),
@@ -208,7 +246,17 @@ def build_session(prepared: Prepared, questions: list[dict]) -> tuple[dict, list
 
     Returns the response body alongside the per-question measurements, so the
     caller can hand those to the narrative writer without measuring twice.
+
+    QUESTION TIMES ARRIVE IN SESSION SECONDS and are shifted here into the segment
+    table's own clock. That shift was missing, and its absence was invisible: every
+    question window landed `baseline_minutes * 60` seconds too late, so a question
+    asked at 2:00 was scored from the recording at 4:00. The response stayed
+    complete and well formed, the levels stayed plausible, and every one of them
+    described a different moment than the one it named. Measured on a synthetic
+    recording whose intervals fall steadily, the first question read 761 ms where
+    the truth was 880 ms.
     """
+    shift = prepared.question_shift_sec
     timeline = SessionTimeline(
         session_id="session", calibration_start_sec=0.0,
         calibration_end_sec=0.0, confounders=[],
@@ -217,11 +265,12 @@ def build_session(prepared: Prepared, questions: list[dict]) -> tuple[dict, list
         timeline.questions.append(Question(
             number=entry["number"], text=entry["text"],
             qtype=QuestionType(entry["type"]),
-            answer_start_sec=float(entry["answer_start_sec"]),
-            answer_end_sec=float(entry["answer_end_sec"]),
+            answer_start_sec=float(entry["answer_start_sec"]) + shift,
+            answer_end_sec=float(entry["answer_end_sec"]) + shift,
             # A zero-length gap means no quiet stretch was observed, which is a
-            # different statement from a gap in which nothing happened.
-            gap_end_sec=(float(entry["gap_end_sec"])
+            # different statement from a gap in which nothing happened. The
+            # comparison stays in the caller's own clock, where it was written.
+            gap_end_sec=(float(entry["gap_end_sec"]) + shift
                          if entry["gap_end_sec"] > entry["answer_end_sec"]
                          else None),
             is_difficult=bool(entry.get("is_difficult", False)),

@@ -26,7 +26,8 @@ def analyze_session(request: SessionRequest) -> dict:
     modality = Modality(request.modality)
     try:
         prepared = prepare(request.rr_ms, request.csv, request.baseline_minutes,
-                           modality, request.session_id)
+                           modality, request.session_id,
+                           request.offset_sec)
         body, measurements = build_session(
             prepared, [q.model_dump() for q in request.questions]
         )

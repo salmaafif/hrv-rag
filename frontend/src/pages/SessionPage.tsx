@@ -57,12 +57,19 @@ export function SessionPage({ mode, device, session }: StageContext) {
   // four minutes of waiting while the backend was told two.
   const restSec = INTERVIEW_REST_MINUTES * 60
   const setBaselineMinutes = session.setBaselineMinutes
+  const markSessionStart = session.markSessionStart
 
   // The same number has to reach the backend, because it is what marks where the
   // baseline ends in the recording. Written on mount so no entry path can miss it.
   useEffect(() => {
     setBaselineMinutes(INTERVIEW_REST_MINUTES)
-  }, [setBaselineMinutes])
+    // The sensor has been streaming since it paired; this is the moment the
+    // session clock starts, so this is where the distance between them is fixed.
+    markSessionStart()
+    // Deliberately mount-only: re-running it later would move the origin after
+    // timestamps had already been recorded against the old one.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // The first question opens the moment the resting period ends, so its start
   // time is known before the screen has even rendered. A ref rather than state
