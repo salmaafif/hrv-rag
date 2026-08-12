@@ -18,8 +18,10 @@ import torch
 
 from hrv_dl.dataset import MAX_BEATS, SequenceDataset, assert_no_leakage
 from hrv_dl.models import CNN1D, make_model
-from hrv_dl.train import (TrainConfig, _class_weights, check_no_leakage,
-                          permute_labels, run_loso, train_one_fold)
+from hrv_dl.train import (TrainConfig, _class_weights, _fit_fixed, _subset,
+                          check_no_leakage, permute_labels, run_loso,
+                          run_matched, train_one_fold)
+from hrv_rag.config.settings import settings
 
 
 def synthetic(n_subjects=6, per_class=8, seed=0) -> SequenceDataset:
@@ -201,6 +203,69 @@ def test_the_restored_epoch_is_the_one_validation_chose():
     fold = train_one_fold(data, "S0", ["S1", "S2"], TrainConfig(epochs=8, patience=8, seed=1))
     assert fold.best_epoch <= fold.epochs_run
     assert fold.val_macro_f1 >= 0.0
+
+
+# --------------------------------------------------- the matched head-to-head
+def wesad_shaped(seed=0) -> SequenceDataset:
+    """Synthetic data carrying the REAL subject IDs, so the split logic is exercised."""
+    ids = list(settings.split.dev_subjects) + list(settings.split.test_subjects)
+    rng = np.random.default_rng(seed)
+    x, mask, y, subs, phases, nb = [], [], [], [], [], []
+    for s in ids:
+        for label in (0, 1):
+            for _ in range(6):
+                n = int(rng.integers(60, 120))
+                row = np.zeros(MAX_BEATS, np.float32); m = np.zeros(MAX_BEATS, bool)
+                row[:n] = (1.0 if label == 0 else 0.82) + rng.normal(0, 0.03, n)
+                m[:n] = True
+                x.append(row); mask.append(m); y.append(label); subs.append(s); nb.append(n)
+                phases.append("calibration" if label == 0 else "question")
+    return SequenceDataset(
+        x=np.asarray(x, np.float32), mask=np.asarray(mask), y=np.asarray(y, np.int64),
+        subjects=np.asarray(subs, dtype=object), phases=np.asarray(phases, dtype=object),
+        n_beats=np.asarray(nb, np.int64), normalised=True,
+    )
+
+
+def test_matched_run_scores_only_the_sealed_subjects():
+    # The whole point of this mode: the rule was calibrated on five people, so the
+    # network must be too, and both must then meet the same ten.
+    result = run_matched(wesad_shaped(), TrainConfig(epochs=8, patience=3,
+                                                     min_epochs=1, seed=4),
+                         verbose=False)
+    assert set(result.per_subject) == set(settings.split.test_subjects)
+    assert not (set(result.per_subject) & set(settings.split.dev_subjects))
+
+
+def test_matched_run_freezes_its_epoch_before_touching_the_sealed_set():
+    # Five inner rounds, one per development subject, and the median is obeyed.
+    # If the epoch were chosen by watching the sealed subjects, the reported figure
+    # would be the best of several attempts rather than a prediction.
+    result = run_matched(wesad_shaped(), TrainConfig(epochs=8, patience=3,
+                                                     min_epochs=1, seed=4),
+                         verbose=False)
+    assert len(result.inner_epochs) == len(settings.split.dev_subjects)
+    assert result.frozen_epochs == int(np.median(result.inner_epochs))
+
+
+def test_fixed_epoch_training_uses_no_validation_at_all():
+    # With every development subject in the training pool there is nothing left to
+    # early-stop on, which is exactly why the epoch had to be frozen beforehand.
+    data = wesad_shaped()
+    train = _subset(data, np.isin(data.subjects, settings.split.dev_subjects))
+    model = _fit_fixed(train, 3, TrainConfig(seed=1))
+    assert model.n_parameters() == CNN1D().n_parameters()
+
+
+def test_matched_and_loso_share_one_training_loop():
+    # Two copies of the loop would let the two comparisons train the same
+    # architecture by different rules, and their numbers would stop being
+    # comparable without anything saying so.
+    import inspect
+
+    from hrv_dl import train as mod
+    assert "_fit_early_stopping" in inspect.getsource(mod.train_one_fold)
+    assert "_fit_early_stopping" in inspect.getsource(mod.run_matched)
 
 
 def test_metrics_come_from_the_rag_side_s_own_function():

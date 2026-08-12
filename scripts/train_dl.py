@@ -32,7 +32,7 @@ if hasattr(sys.stdout, "reconfigure"):
 from hrv_dl.dataset import SequenceDataset, build_subjects        # noqa: E402
 from hrv_dl.models import CNN1D                                    # noqa: E402
 from hrv_dl.train import (TrainConfig, check_no_leakage,           # noqa: E402
-                          permute_labels, run_loso)
+                          permute_labels, run_loso, run_matched)
 from hrv_rag.config.settings import OUTPUTS_DIR, settings          # noqa: E402
 
 CACHE = OUTPUTS_DIR / "dl_sequences_wesad_ecg.npz"
@@ -68,12 +68,69 @@ def load_dataset(rebuild: bool) -> SequenceDataset:
     return data
 
 
+#: The rule's own per-subject macro-F1 on the ten sealed subjects, recomputed from
+#: `outputs/features_wesad_ecg_holdout.csv` with the frozen thresholds. Printed
+#: beside the network's so the comparison is per PERSON, not only in aggregate —
+#: an average can hide one side failing completely on somebody the other reads
+#: almost perfectly, which is exactly what happened on S2.
+RULE_PER_SUBJECT = {
+    "S3": 0.907, "S4": 0.788, "S5": 0.963, "S7": 0.862, "S8": 0.822,
+    "S9": 0.640, "S11": 0.912, "S13": 0.861, "S15": 0.628, "S16": 0.912,
+}
+RULE_SEALED_MACRO_F1 = 0.839
+
+
+def run_matched_comparison(data, cfg: TrainConfig) -> int:
+    """The like-for-like run: five development subjects in, ten sealed ones out."""
+    print("=" * 72)
+    print("ADU SETARA — latih pada 5 subjek dev, uji pada 10 tersegel")
+    print("=" * 72)
+    print("  Aturan skor dikalibrasi dari lima orang ini dan tidak lebih.")
+    print("  LOSO memberi jaringan dua belas, jadi 0,869 lawan 0,839 membandingkan")
+    print("  dua percobaan berbeda. Di sini keduanya melihat lima orang yang sama.\n")
+
+    matched = run_matched(data, cfg, verbose=True)
+    print(f"{matched.summary()}\n")
+
+    print(f"  {'subjek':<8}{'aturan':>9}{'1D-CNN':>9}{'selisih':>10}")
+    print("  " + "-" * 36)
+    deltas = []
+    for subject in sorted(matched.per_subject, key=lambda s: matched.per_subject[s]):
+        cnn = matched.per_subject[subject]
+        rule = RULE_PER_SUBJECT.get(subject)
+        if rule is None:
+            print(f"  {subject:<8}{'—':>9}{cnn:>9.3f}")
+            continue
+        deltas.append(cnn - rule)
+        print(f"  {subject:<8}{rule:>9.3f}{cnn:>9.3f}{cnn - rule:>+10.3f}")
+
+    print("  " + "-" * 36)
+    print(f"  {'gabungan':<8}{RULE_SEALED_MACRO_F1:>9.3f}"
+          f"{matched.report.macro_f1:>9.3f}"
+          f"{matched.report.macro_f1 - RULE_SEALED_MACRO_F1:>+10.3f}\n")
+
+    print("  Kappa:", f"{matched.report.kappa:.3f} (aturan: 0.678)")
+    print("  F1 per kelas:",
+          {k: round(v, 3) for k, v in matched.report.per_class_f1.items()})
+    print("  Confusion   :", matched.report.confusion,
+          f"({matched.report.labels_order})\n")
+
+    won = sum(1 for d in deltas if d > 0)
+    print(f"  Menang pada {won} dari {len(deltas)} subjek tersegel.")
+    print("  Angka INILAH yang boleh masuk laporan sebagai perbandingan RAG vs DL —")
+    print("  bukan angka LOSO, yang memberi jaringan lebih banyak data latih.\n")
+    return 0
+
+
 def main() -> int:
     rebuild = "--rebuild" in sys.argv
     permute = "--no-permute" not in sys.argv
 
     data = load_dataset(rebuild)
     cfg = TrainConfig()
+
+    if "--matched" in sys.argv:
+        return run_matched_comparison(data, cfg)
 
     print("=" * 72)
     print("DATA")

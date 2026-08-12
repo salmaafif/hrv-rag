@@ -53,7 +53,8 @@ import torch
 from sklearn.metrics import f1_score
 from torch import nn
 
-from hrv_rag.evaluation.labels import DATASET_LABELS, EvaluationRecord, TrueLabel
+from hrv_rag.config.settings import settings
+from hrv_rag.evaluation.labels import EvaluationRecord, TrueLabel
 from hrv_rag.evaluation.metrics import ClassificationReport, evaluate_classification
 
 from .dataset import SequenceDataset, assert_no_leakage
@@ -213,6 +214,97 @@ def permute_labels(data: SequenceDataset, seed: int) -> SequenceDataset:
     )
 
 
+# ----------------------------------------------------------- the training loop
+def _run_epochs(model: nn.Module, train: dict, cfg: TrainConfig,
+                optimiser, loss_fn, generator, n_epochs: int) -> None:
+    """`n_epochs` passes of mini-batch SGD over `train`. Mutates `model`."""
+    n = train["y"].shape[0]
+    for _ in range(n_epochs):
+        model.train()
+        order = torch.randperm(n, generator=generator)
+        for start in range(0, n, cfg.batch_size):
+            idx = order[start:start + cfg.batch_size]
+            optimiser.zero_grad()
+            logits = model(train["x"][idx], train["mask"][idx])
+            loss_fn(logits, train["y"][idx]).backward()
+            optimiser.step()
+
+
+def _new_run(train: dict, cfg: TrainConfig):
+    """A model, its optimiser, its loss and its shuffler — all seeded together."""
+    torch.manual_seed(cfg.seed)
+    model = make_model(dropout=cfg.dropout, seed=cfg.seed)
+    optimiser = torch.optim.Adam(model.parameters(), lr=cfg.learning_rate,
+                                 weight_decay=cfg.weight_decay)
+    loss_fn = nn.CrossEntropyLoss(weight=_class_weights(train["y"]))
+    return model, optimiser, loss_fn, torch.Generator().manual_seed(cfg.seed)
+
+
+def _fit_early_stopping(train: dict, val: dict, cfg: TrainConfig
+                        ) -> tuple[nn.Module, dict]:
+    """
+    Train until the validation signal stops improving, then restore the best epoch.
+
+    Shared by the LOSO sweep and by the inner loop of the matched comparison, so
+    the two cannot drift into training the same architecture by different rules —
+    which would quietly make their numbers incomparable.
+    """
+    model, optimiser, loss_fn, generator = _new_run(train, cfg)
+    best = {"val": -1.0, "loss": float("inf"), "train": 0.0, "epoch": 0,
+            "state": None, "epochs_run": 0}
+    since_improved = 0
+
+    for epoch in range(1, cfg.epochs + 1):
+        best["epochs_run"] = epoch
+        _run_epochs(model, train, cfg, optimiser, loss_fn, generator, 1)
+
+        val_f1 = _macro_f1(val["y"].numpy(), _predict(model, val))
+        val_loss = _loss_on(model, val, loss_fn)
+
+        # Loss breaks the tie when macro-F1 plateaus.
+        #
+        # Macro-F1 over one or two subjects is coarse and saturates: once it
+        # touches 1.000, a strictly-greater test can never fire again and the fold
+        # freezes on whatever weights happened to reach it first. Loss keeps moving
+        # after the labels stop flipping, so it can still tell a confident model
+        # from a barely-decided one that scores the same.
+        improved = val_f1 > best["val"] or (
+            val_f1 >= best["val"] and val_loss < best["loss"]
+        )
+        if improved:
+            best.update({
+                "val": val_f1, "loss": val_loss,
+                "train": _macro_f1(train["y"].numpy(), _predict(model, train)),
+                "epoch": epoch,
+                "state": {k: v.clone() for k, v in model.state_dict().items()},
+            })
+            since_improved = 0
+        else:
+            since_improved += 1
+            if since_improved >= cfg.patience and epoch >= cfg.min_epochs:
+                break
+
+    # Restore the epoch VALIDATION chose, never the last one and never the
+    # best-on-test one.
+    if best["state"] is not None:
+        model.load_state_dict(best["state"])
+    return model, best
+
+
+def _fit_fixed(train: dict, n_epochs: int, cfg: TrainConfig) -> nn.Module:
+    """
+    Train for a predetermined number of epochs, with no validation set at all.
+
+    Needed by the matched comparison, where every development subject is used for
+    training — exactly as the scoring rule's thresholds were calibrated on all
+    five. With none held back there is nothing to early-stop on, so the epoch
+    count has to have been decided beforehand and then simply obeyed.
+    """
+    model, optimiser, loss_fn, generator = _new_run(train, cfg)
+    _run_epochs(model, train, cfg, optimiser, loss_fn, generator, n_epochs)
+    return model
+
+
 # ------------------------------------------------------------------ one fold
 def train_one_fold(data: SequenceDataset, test_subject: str,
                    val_subjects: list[str], cfg: TrainConfig) -> FoldResult:
@@ -229,63 +321,9 @@ def train_one_fold(data: SequenceDataset, test_subject: str,
 
     train, val, test = _subset(data, is_train), _subset(data, is_val), _subset(data, is_test)
 
-    torch.manual_seed(cfg.seed)
-    model = make_model(dropout=cfg.dropout, seed=cfg.seed)
-    optimiser = torch.optim.Adam(model.parameters(), lr=cfg.learning_rate,
-                                 weight_decay=cfg.weight_decay)
-    loss_fn = nn.CrossEntropyLoss(weight=_class_weights(train["y"]))
-
-    generator = torch.Generator().manual_seed(cfg.seed)
-    n_train = train["y"].shape[0]
-
-    best = {"val": -1.0, "loss": float("inf"), "train": 0.0, "epoch": 0, "state": None}
-    since_improved = 0
-    epochs_run = 0
-
-    for epoch in range(1, cfg.epochs + 1):
-        epochs_run = epoch
-        model.train()
-        order = torch.randperm(n_train, generator=generator)
-        for start in range(0, n_train, cfg.batch_size):
-            idx = order[start:start + cfg.batch_size]
-            optimiser.zero_grad()
-            logits = model(train["x"][idx], train["mask"][idx])
-            loss_fn(logits, train["y"][idx]).backward()
-            optimiser.step()
-
-        val_f1 = _macro_f1(val["y"].numpy(), _predict(model, val))
-        val_loss = _loss_on(model, val, loss_fn)
-
-        # Loss breaks the tie when macro-F1 plateaus.
-        #
-        # Macro-F1 over two subjects is coarse and saturates: once it touches
-        # 1.000, a strictly-greater test can never fire again and the fold freezes
-        # on whatever weights happened to reach it first. Loss keeps moving after
-        # the labels stop flipping, so it can still tell a confident model from a
-        # barely-decided one that scores the same.
-        improved = val_f1 > best["val"] or (
-            val_f1 >= best["val"] and val_loss < best["loss"]
-        )
-        if improved:
-            best = {
-                "val": val_f1,
-                "loss": val_loss,
-                "train": _macro_f1(train["y"].numpy(), _predict(model, train)),
-                "epoch": epoch,
-                "state": {k: v.clone() for k, v in model.state_dict().items()},
-            }
-            since_improved = 0
-        else:
-            since_improved += 1
-            if since_improved >= cfg.patience and epoch >= cfg.min_epochs:
-                break
-
-    # Restore the epoch the VALIDATION subjects chose, never the last one and
-    # never the best-on-test one.
-    if best["state"] is not None:
-        model.load_state_dict(best["state"])
-
+    model, info = _fit_early_stopping(train, val, cfg)
     y_pred = _predict(model, test)
+    best = info
     return FoldResult(
         test_subject=test_subject,
         val_subjects=list(val_subjects),
@@ -296,7 +334,107 @@ def train_one_fold(data: SequenceDataset, test_subject: str,
         train_macro_f1=float(best["train"]),
         val_macro_f1=float(best["val"]),
         test_macro_f1=_macro_f1(test["y"].numpy(), y_pred),
-        epochs_run=epochs_run,
+        epochs_run=int(best["epochs_run"]),
+    )
+
+
+# ------------------------------------------------- the matched head-to-head
+@dataclass
+class MatchedResult:
+    """The deep-learning side of a like-for-like comparison with the rule."""
+
+    frozen_epochs: int
+    inner_epochs: list[int]
+    report: ClassificationReport
+    per_subject: dict[str, float]
+    config: TrainConfig
+    label_permuted: bool = False
+    seconds: float = 0.0
+
+    def summary(self) -> str:
+        head = "PERMUTED" if self.label_permuted else "MATCHED"
+        return (
+            f"{head} 5 dev -> 10 tersegel: {self.report.n_evaluated} segmen\n"
+            f"  accuracy {self.report.accuracy:.3f}  "
+            f"macro-F1 {self.report.macro_f1:.3f}  kappa {self.report.kappa:.3f}\n"
+            f"  epoch dibekukan di {self.frozen_epochs} "
+            f"(dari lima putaran dalam: {self.inner_epochs})  ({self.seconds:.0f}s)"
+        )
+
+
+def run_matched(data: SequenceDataset, cfg: TrainConfig | None = None,
+                label_permuted: bool = False, verbose: bool = True) -> MatchedResult:
+    """
+    Train on the five development subjects, test once on the ten sealed ones.
+
+    WHY THIS AND NOT LOSO. LOSO gives the network twelve subjects of training data
+    per fold, while the scoring rule's thresholds were calibrated on five. Setting
+    0.869 beside 0.839 therefore compares two different experiments, and the gap
+    partly measures how much more data one side was handed. This procedure removes
+    that difference: both sides see the same five people, and then meet the same
+    ten.
+
+    The epoch count is chosen the way the rule's thresholds were — by sweeping
+    within the development subjects and then FREEZING. Five inner rounds each hold
+    one development subject out, and the median of their best epochs becomes the
+    fixed budget. The network is then retrained on all five, because the rule was
+    calibrated on all five, and predicts the sealed subjects exactly once.
+
+    Nothing about the ten sealed subjects influences anything: not the epoch, not
+    the architecture, not the seed. That is what makes the resulting number worth
+    printing next to the rule's.
+    """
+    cfg = cfg or TrainConfig()
+    dev = list(settings.split.dev_subjects)
+    sealed = list(settings.split.test_subjects)
+    started = time.monotonic()
+
+    inner_epochs: list[int] = []
+    for held_out in dev:
+        others = [s for s in dev if s != held_out]
+        _, info = _fit_early_stopping(
+            _subset(data, np.isin(data.subjects, others)),
+            _subset(data, data.subjects == held_out),
+            cfg,
+        )
+        inner_epochs.append(int(info["epoch"]))
+        if verbose:
+            print(f"  putaran dalam, validasi {held_out:<4} -> epoch terbaik "
+                  f"{info['epoch']:>3}  (val macro-F1 {info['val']:.3f})")
+
+    frozen = int(np.median(inner_epochs))
+    if verbose:
+        print(f"\n  Epoch dibekukan di {frozen}. Melatih ulang pada kelima subjek "
+              f"dev, lalu menyentuh sepuluh subjek tersegel satu kali.\n")
+
+    model = _fit_fixed(_subset(data, np.isin(data.subjects, dev)), frozen, cfg)
+    test = _subset(data, np.isin(data.subjects, sealed))
+    y_pred = _predict(model, test)
+    y_true = test["y"].numpy()
+    subjects = data.subjects[np.isin(data.subjects, sealed)]
+    phases = test["phases"]
+
+    per_subject = {}
+    for s in sealed:
+        rows = subjects == s
+        if rows.any():
+            per_subject[s] = _macro_f1(y_true[rows], y_pred[rows])
+
+    records = [
+        EvaluationRecord(
+            subject=str(subjects[i]), phase=str(phases[i]), segment=i, modality="ECG",
+            truth=INT_TO_LABEL[int(y_true[i])], predicted=INT_TO_LABEL[int(y_pred[i])],
+            raw_level=INT_TO_LABEL[int(y_pred[i])].value, confidence=1.0,
+            references=[], retrieved_ids=[], reasoning="", is_trustworthy=True,
+        )
+        for i in range(len(y_true))
+    ]
+
+    return MatchedResult(
+        frozen_epochs=frozen, inner_epochs=inner_epochs,
+        report=evaluate_classification(records), per_subject=per_subject,
+        config=cfg, label_permuted=label_permuted,
+        seconds=time.monotonic() - started,
     )
 
 
@@ -313,7 +451,6 @@ def run_loso(data: SequenceDataset, cfg: TrainConfig | None = None,
     """
     cfg = cfg or TrainConfig()
     subjects = sorted(set(data.subjects.tolist()))
-    rng = np.random.default_rng(cfg.seed)
     started = time.monotonic()
 
     folds: list[FoldResult] = []
@@ -352,7 +489,6 @@ def run_loso(data: SequenceDataset, cfg: TrainConfig | None = None,
             "Labels were shuffled before training. Anything meaningfully above "
             "chance here is leakage, not learning."
         )
-    _ = rng, DATASET_LABELS
     return result
 
 
