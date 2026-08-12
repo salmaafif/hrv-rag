@@ -196,7 +196,7 @@ tetap berlaku untuk jalur dataset penelitian, yang memang mulai dari gelombang.
 
 | Hal | Keputusan | Alasan |
 |---|---|---|
-| Repo | **Satu repo (monorepo)**. Frontend di `frontend/`, API di `src/hrv_rag/api/` | Pengembang tunggal; frontend dan backend berubah bersamaan. Vercel/Railway bisa diarahkan ke subfolder |
+| Repo | **Satu repo (monorepo)**. Frontend di `frontend/`, API di `backend/hrv_api/` | Pengembang tunggal; frontend dan backend berubah bersamaan. Vercel/Railway bisa diarahkan ke subfolder |
 | Frontend | **React** | Pilihan Salma; akan di-deploy untuk keperluan TA |
 | Format file utama | **CSV interval RR** | Berkas WESAD `.pkl` ratusan MB — tidak realistis diunggah ke demo terhosting. CSV cuma beberapa KB |
 | Kunci API | **Wajib di server**, tidak pernah di React | Apa pun di frontend bisa dibaca lewat DevTools; kunci akan terekspos |

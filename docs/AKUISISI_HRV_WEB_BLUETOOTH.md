@@ -459,8 +459,8 @@ butuh **gelombang mentah**, sedangkan armband konsumen hanya mengirim interval.
         ▼
 [Fase adaptasi 1 mnt]  ── GERBANG 2: outlier ≤ 10%? ──┐ gagal → perbaiki, ulangi
         ▼                                              │
-[Kalibrasi 3 mnt] ───── GERBANG 3: baseline layak? ────┘ gagal → ulangi kalibrasi
-        │  → baseline per subjek (5 segmen)
+[Kalibrasi 2 mnt] ───── GERBANG 3: baseline layak? ────┘ gagal → ulangi kalibrasi
+        │  → baseline per subjek (2-4 segmen, hop 15 dtk)
         ▼
 [Pengarahan 2 mnt]  (tidak dianalisis — L1)
         ▼
@@ -499,10 +499,10 @@ membatalkan sesi. Laporkan cakupan di akhir ("12 dari 14 segmen layak dianalisis
   "kb_versi": "kb_v2.0",
   "fase": [
     { "nama": "adaptasi",   "mulai_dtk": 0,   "akhir_dtk": 60  },
-    { "nama": "kalibrasi",  "mulai_dtk": 60,  "akhir_dtk": 240 },
-    { "nama": "pengarahan", "mulai_dtk": 240, "akhir_dtk": 360 },
-    { "nama": "jawab_q1",   "mulai_dtk": 360, "akhir_dtk": 450, "sulit": true },
-    { "nama": "jeda_q1",    "mulai_dtk": 450, "akhir_dtk": 510 }
+    { "nama": "kalibrasi",  "mulai_dtk": 60,  "akhir_dtk": 180 },
+    { "nama": "pengarahan", "mulai_dtk": 180, "akhir_dtk": 300 },
+    { "nama": "jawab_q1",   "mulai_dtk": 300, "akhir_dtk": 390, "sulit": true },
+    { "nama": "jeda_q1",    "mulai_dtk": 390, "akhir_dtk": 450 }
   ],
   "rr_ms":    [812.5, 798.8],
   "rr_t_dtk": [0.81, 1.61],

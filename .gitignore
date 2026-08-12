@@ -8,6 +8,7 @@ archive/
 
 # Python
 __pycache__/
+*.egg-info/
 *.py[cod]
 .ipynb_checkpoints/
 venv/

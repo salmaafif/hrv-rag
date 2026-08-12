@@ -1,0 +1,42 @@
+# Packaging for the two Python packages in this repository.
+#
+# WHY THIS FILE EXISTS. Until now nothing here was installable, so sixteen files
+# began with `sys.path.insert(0, ".../src")` just to be able to import the project
+# at all. That works from the repository root and nowhere else, which makes the
+# instructions in BACKLOG D1.1 — "how to install, how to run" — impossible to
+# write honestly. It also blocked splitting the service into its own folder, since
+# `backend/` cannot import `hrv_rag` unless `hrv_rag` is a real package.
+#
+# TWO PACKAGES, DELIBERATELY. `hrv_rag` is the research pipeline: preprocessing,
+# features, retrieval, evaluation — about 6,000 lines, and none of it needs a web
+# server to run. `hrv_api` is the HTTP surface over it, about 800 lines. Keeping
+# them apart means the science can be run, tested and cited without FastAPI
+# anywhere near it, and the service stays a thin, replaceable wrapper rather than
+# the place where behaviour accumulates.
+#
+#     pip install -e .
+#
+# After that, `import hrv_rag` and `uvicorn hrv_api.app:app` work from any
+# directory, and the sys.path lines can go.
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hrv-rag"
+version = "1.0.0"
+description = "Interpretasi tingkat tekanan dari HRV dengan RAG — Salma Afifa Azis, PENS"
+requires-python = ">=3.10"
+
+# Deliberately NOT pinned here. requirements.txt carries the runtime set with the
+# reasoning for each entry, and requirements-dl.txt carries the training extras
+# that the system itself never needs. Duplicating versions in two places is how
+# they drift apart.
+dependencies = []
+
+[tool.setuptools.packages.find]
+where = ["src", "backend"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field, model_validator
 
-from ..config.settings import settings
+from hrv_rag.config.settings import settings
 
 #: Shortest resting period that produces any baseline window at all.
 #:

@@ -19,7 +19,12 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+# Both packages, so the suite runs whether or not `pip install -e .` has been done.
+# Once it has, these lines are redundant rather than wrong — the installed package
+# is found first either way.
+_REPO = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(_REPO / "src"))       # hrv_rag  — the research pipeline
+sys.path.insert(0, str(_REPO / "backend"))   # hrv_api  — the HTTP surface
 
 from hrv_rag.core.types import (Modality, Phase,  # noqa: E402
                                 QualityReport, RRSeries)

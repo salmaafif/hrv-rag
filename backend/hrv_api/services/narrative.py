@@ -23,7 +23,7 @@ from __future__ import annotations
 import logging
 
 from .analysis import Prepared
-from ..core.types import Modality
+from hrv_rag.core.types import Modality
 
 log = logging.getLogger(__name__)
 
@@ -62,7 +62,7 @@ def write_session_narrative(prepared: Prepared, body: dict, measurements: list,
     after the second one than the first" cannot be written one question at a time.
     """
     try:
-        from ..rag.narrative import NarrativeInput, NarrativeWriter
+        from hrv_rag.rag.narrative import NarrativeInput, NarrativeWriter
     except Exception as exc:                      # pragma: no cover - import guard
         return _empty_session(body), _fallback_meta(f"unavailable: {exc}")
 
@@ -129,8 +129,8 @@ def write_timeline_narrative(prepared: Prepared, body: dict, modality: Modality,
     it never asked. That keeps the prompt honest about what was actually observed.
     """
     try:
-        from ..features.stress_level import classify
-        from ..rag.narrative import NarrativeInput, NarrativeWriter
+        from hrv_rag.features.stress_level import classify
+        from hrv_rag.rag.narrative import NarrativeInput, NarrativeWriter
     except Exception as exc:                      # pragma: no cover - import guard
         return _empty_timeline(), _fallback_meta(f"unavailable: {exc}")
 

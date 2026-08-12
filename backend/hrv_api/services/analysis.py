@@ -22,16 +22,16 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-from ..config.settings import settings
-from ..core.session import Question, QuestionType, SessionTimeline
-from ..core.types import Modality, Phase
-from ..features.baseline import BaselineProfile
-from ..features.extractor import extract_features
-from ..features.question import (arousal_index, cognitive_load_hint,
+from hrv_rag.config.settings import settings
+from hrv_rag.core.session import Question, QuestionType, SessionTimeline
+from hrv_rag.core.types import Modality, Phase
+from hrv_rag.features.baseline import BaselineProfile
+from hrv_rag.features.extractor import extract_features
+from hrv_rag.features.question import (arousal_index, cognitive_load_hint,
                                  measure_question)
-from ..features.dynamics import resilience_quadrant
-from ..features.stress_level import classify
-from ..preprocessing.intervals import (IntervalFormatError, parse_rr_csv,
+from hrv_rag.features.dynamics import resilience_quadrant
+from hrv_rag.features.stress_level import classify
+from hrv_rag.preprocessing.intervals import (IntervalFormatError, parse_rr_csv,
                                        rr_series_from_intervals,
                                        split_baseline_and_task)
 
@@ -131,7 +131,7 @@ def prepare(rr_ms: list[float] | None, csv: str | None,
     )
 
 
-def _baseline_block(prepared: Prepared) -> dict:
+def baseline_block(prepared: Prepared) -> dict:
     return {
         "rmssd_ms": round(prepared.baseline.values.get("rmssd", float("nan")), 2),
         "mean_hr_bpm": round(prepared.baseline.values.get("mean_hr", float("nan")), 1),
