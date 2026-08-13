@@ -21,7 +21,7 @@ from __future__ import annotations
 from ..config.settings import LLMConfig, settings
 from ..core.schemas import Assessment, AssessmentInput
 from .guards import (find_fabricated_citations, find_invented_numbers,
-                     find_unknown_references)
+                     find_k4_violations, find_unknown_references)
 from .llm import BaseInterpreter, make_interpreter
 from .prompt import build_prompt
 from .query_builder import build_query
@@ -88,6 +88,12 @@ class AssessmentPipeline:
             retrieval_scores=[c.similarity for c in chunks],
             response=response,
             invented_numbers=find_invented_numbers(checked_text, prompt),
+            # Only the two fields a user reads. `reasoning` and
+            # `uncertainty_notes` are English, are for the developer, and are
+            # SUPPOSED to name features — checking them would flag correct work.
+            k4_violations=find_k4_violations(
+                " ".join([response.user_summary, response.user_recommendation])
+            ),
             unknown_references=(
                 find_unknown_references(response.references, retrieved_ids)
                 + find_fabricated_citations(checked_text, retrieved_ids)
