@@ -37,7 +37,9 @@ from __future__ import annotations
 import json
 import os
 from abc import ABC, abstractmethod
+from dataclasses import replace
 from pathlib import Path
+from urllib.parse import urlsplit
 from typing import Any
 
 from dotenv import load_dotenv
@@ -70,6 +72,20 @@ class OllamaHTTPError(RuntimeError):
     def __init__(self, status: int, detail: str) -> None:
         self.status = status
         super().__init__(f"Ollama HTTP {status}: {detail[:200]}")
+
+
+def _first_env(*names: str) -> str:
+    """
+    First of these environment variables that carries a value.
+
+    Case-sensitive, and the names are listed in the order they should win, so a
+    correctly-named variable always beats an alias.
+    """
+    for name in names:
+        value = os.getenv(name, "").strip()
+        if value:
+            return value
+    return ""
 
 
 def _is_retryable_ollama(exc: Exception) -> bool:
@@ -205,9 +221,15 @@ class OllamaInterpreter(BaseInterpreter):
 
         if base_url is None or api_key is None or model is None:
             load_dotenv(_ENV_PATH)
-        base_url = base_url or os.getenv("OPENWEBUI_BASE_URL", "")
-        api_key = api_key or os.getenv("OPENWEBUI_API_KEY", "")
-        model = model or os.getenv("OLLAMA_MODEL", "") or self.ollama.model
+        # Aliases accepted because the credential has two obvious names — it is
+        # OpenWebUI's key, but it is the OLLAMA server it unlocks, and .env files
+        # get written by hand. Refusing a key that is plainly present, over the
+        # capitalisation of its label, is a bad trade for the person debugging it.
+        base_url = base_url or _first_env("OPENWEBUI_BASE_URL", "OLLAMA_BASE_URL",
+                                          "VASTAI_BASE_URL")
+        api_key = api_key or _first_env("OPENWEBUI_API_KEY", "Ollama_API_KEY",
+                                        "OLLAMA_API_KEY")
+        model = model or _first_env("OLLAMA_MODEL") or self.ollama.model
 
         if not base_url:
             raise RuntimeError(
@@ -229,7 +251,32 @@ class OllamaInterpreter(BaseInterpreter):
                 "quietly answer with a different model."
             )
 
-        self.base_url = base_url.rstrip("/")
+        # Vast.ai hands you a portal link with the access token in the query
+        # string, and pasting it verbatim is the obvious thing to do. Left
+        # attached, the query would land in the middle of every request path
+        # (`...:20703/?token=abc/ollama/api/chat`) and every call would 404 for a
+        # reason nothing in the message would explain.
+        split = urlsplit(base_url.strip())
+        if split.scheme and split.netloc:
+            self.base_url = f"{split.scheme}://{split.netloc}"
+        else:
+            self.base_url = base_url.strip().rstrip("/")
+
+        # The two values sit next to each other in .env and are easy to swap. A
+        # URL sent as a bearer token produces a 401 that reads as "wrong key",
+        # sending you to regenerate a key that was never the problem.
+        if api_key.lower().startswith(("http://", "https://")):
+            raise RuntimeError(
+                "The API key looks like a URL. OPENWEBUI_API_KEY must be the key "
+                "from OpenWebUI (Settings > Account > API keys), which begins "
+                "with 'sk-' — not the address of the instance."
+            )
+
+        # `direct` (default) or `openwebui` — see `OllamaConfig.chat_path`.
+        if _first_env("OLLAMA_ROUTE").lower() == "openwebui":
+            self.ollama = replace(self.ollama, chat_path="/ollama/api/chat",
+                                  tags_path="/ollama/api/tags")
+
         self.model = model
         self._digest: str | None = None
 

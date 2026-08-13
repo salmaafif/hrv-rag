@@ -415,8 +415,21 @@ class OllamaConfig:
     # free of. Going through OpenWebUI rather than straight to port 11434 keeps
     # the authentication: a Vast.ai instance has a public address, and a bare
     # Ollama port is an open GPU for anyone who scans it.
-    chat_path: str = "/ollama/api/chat"
-    tags_path: str = "/ollama/api/tags"
+    # TWO ROUTES REACH THE SAME OLLAMA, and the Vast.ai instance portal exposes
+    # both. Which one you get decides the path prefix, so it is configurable
+    # rather than assumed:
+    #
+    #   direct    /api/chat          — Ollama's own port, mapped by Vast
+    #   openwebui /ollama/api/chat   — proxied through OpenWebUI
+    #
+    # The direct route is the default because it needs no OpenWebUI account: the
+    # port is still fronted by the instance portal's Caddy, so the Vast access
+    # token authenticates it. Going through OpenWebUI was originally chosen to
+    # get authentication, and that reason turned out to hold on both routes.
+    #
+    # Set OLLAMA_ROUTE=openwebui in .env to switch.
+    chat_path: str = "/api/chat"
+    tags_path: str = "/api/tags"
 
     # A fixed seed makes generation reproducible in a way the Gemini API does not
     # expose at all. This upgrades the consistency check (T5.4) from "three runs
@@ -431,9 +444,17 @@ class OllamaConfig:
     # than rejected — so the retrieved knowledge chunks, which sit in the middle
     # of the prompt, would simply not reach the model while it still returned a
     # confident, well-formed answer. The RAG system would appear to work while
-    # having stopped being a RAG system. Set well above the longest prompt (five
-    # chunks plus features is roughly 2-3k tokens) and never lowered silently.
-    num_ctx: int = 16384
+    # having stopped being a RAG system.
+    #
+    # 8192 comes from a measurement rather than from caution. Asked to report its
+    # own token counts, the server put a real assembled prompt — features, five
+    # retrieved chunks, instructions — at 1,918 tokens, with roughly 300 more
+    # generated. This leaves a factor of four.
+    #
+    # It was 16384, which was simply a large round number. Cutting it frees VRAM
+    # and costs no speed: a benchmark at 4096 was no faster, because generation
+    # rate rather than context allocation is what sets the pace.
+    num_ctx: int = 8192
 
     # Generous, because the FIRST call after an instance starts must load the
     # weights into VRAM, and on a large model that alone can take minutes. A

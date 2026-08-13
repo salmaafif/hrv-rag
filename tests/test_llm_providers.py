@@ -111,7 +111,7 @@ def test_sends_the_full_json_schema_not_the_string_json():
     make_ollama(client).interpret("prompt")
 
     path, body = client.posts[0]
-    assert path == "/ollama/api/chat"
+    assert path == "/api/chat"
     assert body["format"] != "json"
     assert body["format"]["properties"].keys() >= {
         "stress_level", "confidence", "reasoning", "references",
@@ -271,6 +271,58 @@ def test_missing_model_refuses_rather_than_guessing():
     with pytest.raises(RuntimeError, match="OLLAMA_MODEL"):
         OllamaInterpreter(base_url="https://x", api_key="k", model="",
                           ollama_cfg=OllamaConfig(model=""), client=FakeClient())
+
+
+def test_the_openwebui_route_can_be_selected(monkeypatch):
+    # Two routes reach the same Ollama on a Vast.ai instance: its own mapped port,
+    # and OpenWebUI's proxy. They differ only by a path prefix, and picking the
+    # wrong one 404s — so which is in use is configuration, not an assumption.
+    monkeypatch.setenv("OLLAMA_ROUTE", "openwebui")
+    client = FakeClient()
+    make_ollama(client).interpret("prompt")
+    assert client.posts[0][0] == "/ollama/api/chat"
+
+
+def test_the_direct_route_is_the_default(monkeypatch):
+    # Default, because it needs no OpenWebUI account: the port is still fronted by
+    # the instance portal, so the Vast access token authenticates it.
+    monkeypatch.delenv("OLLAMA_ROUTE", raising=False)
+    client = FakeClient()
+    make_ollama(client).interpret("prompt")
+    assert client.posts[0][0] == "/api/chat"
+
+
+def test_a_pasted_portal_link_is_cleaned_of_its_query_string():
+    # Vast.ai gives you the address with the access token attached, and pasting it
+    # verbatim is the obvious thing to do. Left on, the query lands in the middle
+    # of every request path and every call 404s for a reason nothing explains.
+    ollama = OllamaInterpreter(
+        cfg=LLMConfig(), ollama_cfg=OllamaConfig(),
+        base_url="http://1.2.3.4:20703/?token=abc123&redir=false",
+        api_key="sk-real", model="qwen3:32b", client=FakeClient(),
+    )
+    assert ollama.base_url == "http://1.2.3.4:20703"
+
+
+def test_a_url_pasted_into_the_key_field_says_so():
+    # The two values sit next to each other in .env and were in fact swapped. The
+    # server answers 401, which reads as "wrong key" and sends you to regenerate a
+    # key that was never the problem.
+    with pytest.raises(RuntimeError, match="looks like a URL"):
+        OllamaInterpreter(
+            cfg=LLMConfig(), ollama_cfg=OllamaConfig(),
+            base_url="http://1.2.3.4:20703",
+            api_key="http://1.2.3.4:20160/?token=abc123",
+            model="qwen3:32b", client=FakeClient(),
+        )
+
+
+def test_a_bare_host_without_a_scheme_still_works():
+    ollama = OllamaInterpreter(
+        cfg=LLMConfig(), ollama_cfg=OllamaConfig(), base_url="1.2.3.4:20703/",
+        api_key="sk-real", model="qwen3:32b", client=FakeClient(),
+    )
+    assert ollama.base_url == "1.2.3.4:20703"
 
 
 def test_factory_defaults_to_gemini_so_older_results_stay_reproducible(monkeypatch):

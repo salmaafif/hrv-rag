@@ -1,9 +1,17 @@
 """
 run_evaluation.py — Stage 5: assess segments and score the result.
 
-Each assessed segment costs one Gemini call, and the free tier allows only 20 calls
-per day. Completed assessments are therefore CACHED to disk: rerun the script on a
-later day and it picks up where it stopped, skipping everything already done.
+Each assessed segment costs one model call. On the Gemini free tier that meant 20
+a day and `--full` genuinely took weeks, which is why completed assessments are
+CACHED to disk and a rerun picks up where it stopped.
+
+Against a self-hosted model the same 293 segments take under an hour, so the cache
+is now a convenience rather than the thing that made the run possible at all:
+
+    LLM_PROVIDER=ollama python scripts/run_evaluation.py --full
+
+The cache key carries the model that ANSWERED, so switching provider re-runs
+rather than silently handing back the other one's stored answers.
 
 Only development subjects are ever touched. The ten test subjects stay sealed until
 the prompt and the knowledge base are frozen (BACKLOG U4.1).
@@ -164,7 +172,13 @@ def main() -> None:
             segment=int(row["segment"]), modality=str(row["modality"]),
             kb_version=pipeline.index.kb_version,
             prompt_version=settings.llm.prompt_version,
-            model=settings.llm.model, temperature=settings.llm.temperature,
+            # The model that ANSWERS, not the one named in the config. With one
+            # backend those were the same string; with two they are not, and the
+            # difference is silent in the worst way — a run under a new provider
+            # would find the old provider's cached answers, finish suspiciously
+            # fast, and report them as its own.
+            model=pipeline.interpreter.model_label,
+            temperature=settings.llm.temperature,
             pinned=cfg.pinned_chunk_id,
         )
 
