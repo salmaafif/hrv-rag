@@ -11,12 +11,24 @@
  * these behaviours would exist to test, and none of them would exist to handle.
  */
 
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { analyzeSession, analyzeTimeline } from './client'
 import { ApiError } from './errors'
 import { mockQuestionTimeline } from '../mocks/questionTimeline'
 
 const FAST = { latencyMs: 0 }
+
+// State what this file assumes instead of inheriting it.
+//
+// These tests are about the DUMMY backend, and they used to reach it by relying
+// on the default — which held only while nobody had a .env.local. The moment one
+// existed with `VITE_USE_MOCK_API=false`, five tests started calling a real
+// server that was not there and failing with "this recording cannot be
+// processed". A test that changes behaviour with the developer's local config is
+// not testing what it claims to.
+beforeEach(() => {
+  vi.stubEnv('VITE_USE_MOCK_API', 'true')
+})
 
 const baseRequest = {
   baseline_minutes: 4,
