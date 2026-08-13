@@ -30,6 +30,13 @@ import sys
 from dataclasses import replace
 from pathlib import Path
 
+# The Windows console defaults to a legacy codepage, and this script prints
+# metric summaries containing typographic characters. A run that finished all 293
+# segments then died on the last print, throwing away the faithfulness and
+# calibration figures it had just spent an hour computing.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 import pandas as pd                                             # noqa: E402

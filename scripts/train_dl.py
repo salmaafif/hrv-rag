@@ -34,6 +34,7 @@ from hrv_dl.models import CNN1D                                    # noqa: E402
 from hrv_dl.train import (TrainConfig, check_no_leakage,           # noqa: E402
                           permute_labels, run_loso, run_matched)
 from hrv_rag.config.settings import OUTPUTS_DIR, settings          # noqa: E402
+from hrv_rag.evaluation.metrics import paired_difference_ci        # noqa: E402
 
 CACHE = OUTPUTS_DIR / "dl_sequences_wesad_ecg.npz"
 
@@ -114,6 +115,27 @@ def run_matched_comparison(data, cfg: TrainConfig) -> int:
           {k: round(v, 3) for k, v in matched.report.per_class_f1.items()})
     print("  Confusion   :", matched.report.confusion,
           f"({matched.report.labels_order})\n")
+
+    # The interval that actually settles the comparison.
+    #
+    # The two macro-F1 intervals printed above overlap across most of their length,
+    # and that will be read as "no difference" unless this line is next to them. It
+    # is not the right reading: both intervals carry the spread between PEOPLE —
+    # S15 is hard for everything, S5 is easy for everything — and that spread is
+    # common to the two systems, so it cancels when the difference is taken subject
+    # by subject. Same ten people, paired.
+    gap, gap_notes = paired_difference_ci(RULE_PER_SUBJECT, matched.per_subject)
+    if gap is not None:
+        mean = sum(deltas) / len(deltas)
+        print(f"  Selisih berpasangan: {mean:+.3f} macro-F1, "
+              f"selang 95% [{gap.low:+.3f}, {gap.high:+.3f}] "
+              f"atas {gap.n_clusters} subjek")
+        verdict = ("tidak menyentuh nol" if gap.low > 0 or gap.high < 0
+                   else "MENYENTUH nol — selisihnya belum terbukti")
+        print(f"  Selangnya {verdict}.")
+    for note in gap_notes:
+        print(f"  CATATAN: {note}")
+    print()
 
     won = sum(1 for d in deltas if d > 0)
     print(f"  Menang pada {won} dari {len(deltas)} subjek tersegel.")

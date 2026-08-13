@@ -65,6 +65,18 @@ from .models import make_model
 INT_TO_LABEL = {0: TrueLabel.LOW, 1: TrueLabel.HIGH}
 
 
+def _interval(report: ClassificationReport) -> str:
+    """
+    The macro-F1 confidence interval, printed beside the figure it qualifies.
+
+    Ten subjects is the sample size here, not 561 segments, and the interval that
+    follows from that is wide enough to change how a small win reads. Left out of
+    this line it would be computed and never seen — which is how a point estimate
+    ends up in a report wearing three decimal places and no error bar.
+    """
+    return str(report.macro_f1_ci) if report.macro_f1_ci else ""
+
+
 @dataclass(frozen=True)
 class TrainConfig:
     """Every knob, fixed here so a run can be reproduced from the file alone."""
@@ -148,7 +160,8 @@ class LosoResult:
         return (
             f"{head}: {len(self.folds)} folds, {self.report.n_evaluated} segments\n"
             f"  accuracy {self.report.accuracy:.3f}  "
-            f"macro-F1 {self.report.macro_f1:.3f}  kappa {self.report.kappa:.3f}\n"
+            f"macro-F1 {self.report.macro_f1:.3f} {_interval(self.report)}  "
+            f"kappa {self.report.kappa:.3f}\n"
             f"  mean train-val gap {self.mean_overfit_gap:+.3f}  "
             f"({self.seconds:.0f}s)"
         )
@@ -356,7 +369,8 @@ class MatchedResult:
         return (
             f"{head} 5 dev -> 10 tersegel: {self.report.n_evaluated} segmen\n"
             f"  accuracy {self.report.accuracy:.3f}  "
-            f"macro-F1 {self.report.macro_f1:.3f}  kappa {self.report.kappa:.3f}\n"
+            f"macro-F1 {self.report.macro_f1:.3f} {_interval(self.report)}  "
+            f"kappa {self.report.kappa:.3f}\n"
             f"  epoch dibekukan di {self.frozen_epochs} "
             f"(dari lima putaran dalam: {self.inner_epochs})  ({self.seconds:.0f}s)"
         )

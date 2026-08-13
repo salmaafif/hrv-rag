@@ -29,12 +29,23 @@ from __future__ import annotations
 
 import re
 
+#: Hyphen-like characters a model may write instead of an ASCII "-".
+#:
+#: Found in the wild: gpt-oss cited "KB‑PNN50‑ 01" — a NON-BREAKING HYPHEN,
+#: which looks identical on screen. Every one of those citations was correct, and
+#: every one was reported as fabricated, because the comparison is string equality
+#: and the strings genuinely differ. The guard was accusing the model of inventing
+#: chunks it had actually been given.
+_HYPHENS = str.maketrans({"‐": "-", "‑": "-", "‒": "-",
+                          "–": "-", "—": "-", "−": "-"})
+
+
 #: Matches integers and decimals, with an optional sign.
 _NUMBER = re.compile(r"[-+]?\d+(?:\.\d+)?")
 
 #: Stable chunk identifiers, e.g. KB-RMSSD-01. Used both to strip them out of the
 #: prompt's number pool and to spot fabricated ones inside prose.
-_CHUNK_ID = re.compile(r"\bKB-[A-Z0-9]+-\d+\b", re.I)
+_CHUNK_ID = re.compile(r"\bKB[\-\u2010-\u2015\u2212][A-Z0-9]+[\-\u2010-\u2015\u2212]\d+\b", re.I)
 
 #: The provenance line `format_context` writes above every chunk:
 #: "(relevance 0.807; sources: Task Force 1996; Shaffer 2017)".
@@ -164,7 +175,15 @@ def find_unknown_references(cited: list[str], retrieved_ids: list[str]) -> list[
 
 
 def _canonical_id(raw: str) -> str:
-    return raw.strip().upper()
+    """
+    One spelling for a chunk ID, so formatting is never read as dishonesty.
+
+    Whitespace inside is collapsed as well as trimmed: "KB-PNN50- 01" names a real
+    chunk, and a model that puts a stray space in an identifier has not invented
+    anything. The failure being hunted is a citation to knowledge that was never
+    supplied — not a typographic slip.
+    """
+    return re.sub(r"\s+", "", raw.translate(_HYPHENS)).upper()
 
 
 def find_fabricated_citations(response_text: str,
