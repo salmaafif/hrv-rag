@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from hrv_rag.features.baseline import BaselineProfile
+from hrv_rag.features.baseline import BaselineProfile, check_baseline
 
 
 @pytest.fixture
@@ -199,3 +199,126 @@ def test_configured_resting_duration_actually_produces_a_baseline(make_series):
         f"calibration_sec={seconds} yields only {profile.n_segments} window(s); "
         f"the median needs at least two to reject a noisy one"
     )
+
+
+# ------------------------------------------------- the baseline quality gate
+def profile_with(rmssd: list[float], hr: float) -> BaselineProfile:
+    """A baseline whose spread and resting heart rate are both dictated."""
+    return BaselineProfile.from_segments("TEST", pd.DataFrame({
+        "rmssd": rmssd,
+        "mean_hr": [hr] * len(rmssd),
+    }))
+
+
+def test_a_steady_resting_period_passes():
+    verdict = check_baseline(profile_with([49.0, 50.0, 50.0, 51.0], hr=68.0))
+
+    assert verdict.is_acceptable
+    assert verdict.reasons == []
+    assert verdict.note_for_user() == "" and verdict.note_for_model() == ""
+
+
+def test_the_spread_threshold_sits_where_it_was_calibrated():
+    """
+    0.20, not the 0.40 that was here before. 0.40 was never measured and fired on
+    1.1% of two-minute windows across WESAD — a gate that does not gate. Boundary
+    checked from both sides, because a `>=` written where `>` belongs would turn
+    every exactly-at-threshold baseline away and nothing else would notice.
+    """
+    # RMSSD [40, 45, 55, 60]: quartiles 43.75 and 56.25 -> IQR 12.5, median 50.
+    assert check_baseline(profile_with([40.0, 45.0, 55.0, 60.0], hr=68.0)
+                          ).relative_spread == pytest.approx(0.25)
+    assert not check_baseline(profile_with([40.0, 45.0, 55.0, 60.0], hr=68.0)
+                              ).is_acceptable
+
+    # Exactly 0.20 is still acceptable.
+    at_threshold = check_baseline(profile_with([42.0, 46.0, 54.0, 58.0], hr=68.0))
+    assert at_threshold.relative_spread == pytest.approx(0.20)
+    assert at_threshold.is_acceptable
+
+
+def test_a_perfectly_steady_but_racing_baseline_is_still_refused():
+    """
+    The check spread cannot make. Someone who never settled has a HIGH resting
+    heart rate, and a steadily elevated heart rate is perfectly steady — zero
+    spread, and completely unusable.
+
+    This is WESAD S10: 99 bpm while sitting still, and its two-minute baselines
+    landed 34% away from the subject's own true resting value, the worst of all
+    fifteen. Spread alone would have waved it through.
+    """
+    verdict = check_baseline(profile_with([50.0] * 5, hr=99.0))
+
+    assert verdict.relative_spread == pytest.approx(0.0)
+    assert not verdict.is_acceptable
+    assert any("resting heart rate" in r for r in verdict.reasons)
+
+
+def test_both_faults_are_reported_not_just_the_first():
+    """A person told only half of what is wrong fixes half of it."""
+    verdict = check_baseline(profile_with([30.0, 40.0, 60.0, 70.0], hr=99.0))
+
+    assert len(verdict.reasons) == 2
+
+
+def test_a_single_window_cannot_look_unsteady_and_is_not_refused():
+    """
+    One window has nothing to disagree with, so its interquartile range is zero and
+    the spread check can never fire — it passes for lack of evidence, not because
+    the baseline was shown to be good.
+
+    Worth pinning down, because it is where the gate is blindest. The heart-rate
+    check still applies, and on a two-minute rest it is the only one that can.
+    """
+    verdict = check_baseline(profile_with([50.0], hr=68.0))
+
+    assert verdict.relative_spread == pytest.approx(0.0)
+    assert verdict.is_acceptable
+    assert not check_baseline(profile_with([50.0], hr=99.0)).is_acceptable
+
+
+def test_a_missing_feature_is_not_treated_as_a_fault():
+    """
+    No RMSSD at all — a PPG recording too noisy to yield one, say. The spread is
+    then unmeasurable rather than bad, and refusing on it would send somebody to
+    redo a resting period that was never the problem.
+    """
+    profile = BaselineProfile.from_segments("TEST", pd.DataFrame({
+        "mean_hr": [68.0, 68.0, 68.0],
+    }))
+    verdict = check_baseline(profile)
+
+    assert verdict.relative_spread != verdict.relative_spread     # NaN
+    assert verdict.is_acceptable
+
+
+def test_the_user_never_sees_the_technical_wording():
+    """
+    Decision K4: the note travels into an API response and onto a screen. The
+    model's version names interquartile ranges and beats per minute; the user's
+    version must name neither.
+    """
+    verdict = check_baseline(profile_with([30.0, 40.0, 60.0, 70.0], hr=99.0))
+
+    for term in ("IQR", "bpm", "RMSSD", "heart rate", "%"):
+        assert term not in verdict.note_for_user()
+    assert "IQR" in verdict.note_for_model()
+
+
+def test_every_caller_reads_the_same_threshold():
+    """
+    The comparison used to be written out in four files. The failure that arrangement
+    invites is not a crash: three copies keep an old number, and the offline report
+    and the API then hand the SAME recording two different verdicts.
+
+    Moving the threshold must therefore move every caller at once.
+    """
+    from dataclasses import replace
+
+    from hrv_rag.config.settings import settings
+
+    borderline = profile_with([40.0, 45.0, 55.0, 60.0], hr=68.0)   # spread 0.25
+    assert not check_baseline(borderline).is_acceptable
+
+    loosened = replace(settings.baseline_gate, max_relative_spread=0.50)
+    assert check_baseline(borderline, cfg=loosened).is_acceptable

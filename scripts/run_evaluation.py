@@ -21,6 +21,8 @@ Usage:
     python scripts/run_evaluation.py --n 80
     python scripts/run_evaluation.py --full          # all 293, takes several days
     python scripts/run_evaluation.py --pinned        # with KB-INTERP-01 pinned (T4.7)
+    python scripts/run_evaluation.py --ablation random   # chunks drawn by lot (U3.3)
+    python scripts/run_evaluation.py --ablation none     # no chunks at all (U3.2)
     python scripts/run_evaluation.py --rules-only    # no API calls at all
 """
 
@@ -55,6 +57,11 @@ from hrv_rag.features.extractor import load_features            # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from run_assessment import FEATURES_CSV, row_to_input           # noqa: E402
+
+#: Prompt used when the knowledge base is removed (ablation U3.2). It drops the
+#: two rules that point at a CONTEXT section, because a closed-book condition
+#: cannot be told to rely on a book it was not given.
+CLOSED_BOOK_PROMPT = "HRV_stress_interpretation_nokb"
 
 
 def stratified_sample(data: pd.DataFrame, n: int) -> pd.DataFrame:
@@ -157,9 +164,46 @@ def main() -> None:
 
     # Imported here so that --rules-only never needs an API key.
     from hrv_rag.rag.pipeline import AssessmentPipeline
-    from hrv_rag.rag.retrieval import KBIndex
+    from hrv_rag.rag.retrieval import KBIndex, RetrievalMode
 
-    pipeline = AssessmentPipeline(index=KBIndex.load(cfg=cfg))
+    mode = RetrievalMode.SEMANTIC
+    if "--ablation" in sys.argv:
+        position = sys.argv.index("--ablation") + 1
+        allowed = [m.value for m in RetrievalMode]
+        if position >= len(sys.argv) or sys.argv[position] not in allowed:
+            sys.exit(f"--ablation needs one of: {', '.join(allowed)}")
+        mode = RetrievalMode(sys.argv[position])
+
+    # With no context, the shipped prompt is ORDERING the model to abstain: it says
+    # to reason from the CONTEXT only and to answer `uncertain` when the CONTEXT
+    # does not cover what it sees. Run that way, the no-KB ablation measures
+    # obedience to a sentence and the knowledge base looks invaluable for a reason
+    # unrelated to its contents. The closed-book prompt is therefore the default
+    # here, and overriding it has to be deliberate.
+    llm_cfg = settings.llm
+    if mode is RetrievalMode.NONE and "--prompt" not in sys.argv:
+        llm_cfg = replace(llm_cfg, prompt_version=CLOSED_BOOK_PROMPT)
+    if "--prompt" in sys.argv:
+        position = sys.argv.index("--prompt") + 1
+        if position >= len(sys.argv):
+            sys.exit("--prompt needs a file stem from prompts/")
+        llm_cfg = replace(llm_cfg, prompt_version=sys.argv[position])
+
+    if mode is not RetrievalMode.SEMANTIC:
+        print(f"ABLATION: retrieval mode '{mode.value}', prompt "
+              f"'{llm_cfg.prompt_version}' — these results measure a crippled "
+              f"system on purpose.")
+        print("  They are cached under their own keys and must never be reported "
+              "as the system's own figures.\n")
+    if mode is RetrievalMode.NONE and "nokb" not in llm_cfg.prompt_version:
+        print("  WARNING: no context, but the prompt still tells the model to "
+              "reason from the CONTEXT")
+        print("  only. This run measures obedience to that instruction, not the "
+              "value of the")
+        print("  knowledge base. Drop --prompt to get the closed-book one.\n")
+
+    pipeline = AssessmentPipeline(index=KBIndex.load(cfg=cfg), cfg=llm_cfg,
+                                  retrieval=mode)
     cache = AssessmentCache(OUTPUTS_DIR / "assessment_cache.jsonl")
 
     print(cache.summary())
@@ -178,7 +222,11 @@ def main() -> None:
             subject=str(row["subject"]), phase=str(row["phase"]),
             segment=int(row["segment"]), modality=str(row["modality"]),
             kb_version=pipeline.index.kb_version,
-            prompt_version=settings.llm.prompt_version,
+            # From the pipeline, not from `settings`. They differ the moment an
+            # ablation swaps the prompt, and the key would then name a prompt that
+            # never ran — the same silent mismatch that made an Ollama run return
+            # Gemini's cached answers.
+            prompt_version=pipeline.cfg.prompt_version,
             # The model that ANSWERS, not the one named in the config. With one
             # backend those were the same string; with two they are not, and the
             # difference is silent in the worst way — a run under a new provider
@@ -187,6 +235,7 @@ def main() -> None:
             model=pipeline.interpreter.model_label,
             temperature=settings.llm.temperature,
             pinned=cfg.pinned_chunk_id,
+            retrieval=pipeline.retrieval.value,
         )
 
         assessment = cache.get(key)

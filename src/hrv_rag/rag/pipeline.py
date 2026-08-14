@@ -25,7 +25,7 @@ from .guards import (find_fabricated_citations, find_invented_numbers,
 from .llm import BaseInterpreter, make_interpreter
 from .prompt import build_prompt
 from .query_builder import build_query
-from .retrieval import KBIndex
+from .retrieval import (KBIndex, RetrievalMode, RetrievedChunk, segment_seed)
 
 
 class AssessmentPipeline:
@@ -38,18 +38,45 @@ class AssessmentPipeline:
     the results to be comparable.
     """
 
+    #: Base seed for the random-chunk ablation. Fixed here rather than passed in,
+    #: so a run reported in the thesis can be repeated from the file alone.
+    ABLATION_SEED = 20260814
+
     def __init__(self, index: KBIndex | None = None,
                  interpreter: BaseInterpreter | None = None,
-                 cfg: LLMConfig | None = None) -> None:
+                 cfg: LLMConfig | None = None,
+                 retrieval: RetrievalMode = RetrievalMode.SEMANTIC) -> None:
         self.cfg = cfg or settings.llm
         self.index = index or KBIndex.load()
         self.interpreter = interpreter or make_interpreter(self.cfg)
+        self.retrieval = retrieval
+
+    def _context_for(self, data: AssessmentInput) -> list[RetrievedChunk]:
+        """
+        Fetch this segment's context according to the retrieval mode.
+
+        The mode lives on the pipeline rather than inside `KBIndex` on purpose: the
+        index is a knowledge base and knows nothing about experiments, while which
+        condition is being run is a property of THIS run. Keeping the two apart is
+        also what lets the ablation reuse the index untouched, so nobody can later
+        wonder whether the ablated run searched a different knowledge base.
+        """
+        if self.retrieval is RetrievalMode.NONE:
+            return []
+
+        query = build_query(data)
+        if self.retrieval is RetrievalMode.RANDOM:
+            return self.index.random_chunks(
+                query,
+                seed=segment_seed(self.ABLATION_SEED, data.session_id,
+                                  data.segment_index),
+            )
+        return self.index.search(query)
 
     def assess(self, data: AssessmentInput,
                temperature: float | None = None) -> Assessment:
         """Assess one segment and return both output layers with full provenance."""
-        query = build_query(data)
-        chunks = self.index.search(query)
+        chunks = self._context_for(data)
         prompt = build_prompt(data, chunks, version=self.cfg.prompt_version)
 
         temp = temperature if temperature is not None else self.cfg.temperature
@@ -86,6 +113,7 @@ class AssessmentPipeline:
             temperature=temp,
             retrieved_ids=retrieved_ids,
             retrieval_scores=[c.similarity for c in chunks],
+            retrieval_mode=self.retrieval.value,
             response=response,
             invented_numbers=find_invented_numbers(checked_text, prompt),
             # Only the two fields a user reads. `reasoning` and

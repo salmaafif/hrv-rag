@@ -207,6 +207,13 @@ class Assessment:
     #: simply should not have been shown.
     k4_violations: list[str] = field(default_factory=list)
 
+    #: Which experimental condition produced this row: "semantic" for the system as
+    #: built, "random" or "none" for an ablation. Stored with the result rather than
+    #: inferred from the run that made it, because an ablation row that loses its
+    #: label is indistinguishable from a real one and would quietly poison every
+    #: figure it was later averaged into.
+    retrieval_mode: str = "semantic"
+
     @property
     def is_trustworthy(self) -> bool:
         """

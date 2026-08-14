@@ -39,7 +39,7 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from hrv_rag.core.types import Modality, Phase  # noqa: E402
-from hrv_rag.features.baseline import BaselineProfile  # noqa: E402
+from hrv_rag.features.baseline import BaselineProfile, check_baseline  # noqa: E402
 from hrv_rag.features.extractor import extract_features  # noqa: E402
 from hrv_rag.features.stress_level import classify  # noqa: E402
 from hrv_rag.preprocessing.intervals import (IntervalFormatError,  # noqa: E402
@@ -126,13 +126,17 @@ def report(path: Path, wear: str, baseline_minutes: float) -> int:
     baseline = BaselineProfile.from_series(
         path.stem, series_by_phase[Phase.CALIBRATION]
     )
-    spread = baseline.relative_spread("rmssd")
+    verdict = check_baseline(baseline)
     print(f"\n  baseline RMSSD    : {baseline.values['rmssd']:.1f} ms "
-          f"(relative IQR {spread:.0%})")
-    if spread == spread and spread > 0.40:
-        print("  WARNING: the resting period was not steady, so every percentage\n"
-              "           below is less certain than it looks. A baseline this\n"
-              "           variable usually means the person had not settled yet.")
+          f"(relative IQR {verdict.relative_spread:.0%}, "
+          f"{verdict.resting_hr_bpm:.0f} bpm at rest)")
+    if not verdict.is_acceptable:
+        for reason in verdict.reasons:
+            print(f"  WARNING: {reason}")
+        print("           Every percentage below is measured against this resting\n"
+              "           period, so all of them are less certain than they look.\n"
+              "           In a live session this is the point to record the quiet\n"
+              "           minutes again, before the interview rather than after.")
 
     print(f"\n  {'minute':>7} {'RMSSD':>8} {'dRMSSD':>9} {'dHR':>8}  "
           f"{'LEVEL':<9} score")

@@ -28,7 +28,8 @@ import numpy as np                                              # noqa: E402
 from hrv_rag.config.settings import OUTPUTS_DIR, settings       # noqa: E402
 from hrv_rag.core.session import (Question, QuestionType,       # noqa: E402
                                   SessionTimeline)
-from hrv_rag.features.baseline import BaselineProfile           # noqa: E402
+from hrv_rag.features.baseline import (BaselineProfile,         # noqa: E402
+                                       check_baseline)
 from hrv_rag.features.dynamics import resilience_quadrant       # noqa: E402
 from hrv_rag.features.extractor import load_features            # noqa: E402
 from hrv_rag.features.question import (cognitive_load_hint,      # noqa: E402
@@ -96,10 +97,9 @@ def report_subject(subject: str, data) -> None:
 
     print(f"--- {subject} ---")
     print(f"  {baseline.describe()}")
-    spread = baseline.relative_spread("rmssd")
-    if spread == spread and spread > 0.40:
-        print(f"  WARNING: unsteady baseline (relative IQR {spread:.0%}) — "
-              f"reactivity below is less certain")
+    verdict = check_baseline(baseline)
+    for reason in verdict.reasons:
+        print(f"  WARNING: {reason} — reactivity below is less certain")
 
     # Heart-rate change is printed ONCE. The arousal index returns that same number
     # under another name, so showing both columns would dress a single measurement

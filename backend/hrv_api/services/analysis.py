@@ -25,7 +25,7 @@ import pandas as pd
 from hrv_rag.config.settings import settings
 from hrv_rag.core.session import Question, QuestionType, SessionTimeline
 from hrv_rag.core.types import Modality, Phase
-from hrv_rag.features.baseline import BaselineProfile
+from hrv_rag.features.baseline import BaselineProfile, check_baseline
 from hrv_rag.features.extractor import extract_features
 from hrv_rag.features.question import (arousal_index, cognitive_load_hint,
                                  measure_question)
@@ -35,10 +35,10 @@ from hrv_rag.preprocessing.intervals import (IntervalFormatError, parse_rr_csv,
                                        rr_series_from_intervals,
                                        split_baseline_and_task)
 
-#: Relative IQR above which the resting period is called unsteady.
-#: Matches the threshold `SessionPipeline` already uses, so the warning the user
-#: sees and the caveat the model is given are the same judgement.
-UNSTABLE_BASELINE_IQR = 0.40
+#: The threshold used to be redeclared here, and in `session_pipeline.py`, and in
+#: two scripts — four copies of one number, none of them measured. It now lives in
+#: `settings.baseline_gate` and is applied by `check_baseline`, so this service and
+#: the offline pipeline cannot reach different verdicts about the same recording.
 
 
 class AnalysisError(ValueError):
@@ -147,16 +147,14 @@ def prepare(rr_ms: list[float] | None, csv: str | None,
             "may stop there, or those minutes were too noisy"
         )
 
-    spread = baseline.relative_spread(settings.dynamics.primary_feature)
-    unstable = bool(spread == spread and spread > UNSTABLE_BASELINE_IQR)
-    note = (
-        f"periode tenang di awal kurang stabil (IQR relatif {spread:.0%}), "
-        f"jadi angka di bawah ini kurang pasti dari biasanya"
-        if unstable else ""
-    )
+    # The user-facing wording, never the technical one: the note travels into an
+    # API response and from there onto a screen, where naming an interquartile
+    # range would break the rule that a user never sees feature names (K4).
+    verdict = check_baseline(baseline)
 
     return Prepared(
-        baseline=baseline, baseline_unstable=unstable, baseline_note=note,
+        baseline=baseline, baseline_unstable=not verdict.is_acceptable,
+        baseline_note=verdict.note_for_user(),
         task_table=task_table,
         duration_sec=float(np.sum(intervals) / 1000.0),
         rest_end_sec=rest_end_sec, offset_sec=offset_sec,

@@ -224,6 +224,60 @@ class DynamicsConfig:
 
 
 # ===========================================================================
+# BASELINE QUALITY GATE
+# ===========================================================================
+@dataclass(frozen=True)
+class BaselineGateConfig:
+    """
+    When a resting period is too unsteady to build a personal reference on.
+
+    Mandatory Rule #2 makes every figure in the report a percentage against this
+    baseline, so a bad one corrupts the whole session — and it does so SILENTLY.
+    No error is raised, no number looks odd; the report is simply describing
+    somebody else. That is why this gate exists at all.
+
+    WHAT THE THRESHOLDS ARE AND ARE NOT. Calibrated on 14 August 2026 over 1,050
+    two-minute windows from all fifteen WESAD resting phases. For each window the
+    quantity a live session CAN see (spread, resting heart rate) was set against
+    the one it CANNOT (how far that window's baseline lands from the subject's
+    twenty-minute median). 18.2% of windows miss by more than 20% — the scoring
+    rule's own moderate threshold, so those are baselines that can move a label.
+
+    Neither signal predicts that well. Spread correlates with the error at only
+    Spearman +0.24 per window, resting heart rate +0.26; a trend test within the
+    window was worthless at -0.01 and was dropped. Together, at these values, the
+    gate turns away about 13% of sessions and catches about 38% of the genuinely
+    bad ones, roughly half of its refusals being correct.
+
+    So this is a CATASTROPHE FILTER, not a certificate. It reliably catches the
+    person who plainly is not at rest — WESAD S10 sat at 99 bpm with a 19% spread
+    and a baseline 34% off — and it will let subtler failures through. Passing the
+    gate must never be reported as "the baseline is good", only as "nothing
+    obviously wrong was visible".
+
+    Per SUBJECT the picture is much stronger (Pearson +0.94): the signals identify
+    an unsteady PERSON well and an unsteady two minutes poorly. That is the honest
+    limit of a two-minute rest, not a defect of the code.
+    """
+
+    # Relative IQR of RMSSD across the calibration windows.
+    #
+    # Was 0.40, which was a guess and fired on 1.1% of windows — a gate that never
+    # gates. At 0.20 it fires on 9.2%, and the windows it turns away miss by 18.1%
+    # on median against 8.3% for those it lets through.
+    max_relative_spread: float = 0.20
+
+    # Resting heart rate. Someone sitting still at over 90 bpm is not at rest,
+    # whatever their HRV happens to look like.
+    #
+    # The highest-precision single check available: it refuses 7.4% of windows and
+    # 64% of those refusals are genuinely bad baselines. It is also the one signal
+    # a person can act on — "sit quietly a little longer" — rather than an
+    # abstraction about interquartile ranges.
+    max_resting_hr_bpm: float = 90.0
+
+
+# ===========================================================================
 # RAG: EMBEDDING & RETRIEVAL
 # ===========================================================================
 @dataclass(frozen=True)
@@ -564,6 +618,7 @@ class Settings:
     ppg_filter: PPGFilterConfig = field(default_factory=PPGFilterConfig)
     frequency: FrequencyConfig = field(default_factory=FrequencyConfig)
     dynamics: DynamicsConfig = field(default_factory=DynamicsConfig)
+    baseline_gate: BaselineGateConfig = field(default_factory=BaselineGateConfig)
     stress_rule: StressRuleConfig = field(default_factory=StressRuleConfig)
     rag: RAGConfig = field(default_factory=RAGConfig)
     llm: LLMConfig = field(default_factory=LLMConfig)

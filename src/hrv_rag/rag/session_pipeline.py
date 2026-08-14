@@ -30,7 +30,7 @@ from ..config.settings import LLMConfig, settings
 from ..core.schemas import Assessment, AssessmentInput, SignalQuality
 from ..core.session import SessionTimeline
 from ..core.types import Modality, Phase
-from ..features.baseline import BaselineProfile
+from ..features.baseline import BaselineProfile, check_baseline
 from ..features.dynamics import ResilienceQuadrant, resilience_quadrant
 from ..features.question import (QuestionMeasurement, arousal_index,
                                  cognitive_load_hint, measure_question)
@@ -144,12 +144,7 @@ class SessionPipeline:
 
         # An unsteady baseline weakens everything derived from it, so it is flagged
         # once here and passed into every prompt rather than silently ignored.
-        spread = baseline.relative_spread(settings.dynamics.primary_feature)
-        if spread == spread and spread > 0.40:
-            report.baseline_note = (
-                f"the resting baseline was unsteady (relative IQR {spread:.0%}), "
-                f"so reactivity figures are less certain than usual"
-            )
+        report.baseline_note = check_baseline(baseline).note_for_model()
 
         for question in timeline.questions:
             measurement = measure_question(question, segments, baseline)

@@ -17,14 +17,57 @@ topic should count as similar.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 
 import numpy as np
 
 from ..config.settings import KB_INDEX_DIR, RAGConfig, settings
 from .kb_index import GeminiEmbedder, KBChunk
+
+
+class RetrievalMode(str, Enum):
+    """
+    How a segment's context is chosen — the variable the RAG ablations move.
+
+    The thesis is titled after RAG, so "the knowledge base helps" cannot stay an
+    assertion. Each mode removes one thing and leaves everything else alone, which
+    is what makes the difference in the resulting score attributable:
+
+    - `SEMANTIC` — the system as built: the three chunks closest to the query.
+    - `RANDOM`   — three chunks drawn by lot. The context block is still full and
+      the prompt is unchanged, so the ONLY thing destroyed is relevance. If the
+      score holds up, retrieval was never doing the work and the model was
+      answering from what it already knew.
+    - `NONE`     — no chunks at all. Note that the shipped prompt orders the model
+      to reason from the context and nothing else, so running this mode against
+      that prompt measures obedience to an instruction rather than the value of the
+      knowledge. It needs a closed-book prompt to mean what it appears to mean.
+    """
+
+    SEMANTIC = "semantic"
+    RANDOM = "random"
+    NONE = "none"
+
+
+def segment_seed(base_seed: int, session_id: str, segment_index: int) -> int:
+    """
+    A per-segment seed that is stable across processes and runs.
+
+    Every segment must draw a DIFFERENT lot. One seed for the whole run would hand
+    all 293 segments the same three chunks, and the experiment would then rest on
+    whether that single triple happened to be useful — one sample dressed up as
+    293.
+
+    Python's own `hash()` of a string is salted per process, so it cannot be used:
+    the same run repeated tomorrow would draw different chunks and the cached
+    results from today would be unreproducible.
+    """
+    material = f"{base_seed}|{session_id}|{segment_index}".encode("utf-8")
+    return int.from_bytes(hashlib.blake2b(material, digest_size=8).digest(), "big")
 
 
 @dataclass(frozen=True)
@@ -111,6 +154,53 @@ class KBIndex:
             )
 
     # ------------------------------------------------------------ searching
+    def similarities(self, query: str) -> np.ndarray:
+        """
+        Cosine similarity of the query against every chunk, in index order.
+
+        Split out of `search` so the ablation can reuse it. The random condition
+        still needs the true scores even though it ignores them when choosing:
+        `format_context` prints a relevance figure into the prompt, and a mode that
+        could not supply one would have to print something else — changing the
+        shape of the prompt as well as the chunks in it, and confounding the very
+        comparison the ablation exists to make.
+        """
+        if self._embedder is None:
+            self._embedder = GeminiEmbedder(self.cfg)
+
+        q = self._embedder.embed([query], task_type=self.cfg.task_query)
+        q = self._normalize(q)[0]
+
+        # Because every vector is already normalised, this dot product IS exactly
+        # the cosine similarity against every chunk at once.
+        return self.vectors @ q
+
+    def random_chunks(self, query: str, seed: int,
+                      top_k: int | None = None) -> list[RetrievedChunk]:
+        """
+        Chunks drawn by lot instead of by relevance — ablation U3.3.
+
+        Exactly `top_k` are drawn, without replacement and without the similarity
+        threshold. Both choices keep the comparison matched: on all 293 development
+        segments the semantic condition returned exactly three chunks, so drawing
+        three means the model sees the same VOLUME of context and the only
+        difference left is whether that context is relevant. Applying the threshold
+        instead would usually return nothing, and the run would silently become the
+        no-context ablation wearing the wrong name.
+
+        Pinning is deliberately not applied. The pinned chunk is a retrieval
+        feature; leaving it in would hand the random condition the one chunk that
+        matters most and understate what relevance is worth.
+        """
+        top_k = top_k or self.cfg.top_k
+        scores = self.similarities(query)
+
+        rng = np.random.default_rng(seed)
+        picked = rng.choice(len(self.chunks), size=min(top_k, len(self.chunks)),
+                            replace=False)
+        return [RetrievedChunk(self.chunks[i], float(scores[i]), rank)
+                for rank, i in enumerate(picked, start=1)]
+
     def search(self, query: str, top_k: int | None = None,
                min_similarity: float | None = None) -> list[RetrievedChunk]:
         """
@@ -128,15 +218,7 @@ class KBIndex:
         min_similarity = (min_similarity if min_similarity is not None
                           else self.cfg.min_similarity)
 
-        if self._embedder is None:
-            self._embedder = GeminiEmbedder(self.cfg)
-
-        q = self._embedder.embed([query], task_type=self.cfg.task_query)
-        q = self._normalize(q)[0]
-
-        # Because every vector is already normalised, this dot product IS exactly
-        # the cosine similarity against every chunk at once.
-        scores = self.vectors @ q
+        scores = self.similarities(query)
 
         # argsort is ascending, so reverse it to put the highest score first.
         order = np.argsort(scores)[::-1][:top_k]

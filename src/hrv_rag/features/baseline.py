@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 
-from ..config.settings import settings
+from ..config.settings import BaselineGateConfig, settings
 from ..core.types import Phase, RRSeries
 
 from .frequency_domain import FREQ_FEATURES
@@ -149,3 +149,75 @@ class BaselineProfile:
         return (f"baseline {self.subject}: {self.n_segments} segments, "
                 f"reference RMSSD {rmssd:.1f} ms "
                 f"(relative IQR {self.relative_spread('rmssd'):.0%})")
+
+
+@dataclass(frozen=True)
+class BaselineVerdict:
+    """
+    Whether a resting period is fit to be a personal reference.
+
+    `is_acceptable` False does not mean the session failed. It means the resting
+    period should be recorded again BEFORE the interview, which is the only moment
+    at which it is still cheap to fix.
+    """
+
+    is_acceptable: bool
+    reasons: list[str]
+    relative_spread: float
+    resting_hr_bpm: float
+
+    def note_for_user(self) -> str:
+        """Indonesian, plain language, no feature names (decision K4)."""
+        if self.is_acceptable:
+            return ""
+        return ("periode tenang di awal belum benar-benar tenang, jadi angka "
+                "di bawah ini kurang pasti dari biasanya")
+
+    def note_for_model(self) -> str:
+        """English, technical — this one goes into the prompt, not onto a screen."""
+        if self.is_acceptable:
+            return ""
+        return (f"the resting baseline was unsteady ({'; '.join(self.reasons)}), "
+                f"so reactivity figures are less certain than usual")
+
+
+def check_baseline(profile: BaselineProfile,
+                   cfg: BaselineGateConfig | None = None) -> BaselineVerdict:
+    """
+    The single place that decides whether a resting period is usable.
+
+    THIS USED TO LIVE IN FOUR PLACES. The same `> 0.40` comparison was written out
+    in `session_pipeline.py`, in the API's `analysis.py`, and in two scripts. Four
+    copies of a number that had never been measured, which is the arrangement where
+    one gets corrected and the other three quietly keep disagreeing with it — the
+    offline report and the API would then hand the same recording two different
+    verdicts.
+
+    Two independent checks, either of which is enough to refuse:
+
+    1. **Spread** — the resting windows disagree with each other, so their median
+       is not standing on anything.
+    2. **Resting heart rate** — the windows may agree perfectly and still describe
+       somebody who never settled. Spread cannot see this: a steadily elevated
+       heart rate is steady. It is caught only by asking whether the level itself
+       is plausible for a person sitting still.
+
+    A measurement that could not be taken is not a failure. NaN spread means fewer
+    than the windows needed to form an IQR, and refusing on that would turn a short
+    recording into a bad one.
+    """
+    cfg = cfg or settings.baseline_gate
+    spread = profile.relative_spread(settings.dynamics.primary_feature)
+    hr = profile.values.get("mean_hr", float("nan"))
+
+    reasons = []
+    if spread == spread and spread > cfg.max_relative_spread:
+        reasons.append(f"relative IQR {spread:.0%} exceeds "
+                       f"{cfg.max_relative_spread:.0%}")
+    if hr == hr and hr > cfg.max_resting_hr_bpm:
+        reasons.append(f"resting heart rate {hr:.0f} bpm exceeds "
+                       f"{cfg.max_resting_hr_bpm:.0f} bpm, which is not a resting "
+                       f"state")
+
+    return BaselineVerdict(is_acceptable=not reasons, reasons=reasons,
+                           relative_spread=spread, resting_hr_bpm=hr)
