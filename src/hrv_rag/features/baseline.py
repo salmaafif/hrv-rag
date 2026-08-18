@@ -14,6 +14,7 @@ Every other module in the package is plain functions, because they hold no state
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import Enum
 
 import numpy as np
 import pandas as pd
@@ -151,6 +152,21 @@ class BaselineProfile:
                 f"(relative IQR {self.relative_spread('rmssd'):.0%})")
 
 
+class BaselineEvidence(str, Enum):
+    """
+    How much resting recording the verdict was reached on.
+
+    A separate axis from whether the baseline looks steady, and it has to be,
+    because a baseline can be perfectly steady and rest on almost nothing. Four
+    windows cannot disagree with each other much — the checks then pass for want of
+    evidence rather than on the strength of it.
+    """
+
+    FULL = "full"
+    LIMITED = "limited"
+    MINIMAL = "minimal"
+
+
 @dataclass(frozen=True)
 class BaselineVerdict:
     """
@@ -159,26 +175,52 @@ class BaselineVerdict:
     `is_acceptable` False does not mean the session failed. It means the resting
     period should be recorded again BEFORE the interview, which is the only moment
     at which it is still cheap to fix.
+
+    `evidence` is deliberately NOT folded into `is_acceptable`. A thin baseline is
+    not a faulty one, and refusing on it would send somebody to redo a resting
+    period that may have been perfectly good. What it changes is how much the
+    result deserves to be trusted, and that belongs in the report rather than in a
+    gate.
     """
 
     is_acceptable: bool
     reasons: list[str]
     relative_spread: float
     resting_hr_bpm: float
+    n_windows: int = 0
+    evidence: BaselineEvidence = BaselineEvidence.FULL
+
+    @property
+    def is_thin(self) -> bool:
+        return self.evidence is not BaselineEvidence.FULL
 
     def note_for_user(self) -> str:
         """Indonesian, plain language, no feature names (decision K4)."""
-        if self.is_acceptable:
-            return ""
-        return ("periode tenang di awal belum benar-benar tenang, jadi angka "
-                "di bawah ini kurang pasti dari biasanya")
+        if not self.is_acceptable:
+            return ("periode tenang di awal belum benar-benar tenang, jadi angka "
+                    "di bawah ini kurang pasti dari biasanya")
+        if self.evidence is BaselineEvidence.MINIMAL:
+            return ("periode tenang di awal terlalu singkat untuk jadi "
+                    "pembanding yang kuat, jadi angka di bawah ini sebaiknya "
+                    "dibaca sebagai gambaran kasar")
+        if self.evidence is BaselineEvidence.LIMITED:
+            return ("periode tenang di awal cukup singkat, jadi angka di bawah "
+                    "ini sedikit kurang pasti dari biasanya")
+        return ""
 
     def note_for_model(self) -> str:
         """English, technical — this one goes into the prompt, not onto a screen."""
-        if self.is_acceptable:
+        parts = []
+        if not self.is_acceptable:
+            parts.append(f"the resting baseline was unsteady "
+                         f"({'; '.join(self.reasons)})")
+        if self.is_thin:
+            parts.append(f"it rests on only {self.n_windows} resting windows "
+                         f"({self.evidence.value} evidence)")
+        if not parts:
             return ""
-        return (f"the resting baseline was unsteady ({'; '.join(self.reasons)}), "
-                f"so reactivity figures are less certain than usual")
+        return (f"{', and '.join(parts)} — so reactivity figures are less certain "
+                f"than usual")
 
 
 def check_baseline(profile: BaselineProfile,
@@ -219,5 +261,13 @@ def check_baseline(profile: BaselineProfile,
                        f"{cfg.max_resting_hr_bpm:.0f} bpm, which is not a resting "
                        f"state")
 
+    if profile.n_segments >= cfg.min_windows_full_evidence:
+        evidence = BaselineEvidence.FULL
+    elif profile.n_segments >= cfg.min_windows_limited_evidence:
+        evidence = BaselineEvidence.LIMITED
+    else:
+        evidence = BaselineEvidence.MINIMAL
+
     return BaselineVerdict(is_acceptable=not reasons, reasons=reasons,
-                           relative_spread=spread, resting_hr_bpm=hr)
+                           relative_spread=spread, resting_hr_bpm=hr,
+                           n_windows=profile.n_segments, evidence=evidence)

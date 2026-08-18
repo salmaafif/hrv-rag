@@ -236,45 +236,89 @@ class BaselineGateConfig:
     No error is raised, no number looks odd; the report is simply describing
     somebody else. That is why this gate exists at all.
 
-    WHAT THE THRESHOLDS ARE AND ARE NOT. Calibrated on 14 August 2026 over 1,050
-    two-minute windows from all fifteen WESAD resting phases. For each window the
+    WHAT THE THRESHOLDS ARE AND ARE NOT. Calibrated on 14 August 2026 over 2,820
+    baselines drawn from all fifteen WESAD resting phases. For each one the
     quantity a live session CAN see (spread, resting heart rate) was set against
-    the one it CANNOT (how far that window's baseline lands from the subject's
-    twenty-minute median). 18.2% of windows miss by more than 20% — the scoring
-    rule's own moderate threshold, so those are baselines that can move a label.
+    the one it CANNOT: how far that baseline lands from the subject's twenty-minute
+    median. A baseline is counted bad when it misses by more than 20% — the scoring
+    rule's own moderate threshold, so those are the ones that can move a label.
 
     Neither signal predicts that well. Spread correlates with the error at only
-    Spearman +0.24 per window, resting heart rate +0.26; a trend test within the
-    window was worthless at -0.01 and was dropped. Together, at these values, the
-    gate turns away about 13% of sessions and catches about 38% of the genuinely
-    bad ones, roughly half of its refusals being correct.
+    Spearman +0.24, resting heart rate +0.26; a trend test within the window was
+    worthless at -0.01 and was dropped. Together, at these values, the gate turns
+    away about 10% of sessions and catches about 41% of the genuinely bad ones,
+    with roughly half its refusals correct.
 
     So this is a CATASTROPHE FILTER, not a certificate. It reliably catches the
-    person who plainly is not at rest — WESAD S10 sat at 99 bpm with a 19% spread
-    and a baseline 34% off — and it will let subtler failures through. Passing the
-    gate must never be reported as "the baseline is good", only as "nothing
-    obviously wrong was visible".
+    person who plainly is not at rest — WESAD S10 sat at 99 bpm and its baselines
+    landed 34% off, the worst of the fifteen, and every one of its windows is
+    refused. It will let subtler failures through. Passing the gate must never be
+    reported as "the baseline is good", only as "nothing obviously wrong was
+    visible".
 
     Per SUBJECT the picture is much stronger (Pearson +0.94): the signals identify
-    an unsteady PERSON well and an unsteady two minutes poorly. That is the honest
-    limit of a two-minute rest, not a defect of the code.
+    an unsteady PERSON well and an unsteady four minutes poorly. That is the honest
+    limit of a short rest, not a defect of the code.
     """
 
     # Relative IQR of RMSSD across the calibration windows.
     #
-    # Was 0.40, which was a guess and fired on 1.1% of windows — a gate that never
-    # gates. At 0.20 it fires on 9.2%, and the windows it turns away miss by 18.1%
-    # on median against 8.3% for those it lets through.
-    max_relative_spread: float = 0.20
+    # THIS NUMBER DEPENDS ON HOW MUCH RECORDING THERE WAS, which is the trap that
+    # caught the first calibration of it. Measured on two-minute rests alone, 0.20
+    # looked right. But production does not build two-minute baselines: a Bluetooth
+    # sensor streams from the moment it pairs, and `split_baseline_and_task` keeps
+    # that prelude, so a real baseline spans up to four minutes and about twelve
+    # windows rather than four. Twelve windows reveal variability that four
+    # conceal, so the same steady person scores a HIGHER spread on the longer and
+    # more accurate recording — median 15.5% against 9%. At 0.20 the gate then
+    # refused 35% of sessions, most of them wrongly.
+    #
+    # Swept again across mixed prelude lengths (0, 1 and 2 minutes), which is the
+    # range production actually produces. At 0.35 the gate refuses 10.3% and 47% of
+    # its refusals are correct; tightening to 0.30 buys three points of recall for
+    # five points of precision, and loosening to 0.40 changes almost nothing.
+    #
+    # Consequence to state plainly: this check is more lenient on a short recording,
+    # which is the opposite of ideal, because a short baseline is the worse one
+    # (17.1% bad at four windows against 7.7% at twelve). Gating on window count
+    # instead was measured and rejected — it refuses 41% of sessions to catch 75%
+    # of the bad ones, and four in five of those refusals are wrong.
+    max_relative_spread: float = 0.35
 
     # Resting heart rate. Someone sitting still at over 90 bpm is not at rest,
     # whatever their HRV happens to look like.
     #
-    # The highest-precision single check available: it refuses 7.4% of windows and
-    # 64% of those refusals are genuinely bad baselines. It is also the one signal
-    # a person can act on — "sit quietly a little longer" — rather than an
-    # abstraction about interquartile ranges.
+    # The stronger of the two checks, and unlike the spread it does not shift with
+    # how long the recording is — a rate is a level, not a dispersion. On its own it
+    # refuses 7.4% and 41% of those refusals are correct, which is most of what the
+    # pair achieves together.
+    #
+    # It is also the only one a person can act on. "Your interquartile range is too
+    # wide" is not an instruction; "sit quietly for another minute" is.
     max_resting_hr_bpm: float = 90.0
+
+    # How many windows a baseline needs before it is reported without a caveat.
+    #
+    # This is NOT a third refusal. It is the answer to the one thing the two checks
+    # above cannot express: how much evidence they were applied to. A person who
+    # presses start the instant the sensor pairs gives four windows; one who spends
+    # two minutes fitting an armband gives twelve, at no cost to anybody. Measured
+    # over 4,700 baselines, the difference in what SLIPS THROUGH undetected:
+    #
+    #     under 6 windows   11.8% of sessions carry a bad baseline, unflagged
+    #     6 to 9 windows     6.6%
+    #     10 or more         3.9%
+    #
+    # Three times the risk, decided entirely by a habit nobody was ever told about.
+    # Blocking the start button until enough had accumulated was considered and
+    # rejected: waiting is exactly what the session timeline was shortened twice to
+    # remove, and reintroducing it through a side door would undo that.
+    #
+    # So the amount of evidence is REPORTED instead. A thin baseline is not refused,
+    # it is labelled — the same move the rest of the system already makes when it
+    # says recovery was "not measurable" rather than quietly writing 0%.
+    min_windows_full_evidence: int = 10
+    min_windows_limited_evidence: int = 6
 
 
 # ===========================================================================

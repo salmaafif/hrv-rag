@@ -35,6 +35,7 @@ export function ProcessingPage({ mode, session }: StageContext) {
     if (session.status !== 'idle') return
     startedRef.current = true
     session.run(mode, {
+      devMode: params.get('dev') === '1',
       simulateError: params.get('gagal') === '1',
       simulateUnstableBaseline: params.get('baseline') === 'goyah',
     })

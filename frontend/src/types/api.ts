@@ -57,6 +57,18 @@ export interface Baseline {
    * presenting the numbers at face value.
    */
   is_stable: boolean
+  /**
+   * How much resting recording the baseline stands on — a SEPARATE question from
+   * `is_stable`, and one the UI must not merge into it. `is_stable` says nothing
+   * looked wrong; `evidence` says how much was looked at.
+   *
+   * Few windows means the checks passed for want of evidence rather than on the
+   * strength of it. Measured on WESAD: under six windows, 11.8% of sessions carry
+   * a bad baseline with nothing flagged, against 3.9% at ten or more. The number
+   * of windows is decided by how long the sensor was connected before the person
+   * pressed start, which is why `warning` explains it in words they can act on.
+   */
+  evidence: 'full' | 'limited' | 'minimal'
   warning: string | null
 }
 

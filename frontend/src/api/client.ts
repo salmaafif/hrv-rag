@@ -49,9 +49,17 @@ function dummyEnabled(): boolean {
  * the dummy was the only backend and became a lie the moment a real one answered:
  * a genuine measurement of a real person, labelled as fake. For a demo shown to
  * examiners that is the more damaging direction of the two.
+ *
+ * DEVELOPER MODE COUNTS AS A REASON. Working on the result screen otherwise
+ * costs a full interview per look: connect, sit out the resting period, wait a
+ * minute per question, and end up with whatever shape that particular run
+ * happened to produce. `?dev=1` serves the fixture instead — a complete session
+ * with every panel populated — so a layout can be changed and seen in seconds.
+ * The banner keeps saying the data is invented, which is the whole point of
+ * routing this through the same flag the banner reads.
  */
-export function usesMockData(): boolean {
-  return dummyEnabled()
+export function usesMockData(devMode = false): boolean {
+  return dummyEnabled() || devMode
 }
 
 function baseUrl(): string {
@@ -151,7 +159,7 @@ export function analyzeTimeline(
   request: AnalyzeRequest,
   options: AnalyzeOptions = {},
 ): Promise<TimelineResponse> {
-  if (dummyEnabled()) return dummyAnalyzeTimeline(request, options)
+  if (usesMockData(options.devMode)) return dummyAnalyzeTimeline(request, options)
   return postJson<TimelineResponse>('/api/v1/analyze/timeline', request)
 }
 
@@ -159,6 +167,6 @@ export function analyzeSession(
   request: SessionRequest,
   options: AnalyzeOptions = {},
 ): Promise<SessionResponse> {
-  if (dummyEnabled()) return dummyAnalyzeSession(request, options)
+  if (usesMockData(options.devMode)) return dummyAnalyzeSession(request, options)
   return postJson<SessionResponse>('/api/v1/analyze/session', request)
 }

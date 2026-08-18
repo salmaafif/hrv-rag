@@ -35,10 +35,6 @@ export function ResultPage({ mode, session }: StageContext) {
           <p className="mt-1 text-sm text-level-moderate">
             {result.baseline.warning}
           </p>
-          <p className="mt-2 text-sm text-level-moderate">
-            Seluruh penilaian di bawah membandingkan ke periode itu, jadi
-            bacalah hasilnya dengan lebih hati-hati.
-          </p>
         </Card>
       )}
 
@@ -48,9 +44,8 @@ export function ResultPage({ mode, session }: StageContext) {
             Penjelasan di bawah belum dapat dipercaya sepenuhnya
           </p>
           <p className="mt-1 text-sm text-level-high">
-            Pemeriksaan otomatis menemukan bahwa kalimat penjelasannya memuat
-            hal yang tidak didukung data. Tingkat tekanannya sendiri tetap sah —
-            itu ditentukan oleh aturan, bukan oleh model bahasa.
+            Pemeriksaan otomatis menemukan kalimat yang tidak didukung data.
+            Tingkat tekanannya sendiri tetap sah — itu dari aturan, bukan LLM.
           </p>
         </Card>
       )}

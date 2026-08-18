@@ -130,6 +130,14 @@ def report(path: Path, wear: str, baseline_minutes: float) -> int:
     print(f"\n  baseline RMSSD    : {baseline.values['rmssd']:.1f} ms "
           f"(relative IQR {verdict.relative_spread:.0%}, "
           f"{verdict.resting_hr_bpm:.0f} bpm at rest)")
+    print(f"  evidence          : {verdict.n_windows} resting windows "
+          f"({verdict.evidence.value})")
+    if verdict.is_thin:
+        print("  NOTE: a short resting period. It is not wrong, but it rests on\n"
+              "        less than a longer one would — measured on WESAD, under six\n"
+              "        windows hides a bad reference three times as often as ten\n"
+              "        or more do. Connecting the sensor a couple of minutes\n"
+              "        before starting costs nothing and fixes it.")
     if not verdict.is_acceptable:
         for reason in verdict.reasons:
             print(f"  WARNING: {reason}")

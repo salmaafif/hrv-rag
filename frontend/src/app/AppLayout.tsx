@@ -115,7 +115,7 @@ export function AppLayout() {
         </div>
       </header>
 
-      {usesMockData() && (
+      {usesMockData(devMode) && (
         <p className="mb-4 rounded-lg bg-amber-soft px-4 py-2 text-sm text-level-moderate">
           <strong className="font-semibold">Data tiruan.</strong> Angka di layar
           ini belum berasal dari pengukuran sungguhan.

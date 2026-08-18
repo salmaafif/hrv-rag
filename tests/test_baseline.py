@@ -10,7 +10,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from hrv_rag.features.baseline import BaselineProfile, check_baseline
+from hrv_rag.features.baseline import (BaselineEvidence, BaselineProfile,
+                                       check_baseline)
 
 
 @pytest.fixture
@@ -211,7 +212,8 @@ def profile_with(rmssd: list[float], hr: float) -> BaselineProfile:
 
 
 def test_a_steady_resting_period_passes():
-    verdict = check_baseline(profile_with([49.0, 50.0, 50.0, 51.0], hr=68.0))
+    """Twelve windows, because four would now also draw a thin-evidence note."""
+    verdict = check_baseline(profile_with([49.0, 50.0, 50.0, 51.0] * 3, hr=68.0))
 
     assert verdict.is_acceptable
     assert verdict.reasons == []
@@ -220,21 +222,26 @@ def test_a_steady_resting_period_passes():
 
 def test_the_spread_threshold_sits_where_it_was_calibrated():
     """
-    0.20, not the 0.40 that was here before. 0.40 was never measured and fired on
-    1.1% of two-minute windows across WESAD — a gate that does not gate. Boundary
-    checked from both sides, because a `>=` written where `>` belongs would turn
-    every exactly-at-threshold baseline away and nothing else would notice.
+    0.35 — swept across the prelude lengths production actually produces, not the
+    0.40 guess that was here before and not the 0.20 that a two-minutes-only sweep
+    suggested. Boundary checked from both sides, because a `>=` written where `>`
+    belongs would turn every exactly-at-threshold baseline away and nothing else
+    would notice.
     """
-    # RMSSD [40, 45, 55, 60]: quartiles 43.75 and 56.25 -> IQR 12.5, median 50.
-    assert check_baseline(profile_with([40.0, 45.0, 55.0, 60.0], hr=68.0)
-                          ).relative_spread == pytest.approx(0.25)
-    assert not check_baseline(profile_with([40.0, 45.0, 55.0, 60.0], hr=68.0)
-                              ).is_acceptable
+    # RMSSD [30, 40, 60, 70]: quartiles 37.5 and 62.5 -> IQR 25, median 50.
+    over = check_baseline(profile_with([30.0, 40.0, 60.0, 70.0], hr=68.0))
+    assert over.relative_spread == pytest.approx(0.50)
+    assert not over.is_acceptable
 
-    # Exactly 0.20 is still acceptable.
-    at_threshold = check_baseline(profile_with([42.0, 46.0, 54.0, 58.0], hr=68.0))
-    assert at_threshold.relative_spread == pytest.approx(0.20)
+    # Exactly 0.35 is still acceptable. [30, 45, 55, 70]: IQR 17.5, median 50.
+    at_threshold = check_baseline(profile_with([30.0, 45.0, 55.0, 70.0], hr=68.0))
+    assert at_threshold.relative_spread == pytest.approx(0.35)
     assert at_threshold.is_acceptable
+
+    # And a spread that only a TWO-MINUTE sweep would have refused now passes,
+    # deliberately: twelve windows disagree more than four do without being worse.
+    assert check_baseline(profile_with([40.0, 45.0, 55.0, 60.0], hr=68.0)
+                          ).is_acceptable
 
 
 def test_a_perfectly_steady_but_racing_baseline_is_still_refused():
@@ -317,8 +324,81 @@ def test_every_caller_reads_the_same_threshold():
 
     from hrv_rag.config.settings import settings
 
-    borderline = profile_with([40.0, 45.0, 55.0, 60.0], hr=68.0)   # spread 0.25
+    borderline = profile_with([30.0, 40.0, 60.0, 70.0], hr=68.0)   # spread 0.50
     assert not check_baseline(borderline).is_acceptable
 
-    loosened = replace(settings.baseline_gate, max_relative_spread=0.50)
+    loosened = replace(settings.baseline_gate, max_relative_spread=0.60)
     assert check_baseline(borderline, cfg=loosened).is_acceptable
+
+
+# --------------------------------------------- how much evidence there was
+def profile_of_size(n_windows: int) -> BaselineProfile:
+    """A perfectly steady baseline built from `n_windows` resting windows."""
+    return BaselineProfile.from_segments("TEST", pd.DataFrame({
+        "rmssd": [50.0] * n_windows,
+        "mean_hr": [68.0] * n_windows,
+    }))
+
+
+@pytest.mark.parametrize("n_windows,expected", [
+    (4, BaselineEvidence.MINIMAL),      # pressed start the instant it paired
+    (5, BaselineEvidence.MINIMAL),
+    (6, BaselineEvidence.LIMITED),
+    (9, BaselineEvidence.LIMITED),
+    (10, BaselineEvidence.FULL),        # sensor connected a couple of minutes early
+    (12, BaselineEvidence.FULL),
+])
+def test_evidence_follows_how_much_resting_recording_there_was(n_windows, expected):
+    assert check_baseline(profile_of_size(n_windows)).evidence is expected
+
+
+def test_a_thin_baseline_is_reported_but_never_refused():
+    """
+    The whole point of separating these two. A short resting period is not a faulty
+    one, and refusing on it would send somebody to redo minutes that may have been
+    perfectly good — while saying nothing would hand them a report resting on four
+    windows as though it rested on twelve.
+
+    Measured on WESAD: under six windows, 11.8% of sessions carry a baseline off by
+    more than the rule's own threshold with nothing flagged, against 3.9% at ten or
+    more.
+    """
+    thin = check_baseline(profile_of_size(4))
+
+    assert thin.is_acceptable          # not refused
+    assert thin.is_thin                # but not silent either
+    assert thin.note_for_user() != ""
+    assert "4 resting windows" in thin.note_for_model()
+
+
+def test_a_full_baseline_says_nothing_at_all():
+    """A caveat printed on every session is a caveat nobody reads."""
+    verdict = check_baseline(profile_of_size(12))
+
+    assert verdict.evidence is BaselineEvidence.FULL
+    assert not verdict.is_thin
+    assert verdict.note_for_user() == "" and verdict.note_for_model() == ""
+
+
+def test_thin_evidence_and_an_unsteady_baseline_are_both_said():
+    """
+    Two independent faults. Reporting only the first would leave the person fixing
+    half of what went wrong.
+    """
+    profile = BaselineProfile.from_segments("TEST", pd.DataFrame({
+        "rmssd": [30.0, 40.0, 60.0, 70.0],      # spread 0.50
+        "mean_hr": [99.0] * 4,                  # not at rest
+    }))
+    verdict = check_baseline(profile)
+
+    assert not verdict.is_acceptable and verdict.is_thin
+    note = verdict.note_for_model()
+    assert "unsteady" in note and "4 resting windows" in note
+
+
+def test_the_evidence_wording_shown_to_a_user_stays_plain():
+    """Decision K4 again: this string reaches a screen."""
+    note = check_baseline(profile_of_size(4)).note_for_user()
+
+    for term in ("window", "jendela", "RMSSD", "IQR", "bpm", "%"):
+        assert term not in note

@@ -209,6 +209,7 @@ export const mockSession: SessionResponse = {
     mean_hr_bpm: 73,
     n_segments: 7,
     is_stable: true,
+    evidence: 'limited',
     warning: null,
   },
   questions,

@@ -25,7 +25,8 @@ import pandas as pd
 from hrv_rag.config.settings import settings
 from hrv_rag.core.session import Question, QuestionType, SessionTimeline
 from hrv_rag.core.types import Modality, Phase
-from hrv_rag.features.baseline import BaselineProfile, check_baseline
+from hrv_rag.features.baseline import (BaselineProfile, BaselineVerdict,
+                                       check_baseline)
 from hrv_rag.features.extractor import extract_features
 from hrv_rag.features.question import (arousal_index, cognitive_load_hint,
                                  measure_question)
@@ -54,6 +55,10 @@ class Prepared:
     baseline_note: str
     task_table: pd.DataFrame
     duration_sec: float
+
+    #: The full judgement, kept so the response can report how much evidence the
+    #: baseline stands on and not only whether it looked steady.
+    baseline_verdict: BaselineVerdict = None  # type: ignore[assignment]
 
     #: Where the resting period ended, measured from the first beat of the
     #: RECORDING. Not `baseline_minutes * 60`: the cut lands on a beat boundary.
@@ -154,7 +159,7 @@ def prepare(rr_ms: list[float] | None, csv: str | None,
 
     return Prepared(
         baseline=baseline, baseline_unstable=not verdict.is_acceptable,
-        baseline_note=verdict.note_for_user(),
+        baseline_note=verdict.note_for_user(), baseline_verdict=verdict,
         task_table=task_table,
         duration_sec=float(np.sum(intervals) / 1000.0),
         rest_end_sec=rest_end_sec, offset_sec=offset_sec,
@@ -162,11 +167,22 @@ def prepare(rr_ms: list[float] | None, csv: str | None,
 
 
 def baseline_block(prepared: Prepared) -> dict:
+    """
+    What the baseline was, and how much it is worth.
+
+    `evidence` is reported beside `is_stable` rather than folded into it. The two
+    say different things and a caller that conflates them will mislead somebody:
+    `is_stable` means nothing looked wrong, `evidence` means how much was looked at.
+    A baseline can be stable on four windows, and four windows is three times more
+    likely to hide a bad reference than twelve.
+    """
+    verdict = prepared.baseline_verdict
     return {
         "rmssd_ms": round(prepared.baseline.values.get("rmssd", float("nan")), 2),
         "mean_hr_bpm": round(prepared.baseline.values.get("mean_hr", float("nan")), 1),
         "n_segments": prepared.baseline.n_segments,
         "is_stable": not prepared.baseline_unstable,
+        "evidence": verdict.evidence.value,
         "warning": prepared.baseline_note or None,
     }
 

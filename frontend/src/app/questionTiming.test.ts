@@ -13,7 +13,8 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { buildQuestionTimeline, type AnsweredQuestion } from './questionTiming'
+import { DEMO_RR_MS, SIMULATION_SPEED } from '../mocks/recording'
+import { buildQuestionTimeline, sessionElapsedSec, type AnsweredQuestion } from './questionTiming'
 import type { BankQuestion } from '../mocks/questionBank'
 
 const q = (text: string, isDifficult = false): BankQuestion => ({
@@ -74,5 +75,60 @@ describe('buildQuestionTimeline', () => {
 
   it('returns nothing when no question was answered', () => {
     expect(buildQuestionTimeline([])).toEqual([])
+  })
+})
+
+describe('the session clock', () => {
+  it('runs at real speed with a real sensor', () => {
+    expect(sessionElapsedSec(12_000, false)).toBe(12)
+    expect(sessionElapsedSec(125_400, false)).toBe(125)
+  })
+
+  it('runs at the playback speed in dev mode', () => {
+    expect(sessionElapsedSec(12_000, true)).toBe(12 * SIMULATION_SPEED)
+  })
+
+  it('agrees with the recording the simulated sensor is playing', () => {
+    /**
+     * THE ONE THAT MATTERS, and the only test here that could not be satisfied
+     * by copying a constant from one file to another.
+     *
+     * Both sides are worked out independently. The clock is asked how many
+     * seconds of recording have passed; the recording is replayed beat by beat
+     * at the same speed and asked the same thing. If either side stops scaling,
+     * or scales by a different factor, the two answers separate — and in the
+     * running app nothing would look wrong: the questions would simply be
+     * scored against minutes the person was never in.
+     */
+    const REAL_MS = 30_000
+
+    const clockSays = sessionElapsedSec(REAL_MS, true)
+
+    let realSpent = 0
+    let recordingMs = 0
+    for (const beat of DEMO_RR_MS) {
+      const cost = beat / SIMULATION_SPEED
+      if (realSpent + cost > REAL_MS) break
+      realSpent += cost
+      recordingMs += beat
+    }
+
+    // Within one beat: the playback loop can only stop on a beat boundary.
+    expect(Math.abs(clockSays - recordingMs / 1000)).toBeLessThan(1.5)
+  })
+
+  it('leaves the resting period exactly as long as it claims to be', () => {
+    /**
+     * Two minutes of RECORDING, whatever the playback speed. If the rest ended
+     * after two minutes of wall clock in dev mode, it would cover twenty minutes
+     * of recording and swallow the whole stressor into the baseline — the
+     * questions would then be compared against the stress they were meant to
+     * reveal.
+     */
+    const restSec = 2 * 60
+    const realMsNeeded = (restSec * 1000) / SIMULATION_SPEED
+
+    expect(sessionElapsedSec(realMsNeeded, true)).toBe(restSec)
+    expect(sessionElapsedSec(realMsNeeded - 1000, true)).toBeLessThan(restSec)
   })
 })
