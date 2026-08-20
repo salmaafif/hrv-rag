@@ -346,6 +346,66 @@ export function segmentYield(tSec, isOutlier) {
  * @param {number[]} rrMs  raw intervals for this block, in packet order
  * @param {number[]} tSec  matching beat timestamps
  */
+/** Median of a numeric array. Local so this module stays dependency-free. */
+function medianOf(values) {
+  const sorted = [...values].sort((a, b) => a - b)
+  const middle = sorted.length >> 1
+  return sorted.length % 2
+    ? sorted[middle]
+    : (sorted[middle - 1] + sorted[middle]) / 2
+}
+
+/**
+ * A gap counts as a dropout once it is this many typical beats long.
+ *
+ * Two and a half rather than two: a genuine sinus pause plus one late packet can
+ * reach two, and calling that a dropout would flag ordinary recordings.
+ */
+export const DROPOUT_BEATS = 2.5
+
+/**
+ * Where the recording stopped receiving beats, and for how long.
+ *
+ * THE OUTLIER RULE CANNOT SEE THIS, and that is the whole reason the function
+ * exists. T1.5 flags an interval that is out of range or more than 20% from its
+ * predecessor. A dropout leaves neither trace: the beat arriving after a
+ * fourteen-second silence is an ordinary ~700 ms interval sitting next to
+ * another ordinary ~700 ms interval. Measured on the first HW9 protocol run,
+ * only 8 of 30 gaps happened to be flagged — the other 22 passed as clean data.
+ *
+ * What is lost is sample count rather than accuracy: on that same run, dropping
+ * every pair that straddles a gap moved RMSSD by at most 0.53 ms. The danger is
+ * a block that quietly rests on three quarters of the beats it claims.
+ *
+ * @param {number[]} tSec beat timestamps, seconds, ascending
+ * @param {number[]} rrMs matching intervals, used only for the typical length
+ */
+export function dropouts(tSec, rrMs) {
+  if (tSec.length < 2) return { count: 0, seconds: 0, coveragePct: 100 }
+  const typical = medianOf(rrMs) / 1000
+  const limit = DROPOUT_BEATS * typical
+
+  let count = 0
+  let seconds = 0
+  for (let i = 0; i < tSec.length - 1; i++) {
+    const gap = tSec[i + 1] - tSec[i]
+    if (gap > limit) {
+      count++
+      seconds += gap
+    }
+  }
+
+  const elapsed = tSec[tSec.length - 1] - tSec[0]
+  const covered = rrMs.reduce((a, b) => a + b, 0) / 1000
+  return {
+    count,
+    seconds,
+    // Share of wall-clock time actually spanned by intervals. Below ~90% the
+    // block rests on fewer beats than its duration implies.
+    coveragePct: elapsed > 0 ? Math.min(100, (covered / elapsed) * 100) : 100,
+  }
+}
+
 export function phaseStats(rrMs, tSec) {
   if (rrMs.length === 0) return null
 
@@ -353,6 +413,7 @@ export function phaseStats(rrMs, tSec) {
   const seg = segmentYield(tSec, isOutlier)
 
   const rmssdSegments = seg.windows.map((w) => rmssd(w.indices.map((i) => corrected[i])))
+  const drop = dropouts(tSec, rrMs)
 
   return {
     nBeats: rrMs.length,
@@ -366,6 +427,9 @@ export function phaseStats(rrMs, tSec) {
     rmssd: rmssd(corrected),
     rmssdSegments,
     rmssdMedian: median(rmssdSegments.filter((v) => v !== null)),
+    dropoutCount: drop.count,
+    dropoutSeconds: drop.seconds,
+    coveragePct: drop.coveragePct,
   }
 }
 
@@ -374,9 +438,93 @@ export function phaseStats(rrMs, tSec) {
 /**
  * Fewest beats before the synthetic-RR verdict is worth stating.
  *
- * Below this the two signatures below both fire on chance alone.
+ * Raised from 20 when signature 3 replaced the distinct-value count: a
+ * correlation over a handful of grid rungs is noise, and a verdict this
+ * expensive should not be delivered from noise.
  */
-export const SYNTHETIC_MIN_SAMPLES = 20
+export const SYNTHETIC_MIN_SAMPLES = 60
+
+/**
+ * How far the gap-spacing correlation may climb before a device is condemned.
+ *
+ * Measured, not guessed. On simulated series and on a real HW9 recording the
+ * two populations sit far apart: genuine intervals top out around +0.32,
+ * `60000 / bpm` series start at +0.97. The threshold sits in the empty middle,
+ * so neither side is anywhere near it.
+ */
+export const BPM_GRID_CORRELATION_LIMIT = 0.7
+
+/**
+ * How strongly the spacing between neighbouring RR values grows with RR².
+ *
+ * This is the signature that separates a coarse clock from a fabricated series,
+ * and it works by arithmetic rather than by a tuned threshold. A device
+ * reporting `60000 / bpm` can only emit the values integer bpm allows, and those
+ * are not evenly spaced: neighbours sit `60000/b - 60000/(b+1)` apart, which
+ * grows as RR². At 110 bpm the rungs are 5 ms apart; at 69 bpm, 12 ms. A device
+ * with a coarse but honest beat clock quantises in TIME, so its rungs are
+ * equally spaced everywhere and the correlation collapses to zero.
+ *
+ * Gaps far wider than the median are dropped before correlating: those are rungs
+ * the recording never landed on, not evidence about spacing.
+ *
+ * @param {number[]|Set<number>} values every RR seen; duplicates are fine
+ * @returns {number|null} Pearson r, or null when there is not enough spread
+ */
+export function bpmGridCorrelation(values) {
+  const unique = [...new Set(values)].sort((a, b) => a - b)
+  if (unique.length < 10) return null
+
+  const allGaps = []
+  for (let i = 0; i < unique.length - 1; i++) allGaps.push(unique[i + 1] - unique[i])
+  const typical = medianOf(allGaps)
+
+  const xs = []
+  const ys = []
+  for (let i = 0; i < unique.length - 1; i++) {
+    const gap = unique[i + 1] - unique[i]
+    if (gap > 2.5 * typical) continue
+    xs.push(unique[i] * unique[i])
+    ys.push(gap)
+  }
+  if (xs.length < 8) return null
+
+  const meanX = xs.reduce((a, b) => a + b, 0) / xs.length
+  const meanY = ys.reduce((a, b) => a + b, 0) / ys.length
+  let num = 0
+  let varX = 0
+  let varY = 0
+  for (let i = 0; i < xs.length; i++) {
+    const dx = xs[i] - meanX
+    const dy = ys[i] - meanY
+    num += dx * dy
+    varX += dx * dx
+    varY += dy * dy
+  }
+  return varX && varY ? num / Math.sqrt(varX * varY) : null
+}
+
+/**
+ * The device's timing resolution in milliseconds, or null when it cannot be seen.
+ *
+ * Reported, not judged. A coarse clock does not disqualify a sensor — the HW9's
+ * 7.6 ms grid moves resting RMSSD by about a tenth of a millisecond — but it is
+ * a property of the instrument, so it belongs in the export and in the write-up
+ * rather than being discovered later by someone squinting at a tachogram.
+ *
+ * Estimated as the median spacing between neighbouring distinct values, which is
+ * robust to whichever rungs a recording happened to skip.
+ *
+ * @param {number[]|Set<number>} values
+ * @returns {number|null}
+ */
+export function timingResolutionMs(values) {
+  const unique = [...new Set(values)].sort((a, b) => a - b)
+  if (unique.length < 10) return null
+  const gaps = []
+  for (let i = 0; i < unique.length - 1; i++) gaps.push(unique[i + 1] - unique[i])
+  return medianOf(gaps)
+}
 
 /**
  * Decide whether a device is sending real beat-to-beat intervals or `60000 / HR`.
@@ -386,21 +534,38 @@ export const SYNTHETIC_MIN_SAMPLES = 20
  * becomes meaningless, and no error is ever raised — Rutenberg found exactly this
  * on a Decathlon monitor. It has to be caught here or not at all.
  *
- * Two independent signatures, either of which condemns the device:
+ * Three signatures, any one of which condemns the device:
  *
  *   1. the intervals keep landing on `60000 / bpm` to within a millisecond or
  *      two — a real interval agrees with the averaged rate only by coincidence;
- *   2. too few distinct values — `60000 / bpm` can only take as many values as
- *      the integer bpm did, whereas genuine intervals vary continuously.
+ *   2. the series is essentially flat — under eight distinct values across a
+ *      whole block is a broken sensor whatever produced it;
+ *   3. the spacing between neighbouring values grows with RR², which is what
+ *      `60000 / bpm` does and what a time-quantised clock cannot do.
  *
- * @param {{matches: number, samples: number, uniqueValues: number}} counters
+ * WHY SIGNATURE 3 REPLACED A DISTINCT-VALUE COUNT. The rule used to be "fewer
+ * than 8% of samples are distinct", which silently assumed the ~1 ms resolution
+ * the BLE field implies. A real HW9 recording — 502 beats, RMSSD 32 ms, plainly
+ * genuine — was condemned by it, because the device quantises at 7.6 ms and so
+ * has only about forty values available to it in the first place. Counting
+ * distinct values measures the device's CLOCK, and the clock was never the
+ * question. Signature 3 measures the SHAPE of the spacing, which is the
+ * question, and is indifferent to how coarse the clock is.
+ *
+ * Signature 1 alone is not enough either: a device that fabricates RR from bpm
+ * but reports a smoothed bpm in the packet slips past it. Signature 3 catches
+ * that case, because the fabricated values still land on the uneven bpm grid.
+ *
+ * @param {{matches: number, samples: number, values: number[]|Set<number>}} evidence
  * @returns {'menilai'|'sintetis'|'asli'}
  */
-export function classifyRrSource({ matches, samples, uniqueValues }) {
+export function classifyRrSource({ matches, samples, values }) {
   if (samples < SYNTHETIC_MIN_SAMPLES) return 'menilai'
-  const matchRatio = matches / samples
-  const tooFewDistinct = uniqueValues < Math.max(8, samples * 0.08)
-  return matchRatio > 0.9 || tooFewDistinct ? 'sintetis' : 'asli'
+  if (matches / samples > 0.9) return 'sintetis'
+  if (new Set(values).size < 8) return 'sintetis'
+  const correlation = bpmGridCorrelation(values)
+  if (correlation === null) return 'menilai'
+  return correlation > BPM_GRID_CORRELATION_LIMIT ? 'sintetis' : 'asli'
 }
 
 /** True when this interval is indistinguishable from `60000 / bpm`. */

@@ -126,8 +126,42 @@ Sebagian perangkat menyalakan bit RR tetapi mengisinya dengan `60000 / HR`. Sist
 "berjalan", angka tetap keluar, RMSSD **tidak bermakna**, dan tidak ada pesan galat.
 Rutenberg (2026) menemukan ini pada monitor Decathlon.
 
-Deteksi: bandingkan tiap RR terhadap `60000 / hr_dilaporkan` — cocok persis (<1–2 ms) secara
-konsisten berarti sintetis. Periksa juga jumlah nilai RR unik; deret asli bervariasi halus.
+Deret sintetis itu **mulus**, sehingga persentase outliernya justru rendah dan akan lolos
+gerbang mutu berikutnya. Karena itu pemeriksaan ini harus dijalankan **sebelum** gerbang
+outlier, bukan sesudahnya.
+
+Tiga tanda, salah satu saja sudah cukup menghukum:
+
+1. **Cocok dengan `60000 / hr_dilaporkan`.** Lebih dari 90% RR jatuh dalam 2 ms dari nilai itu.
+   RR sungguhan hanya sesekali kebetulan sama dengan laju rata-rata.
+2. **Deret nyaris datar.** Di bawah delapan nilai berbeda dalam satu blok berarti sensor rusak,
+   apa pun penyebabnya.
+3. **Jarak antar nilai melebar seiring RR².** Ini tanda yang menentukan, dan ia bekerja karena
+   aritmetika, bukan karena ambang yang disetel. Alat yang mengirim `60000 / bpm` hanya bisa
+   mengeluarkan nilai yang diizinkan bpm bulat, dan jaraknya **tidak seragam**: dua nilai
+   bertetangga berjarak `60000/b − 60000/(b+1)`, yang tumbuh sebanding RR². Pada 110 bpm anak
+   tangganya 5 ms, pada 69 bpm 12 ms. Alat berjam kasar tetapi jujur mengkuantisasi **waktu**,
+   sehingga jaraknya sama di seluruh rentang dan korelasinya runtuh ke nol.
+
+**Koreksi metode — 20 Agustus 2026.** Tanda ke-3 menggantikan aturan lama "nilai berbeda <
+8% sampel". Aturan lama itu diam-diam mengandaikan resolusi ~1 ms sebagaimana disiratkan
+field BLE, dan **menghukum rekaman HW9 yang sungguhan** (§3.3): 36 nilai berbeda dari 502
+denyut, di bawah ambang `max(8; 40,2)`. Menghitung nilai berbeda mengukur **jam alat**, dan
+jam bukan pertanyaannya. Tanda ke-3 mengukur **bentuk** jarak, yang memang pertanyaannya, dan
+tidak peduli sekasar apa jamnya.
+
+Tanda ke-1 sendirian juga tidak cukup: alat yang memalsukan RR dari bpm tetapi melaporkan bpm
+yang sudah dihaluskan di paketnya akan lolos, karena hampir tidak ada RR yang jatuh dalam 2 ms.
+Tanda ke-3 menangkapnya, sebab nilai palsunya tetap duduk di kisi bpm yang tidak seragam.
+
+Pemisahan kedua populasi diukur, bukan ditebak. Korelasi jarak terhadap RR²: deret sungguhan
+berhenti di sekitar **+0,32**, deret `60000/bpm` mulai dari **+0,97**. Ambang **0,7** duduk di
+ruang kosong di antaranya. Minimum **60 denyut** sebelum putusan dikeluarkan — korelasi di atas
+segelintir anak tangga hanyalah derau.
+
+Implementasi: `classifyRrSource()` dan `bpmGridCorrelation()` di
+`frontend/uji-protokol-hrv.logic.js`, dipakai bersama oleh halaman uji sensor dan halaman
+protokol tiga blok agar keduanya tidak pernah memberi putusan berbeda untuk perangkat sama.
 
 ### 1.6 Kendala Web Bluetooth
 
@@ -374,6 +408,133 @@ Elite HRV, HRV4Training), atau (c) **pengujian langsung**. HW706 adalah contoh n
 
 ---
 
+### 3.3 Sifat terverifikasi HW9 — uji 20 Agustus 2026
+
+Diukur langsung, bukan dari spesifikasi vendor. Rekaman: duduk diam, 502 interval, RMSSD
+32,11 ms, outlier 1,0%, HR rata-rata 85,8 bpm. Berkas mentah `rr_uji_sensor.json` disimpan
+sebagai bukti.
+
+**Gerbang 1 — field RR: LOLOS.** Bit RR (0x10) menyala; perangkat mengirim interval, bukan
+hanya bpm rata-rata.
+
+**Gerbang 2 — sumber RR: ASLI.** Awalnya perkakas memutuskan "sintetis"; putusan itu **salah**
+dan sudah dikoreksi (§1.5). Bukti bahwa RR-nya sungguhan:
+
+| RR | Jarak antar nilai **seandainya** `60000/bpm` | Jarak yang **terukur** |
+|---|---|---|
+| 549 ms | 5,00 ms | 7,8125 ms |
+| 709 ms | 8,40 ms | 7,8125 ms |
+| 855 ms | 12,07 ms | 7,8125 ms |
+
+Datar sepanjang rentang. Korelasi jarak terhadap RR² = **−0,09**; simulasi deret `60000/bpm`
+menghasilkan **+0,97**. Selain itu 36 dari 43 slot kisi terisi (**84%**) — deret asli mengisi
+kisinya rapat, deret palsu meninggalkannya bolong (simulasi: 32%).
+
+**Sifat instrumen yang harus dilaporkan.** HW9 mendeteksi denyut pada **tepat 128 Hz**,
+sehingga RR jatuh di kisi **7,8125 ms** (= 1/128 detik = 8 satuan 1/1024 detik) — bukan ~1 ms
+sebagaimana disiratkan satuan field BLE. Nilai RR yang mungkin di rentang 549–869 ms karena itu
+hanya sekitar empat puluh buah. Ini **bukan** cacat dan **bukan** alasan menolak perangkat; ia
+properti alat yang harus ikut ditulis, sebagaimana L13 menuntut merek/model/firmware dicatat.
+
+> **Koreksi 20 Agustus 2026, sore.** Angka pertama yang tercatat di sini adalah 7,62 ms /
+> ≈131 Hz. Itu **salah**, dan penyebabnya perkakas sendiri: halaman uji sensor membulatkan RR
+> ke satu desimal sebelum mengekspor, sehingga kisi 7,8125 ms terbaca sebagai campuran 7,8 dan
+> 6,9 dan rata-ratanya meleset. Rekaman protokol tiga blok menyimpan presisi penuh dan
+> memperlihatkan kisi yang bersih: 40 dari 58 jarak antar nilai unik **tepat** 7,8125 ms,
+> mediannya 7,8125 ms, dan 1000/7,8125 = 128,00 Hz — angka bulat yang wajar untuk laju
+> pencuplikan. Pembulatan di halaman uji sensor sudah dihapus.
+
+**Harga kuantisasinya, dihitung.** Kuantisasi seragam berlangkah `q` menambah varians `q²/6`
+pada selisih antar denyut, yaitu **9,69 ms²** (σ = 3,11 ms) yang bertambah secara kuadratik:
+
+- RMSSD terukur 32,11 ms → setelah dikoreksi **31,95 ms**. Selisih **0,16 ms**.
+- Efek ke persen perubahan terhadap baseline selalu ke arah **meremehkan** reaktivitas, dan
+  kecil. Dengan baseline 40 ms: penurunan sebenarnya −75,0% terbaca −73,9%; −87,5% terbaca
+  −85,3%. Bias maksimum di bawah **2,2 poin persen**.
+
+Kesimpulan: aman untuk fitur domain waktu. Untuk domain frekuensi lihat L20.
+
+**Yang masih terbuka — cakupan waktu.** Pada rekaman pertama (347 interval, timer 5:24) jumlah
+RR hanya menutupi ≈243 detik dari 324 detik yang berjalan, sementara outlier hanya 1,2%
+sehingga **tidak ada RR ganda** yang menandai lubangnya. Bila interval ternyata tidak
+benar-benar berurutan, RMSSD menghitung selisih antara dua denyut yang tidak bersebelahan.
+Perkakas sekarang mencatat `paket_dengan_rr` dan `paket_tanpa_rr` pada ekspornya; periksa ini
+di rekaman berikutnya sebelum protokol tiga blok dijalankan. Lihat L21.
+
+
+### 3.4 Uji protokol tiga blok — 20 Agustus 2026
+
+Rekaman lengkap 1.068 denyut, 15 menit. Berkas `uji_protokol_rr.json`. Putusan terkunci §6.1
+mengembalikan **LULUS** untuk perangkatnya, dengan peringatan tafsir yang memang sudah ditulis
+di muka — dan peringatan itu ternyata yang paling penting.
+
+| Blok | n RR | Cakupan waktu | Outlier | Segmen layak | mean HR | RMSSD median |
+|---|---|---|---|---|---|---|
+| Istirahat (5 mnt) | 377 | 88,6% | 4,5% | 8/8 | 85,6 bpm | 38,8 ms |
+| Tertekan (3 mnt) | 234 | 90,4% | 4,3% | 4/4 | 86,9 bpm | 32,7 ms |
+| Pemulihan (3 mnt) | 193 | **75,4%** | 11,4% | **2/4** | 86,2 bpm | 47,8 ms |
+
+**Perangkatnya lolos.** Outlier 4,5% dan 4,3% di dua blok pertama setara mutu ECG dada pada
+WESAD (0,0–4,2%), seluruh segmen layak, dan RMSSD istirahat 38,8 ms berada di tengah rentang
+wajar 20–60 ms. Gerbang 1 (§3.3) selesai.
+
+**Stresornya tidak bekerja.** HR hanya naik **+1,5%** (85,6 → 86,9). RMSSD median turun 15,8%.
+Peringatan tafsir §6.1 — "bila HR tidak naik di blok 2, jangan menyalahkan sensor" — berbunyi
+persis sebagaimana dirancang. Ini contoh kriteria terkunci bekerja: kalau peringatannya baru
+ditulis setelah melihat angka ini, ia tidak akan berarti apa-apa.
+
+**Temuan terpenting: blok istirahat bukan istirahat.** RMSSD per segmen 60 detik sepanjang lima
+menit "istirahat" berturut-turut 38,8 · 30,4 · 32,2 · 35,5 · 38,9 · 41,0 · 47,4 · 46,1 ms.
+Paruh pertama rata-rata 34,2 ms, paruh kedua **43,3 ms** — naik **26,5%**, dengan kemiringan
++1,97 ms per segmen. Subjek masih terus menenang selama seluruh blok baseline.
+
+Konsekuensinya berlapis dan semuanya buruk untuk penafsiran:
+
+1. **Baseline-nya bukan baseline.** Ia rata-rata dari sebuah tren, bukan tingkat yang mapan.
+2. **Reaktivitas jadi tidak terbaca ke arah mana pun.** Terhadap median blok istirahat,
+   penurunannya −15,8%. Terhadap dua segmen terakhir istirahat (47,4 dan 46,1 ms) — yaitu
+   tingkat yang paling dekat dengan keadaan sesaat sebelum stresor — penurunannya jauh lebih
+   besar. Angka mana yang benar tidak bisa ditentukan dari data ini.
+3. **Pemulihan jadi tidak bermakna.** RMSSD pemulihan 47,8 ms berada **di atas** median
+   istirahat (+23,1%), dan masih di atas paruh kedua istirahat (+10,4%). Tidak ada yang pulih
+   ke mana-mana; yang terlihat adalah tren menenang yang sama, berjalan terus.
+
+Ini mereproduksi keterbatasan #1 di `development_journey.md` §7 — baseline pra-wawancara bukan
+baseline netral sejati — pada tubuh dan sensor sendiri, bukan pada WESAD. Dan ia sejalan dengan
+temuan `analyse_baseline_duration.py`: 0 dari 15 subjek WESAD stabil dalam 2 menit, median baru
+stabil di 4 menit. Di sini bahkan 5 menit belum menunjukkan dataran.
+
+**Lubang rekaman — L21 terkonfirmasi dan terukur.** Sepanjang sesi ada **30 lubang** dengan
+total **150,7 detik** tanpa denyut. Dari 30 lubang itu, hanya **8 (27%)** kebetulan ikut
+tertandai gerbang outlier T1.5; **22 sisanya lewat sebagai data bersih**. Ini bukan kelemahan
+implementasi melainkan sifat kriterianya: denyut yang datang sesudah hening empat belas detik
+tetap berupa interval ~700 ms di sebelah interval ~700 ms lain, tidak di luar rentang dan tidak
+berbeda 20% dari pendahulunya.
+
+Kabar baiknya, harganya kecil dan sudah dihitung: membuang setiap pasangan yang melangkahi
+lubang menggeser RMSSD paling banyak **0,53 ms** (istirahat +0,06 ms, tertekan +0,52 ms,
+pemulihan +0,53 ms). **Yang hilang adalah jumlah sampel, bukan ketepatan.** Bahayanya berupa
+blok yang diam-diam berdiri di atas tiga perempat denyut yang disiratkan durasinya — persis
+yang terjadi pada blok pemulihan, dan itu pula sebab 2 dari 4 segmennya gugur.
+
+Perkakas sekarang melaporkan cakupan waktu per blok berdampingan dengan outlier, karena
+keduanya menjawab pertanyaan berbeda: outlier menilai denyut yang **masuk**, cakupan menilai
+denyut yang **hilang**.
+
+**Cacat perkakas yang ditemukan lewat rekaman ini** (semuanya sudah diperbaiki):
+
+| Cacat | Akibat |
+|---|---|
+| Label fase `'pra'` dipakai untuk sebelum **dan** sesudah protokol | 264 denyut pasca-protokol (t 663–898 dtk, ±4 menit) terlabel `'pra'`. Analisis per label akan membaca akhir sesi sebagai baseline sebelum sesi. Sekarang ada label `'pasca'` |
+| `d.uniq.add(Math.round(v))` membulatkan RR ke ms bulat | Menghancurkan kisi 7,8125 ms sebelum diperiksa; `resolusi_ms` melaporkan 8 dan korelasi kisi ikut terdistorsi |
+| Halaman uji sensor membulatkan RR ke 1 desimal saat ekspor | Sumber angka 7,62 ms / 131 Hz yang keliru (lihat koreksi §3.3) |
+
+**Yang harus dilakukan sebelum G2 ditutup:** ulangi protokol dengan (a) baseline lebih panjang
+atau berkriteria berhenti otomatis, (b) stresor yang benar-benar menuntut, dan (c) pemasangan
+di lengan atas sesuai §6.2. Sampai baseline berhenti melayang, tidak ada angka reaktivitas dari
+perangkat ini yang layak masuk laporan.
+
+
 ## 4. Modalitas PPG di Dalam Penelitian Ini (HW3)
 
 PPG **bukan pengembangan lanjutan**. Proposal sudah menjanjikan sistem dua cabang (Gambar 3.1
@@ -582,6 +743,9 @@ Melanjutkan seri `L` di BACKLOG.md.
 | L17 | **Baseline rusak merusak seluruh sesi tanpa pesan galat** | Gerbang 3 khusus baseline | bangun |
 | L18 | **PPG tidak sanggup RMSSD pada kondisi bicara-di-bawah-tekanan** (Sinichi dkk.; L11) | Penggerbangan metrik menurut §4.2; **ukur harganya** lewat ablasi HR-saja | ukur |
 | L19 | **Sebagian perangkat mengimplementasikan HRS tanpa field RR** (mis. Coospo HW706, spek resmi "HRV: No"). Terdaftar di layanan pihak ketiga **bukan** bukti dukungan RR | Verifikasi hanya dari spek resmi, penggunaan terdokumentasi dengan aplikasi HRV, atau uji langsung | tulis |
+| L20 | **HW9 mengkuantisasi RR pada 7,8125 ms** (deteksi denyut tepat 128 Hz), bukan ~1 ms seperti disiratkan field BLE. Derau kuantisasi berspektrum lebar sehingga menambah daya di pita HF dan berpotensi menggeser LF/HF | Domain waktu: dampaknya terhitung dan kecil — RMSSD bergeser 0,16 ms pada tingkat istirahat (§3.3) — cukup dilaporkan. Domain frekuensi: **jangan bandingkan LF/HF HW9 dengan LF/HF WESAD** tanpa menyebut perbedaan resolusi ini | ukur + tulis |
+| L21 | **Rekaman kehilangan denyut tanpa jejak di gerbang outlier.** Terukur pada uji protokol: 30 lubang, 150,7 dtk, cakupan per blok 88,6% / 90,4% / **75,4%**; hanya 8 dari 30 lubang ikut tertandai T1.5. Kriteria outlier secara struktural buta terhadap lubang waktu | Cakupan waktu kini dihitung `dropouts()` dan ditampilkan per blok berdampingan dengan outlier. Harga terhadap RMSSD terukur ≤ 0,53 ms — yang hilang jumlah sampel, bukan ketepatan. **Tolak blok dengan cakupan < 90%** sebelum menafsirkannya | bangun + ukur |
+| L22 | **Baseline melayang sepanjang blok istirahat.** Terukur: RMSSD naik 26,5% dari paruh pertama ke paruh kedua blok istirahat 5 menit (+1,97 ms per segmen), sehingga reaktivitas dan pemulihan sama-sama tidak terbaca (§3.4). Sejalan dengan `analyse_baseline_duration.py` pada WESAD | Perpanjang baseline dan/atau pakai kriteria berhenti otomatis berbasis kestabilan, bukan durasi tetap. **Keputusan ini harus diambil sebelum pengambilan data subjek** — sesudahnya tidak ada perbaikan yang mungkin | putuskan |
 
 **Keterbatasan lama, solusi diperbarui:**
 

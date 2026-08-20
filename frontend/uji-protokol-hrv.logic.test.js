@@ -19,6 +19,10 @@ import {
   SEGMENT_MIN_BEATS,
   beatTimes,
   classifyRrSource,
+  dropouts,
+  bpmGridCorrelation,
+  timingResolutionMs,
+  SYNTHETIC_MIN_SAMPLES,
   correctEctopic,
   judgeDeviceTest,
   meanHr,
@@ -224,22 +228,152 @@ describe('cap waktu denyut', () => {
   })
 })
 
+describe('lubang rekaman', () => {
+  /** Beats at a fixed spacing, with an optional silence inserted part-way. */
+  const run = (nBefore, silence, nAfter, rr = 700) => {
+    const t = []
+    let now = 0
+    for (let i = 0; i < nBefore; i++) { t.push(now); now += rr / 1000 }
+    now += silence
+    for (let i = 0; i < nAfter; i++) { t.push(now); now += rr / 1000 }
+    return { t, rrMs: t.map(() => rr) }
+  }
+
+  it('tidak melaporkan lubang pada rekaman yang utuh', () => {
+    const { t, rrMs } = run(100, 0, 0)
+    const d = dropouts(t, rrMs)
+    expect(d.count).toBe(0)
+    expect(d.seconds).toBe(0)
+    expect(d.coveragePct).toBeGreaterThan(99)
+  })
+
+  it('menemukan hening yang tidak meninggalkan jejak di gerbang outlier', () => {
+    // The decisive case. Fourteen seconds of silence between two ordinary
+    // 700 ms intervals: T1.5 sees nothing wrong, because neither interval is
+    // out of range and neither differs from its predecessor by 20%.
+    const { t, rrMs } = run(50, 14, 50)
+    const { isOutlier } = correctEctopic(rrMs)
+    expect(isOutlier.filter(Boolean).length).toBe(0)
+
+    const d = dropouts(t, rrMs)
+    expect(d.count).toBe(1)
+    expect(d.seconds).toBeCloseTo(14.7, 1)
+    expect(d.coveragePct).toBeLessThan(90)
+  })
+
+  it('tidak menghitung satu jeda sinus sebagai lubang', () => {
+    // Two beats' worth of pause is within normal variation; the threshold sits
+    // at 2.5 so that ordinary recordings are not condemned.
+    const { t, rrMs } = run(50, 0.7, 50)
+    expect(dropouts(t, rrMs).count).toBe(0)
+  })
+
+  it('cakupan turun sebanding waktu yang hilang', () => {
+    const { t, rrMs } = run(50, 35, 50)   // 70 s of beats, 35 s of silence
+    expect(dropouts(t, rrMs).coveragePct).toBeCloseTo(66.7, 0)
+  })
+
+  it('phaseStats membawa cakupan keluar bersama outlier', () => {
+    const { t, rrMs } = run(80, 20, 80)
+    const s = phaseStats(rrMs, t)
+    expect(s.dropoutCount).toBe(1)
+    expect(s.coveragePct).toBeLessThan(90)
+    // Outlier stays clean — that is exactly why coverage has to be reported
+    // beside it rather than folded into it.
+    expect(s.outlierPct).toBe(0)
+  })
+})
+
 describe('gerbang RR sintetis', () => {
-  it('menahan putusan sebelum 20 denyut terkumpul', () => {
-    expect(classifyRrSource({ matches: 19, samples: 19, uniqueValues: 2 })).toBe('menilai')
+  /** Quantise to the 1/1024 s the BLE field actually carries. */
+  const toBle = (ms) => Math.round(Math.round((ms / 1000) * 1024) / 1024 * 1000 * 10) / 10
+
+  /** Deterministic wander, so a failure is always the same failure. */
+  const wander = (seed) => {
+    let s = seed
+    return () => {
+      s = (s * 1103515245 + 12345) & 0x7fffffff
+      return s / 0x7fffffff - 0.5
+    }
+  }
+
+  /** `60000 / bpm` with an integer bpm — the failure mode being hunted. */
+  const fabricated = (n, seed = 3) => {
+    const next = wander(seed)
+    let bpm = 86
+    return Array.from({ length: n }, () => {
+      bpm = Math.max(66, Math.min(110, bpm + next() * 3))
+      return toBle(60000 / Math.round(bpm))
+    })
+  }
+
+  /** Genuine intervals, quantised by the device's own clock. */
+  const genuine = (n, stepMs, seed = 5) => {
+    const next = wander(seed)
+    let rr = 700
+    return Array.from({ length: n }, () => {
+      rr = 700 + (rr - 700) * 0.75 + next() * 90
+      return stepMs
+        ? Math.round((Math.round(rr / stepMs) * stepMs) * 10) / 10
+        : toBle(rr)
+    })
+  }
+
+  it('menahan putusan sebelum cukup denyut terkumpul', () => {
+    const values = genuine(SYNTHETIC_MIN_SAMPLES - 1, 0)
+    expect(classifyRrSource({ matches: 0, samples: values.length, values })).toBe('menilai')
+  })
+
+  it('masih menahan putusan pada 40 denyut', () => {
+    // Written with the number spelled out rather than derived from the constant.
+    // A test that reads SYNTHETIC_MIN_SAMPLES to build its own input moves with
+    // the value it is supposed to be guarding, and keeps passing when somebody
+    // lowers it — which is the "test that does not bite" the handover warns about.
+    expect(SYNTHETIC_MIN_SAMPLES).toBeGreaterThan(40)
+    const values = genuine(40, 0)
+    expect(classifyRrSource({ matches: 0, samples: 40, values })).toBe('menilai')
   })
 
   it('menghukum deret yang sama dengan 60000/HR', () => {
-    expect(classifyRrSource({ matches: 96, samples: 100, uniqueValues: 40 })).toBe('sintetis')
+    const values = fabricated(200)
+    expect(classifyRrSource({ matches: 196, samples: 200, values })).toBe('sintetis')
   })
 
-  it('menghukum deret dengan terlalu sedikit nilai berbeda', () => {
-    // The ratio alone looks innocent here; the variety does not.
-    expect(classifyRrSource({ matches: 5, samples: 100, uniqueValues: 6 })).toBe('sintetis')
+  it('menghukum deret buatan walau bpm yang dilaporkan sudah dihaluskan', () => {
+    // Signature 1 is blind here — the packet's bpm no longer matches the bpm the
+    // interval was fabricated from, so almost nothing lands within 2 ms. Only
+    // the shape of the value grid gives it away.
+    const values = fabricated(200)
+    expect(classifyRrSource({ matches: 4, samples: 200, values })).toBe('sintetis')
   })
 
-  it('meloloskan deret sungguhan', () => {
-    expect(classifyRrSource({ matches: 3, samples: 100, uniqueValues: 78 })).toBe('asli')
+  it('menghukum deret yang nyaris datar', () => {
+    const values = Array.from({ length: 200 }, (_, i) => 700 + (i % 3))
+    expect(classifyRrSource({ matches: 2, samples: 200, values })).toBe('sintetis')
+  })
+
+  it('meloloskan deret sungguhan beresolusi halus', () => {
+    const values = genuine(200, 0)
+    expect(classifyRrSource({ matches: 3, samples: 200, values })).toBe('asli')
+  })
+
+  it('meloloskan deret sungguhan yang jam alatnya kasar', () => {
+    // The HW9 case. Quantised at 7.6 ms, so only ~40 values are available across
+    // the whole range — the old distinct-value count condemned exactly this.
+    const values = genuine(200, 7.6245)
+    expect(classifyRrSource({ matches: 3, samples: 200, values })).toBe('asli')
+  })
+
+  it('memisahkan kedua populasi dengan jarak yang lebar, bukan pas-pasan', () => {
+    // The threshold is only defensible if nothing sits near it.
+    expect(bpmGridCorrelation(fabricated(200))).toBeGreaterThan(0.9)
+    expect(bpmGridCorrelation(genuine(200, 7.6245))).toBeLessThan(0.5)
+    expect(bpmGridCorrelation(genuine(200, 0))).toBeLessThan(0.5)
+  })
+
+  it('melaporkan resolusi jam alat tanpa menghakiminya', () => {
+    expect(timingResolutionMs(genuine(300, 7.6245))).toBeCloseTo(7.6, 0)
+    expect(timingResolutionMs(genuine(300, 0))).toBeLessThan(3)
   })
 })
 

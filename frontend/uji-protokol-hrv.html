@@ -115,7 +115,7 @@
     <div style="overflow-x:auto">
       <table id="tbl">
         <thead><tr>
-          <th>Blok</th><th>Alat</th><th class="num">n RR</th><th class="num">Outlier %</th>
+          <th>Blok</th><th>Alat</th><th class="num">n RR</th><th class="num">Cakupan</th><th class="num">Outlier %</th>
           <th class="num">Segmen layak</th><th class="num">Dibuang</th>
           <th class="num">mean HR</th><th class="num">RMSSD per segmen (ms)</th>
         </tr></thead>
@@ -163,6 +163,7 @@
   <div class="card">
     <h2>Cara membaca hasilnya</h2>
     <div class="note" style="font-size:13.5px">
+      <p style="margin:6px 0"><strong>Cakupan</strong> adalah bagian waktu blok yang benar-benar tertutup interval RR. Ia berdiri terpisah dari outlier karena keduanya menjawab pertanyaan berbeda: outlier menilai denyut yang <em>masuk</em>, cakupan menilai denyut yang <em>hilang</em>. Kriteria T1.5 tidak bisa melihat lubang waktu — denyut yang datang setelah hening empat belas detik tetap berupa interval ~700 ms yang tampak wajar. Di bawah 90% berarti blok itu berdiri di atas lebih sedikit denyut daripada yang disiratkan durasinya.</p>
       <p style="margin:6px 0"><span class="pill pill-ok">LULUS</span> Outlier blok tertekan ≤ 10%, sebagian besar segmen layak, <em>dan</em> RMSSD istirahat berada di 20–60 ms. Ketiganya harus terpenuhi.</p>
       <p style="margin:6px 0"><span class="pill pill-w">BATAS</span> Outlier 10–20%, hasil segmen turun tajam, atau RMSSD istirahat di luar rentang wajar. Perbaiki posisi/kekencangan band, ulangi sekali.</p>
       <p style="margin:6px 0"><span class="pill pill-no">GAGAL</span> Outlier &gt; 20% atau nol segmen layak di blok tertekan. Ini mereplikasi temuan L11 pada perangkat modern — hasil yang sah untuk dilaporkan, tetapi berarti sensor ini tidak dapat dipakai untuk RMSSD.</p>
@@ -183,7 +184,7 @@
   import {
     RR_MIN_MS, RR_MAX_MS, SEGMENT_MIN_BEATS,
     parseHeartRateMeasurement, correctEctopic, beatTimes,
-    phaseStats, classifyRrSource, looksDerivedFromBpm, judgeDeviceTest,
+    phaseStats, classifyRrSource, looksDerivedFromBpm, judgeDeviceTest, timingResolutionMs,
   } from './uji-protokol-hrv.logic.js';
 
   const HR_SVC='heart_rate', HR_CH='heart_rate_measurement', BAT_SVC='battery_service';
@@ -201,6 +202,9 @@
 
   const dev = { A:mkDev('A'), B:mkDev('B') };
   let running=false, phaseIdx=-1, phaseT0=0, tick=null, sessionT0=null;
+  // Sudah pernah melewati blok terakhir? Menentukan apakah denyut di luar
+  // protokol berlabel 'pra' atau 'pasca'.
+  let protocolDone=false;
 
   // `lastT` is the timestamp of the most recent beat, kept so a delayed BLE
   // packet cannot place its beats before one already recorded.
@@ -237,7 +241,7 @@
         : d.sawRR? '<span class="pill pill-ok">ADA</span>' : '<span class="pill pill-no">TIDAK ADA</span>';
       if(!d.connected){ $('synth'+k).innerHTML='—'; }
       else {
-        const verdict=classifyRrSource({matches:d.synthHits, samples:d.synthTot, uniqueValues:d.uniq.size});
+        const verdict=classifyRrSource({matches:d.synthHits, samples:d.synthTot, values:d.uniq});
         $('synth'+k).innerHTML =
           verdict==='menilai'  ? '<span class="pill pill-w">menilai…</span>' :
           verdict==='sintetis' ? '<span class="pill pill-no">SINTETIS</span>'
@@ -253,10 +257,17 @@
         const s=statsFor(dev[k],p.key);
         if(!s) return;
         const oCls = s.outlierPct<=10? 'pill-ok' : s.outlierPct<=20? 'pill-w':'pill-no';
+        // Cakupan waktu berdiri sendiri di sebelah outlier karena keduanya
+        // menjawab pertanyaan berbeda dan tidak saling menutupi: outlier menilai
+        // denyut yang MASUK, cakupan menilai denyut yang HILANG. Gerbang T1.5
+        // secara struktural buta terhadap yang kedua.
+        const cCls = s.coveragePct>=90? 'pill-ok' : s.coveragePct>=80? 'pill-w':'pill-no';
+        const cTitle = `${s.dropoutCount} lubang, total ${s.dropoutSeconds.toFixed(0)} dtk tanpa denyut`;
         const dropped = (s.segDroppedShort||s.segDroppedNoisy)
           ? `${s.segDroppedShort} pendek / ${s.segDroppedNoisy} berisik` : '—';
         rows.push(`<tr><td>${p.nama.replace('Blok ','B')}</td><td>${k}</td>
           <td class="num">${s.nBeats}</td>
+          <td class="num" title="${cTitle}"><span class="pill ${cCls}">${s.coveragePct.toFixed(0)}%</span></td>
           <td class="num"><span class="pill ${oCls}">${s.outlierPct.toFixed(1)}%</span></td>
           <td class="num">${s.segEligible} / ${s.segTotal}</td>
           <td class="num" style="font-size:12px">${dropped}</td>
@@ -264,7 +275,7 @@
           <td class="num">${rmssdText(s)}</td></tr>`);
       });
     });
-    $('tbody').innerHTML = rows.length? rows.join('') : '<tr><td colspan="8" style="color:#8a97b1">Belum ada data.</td></tr>';
+    $('tbody').innerHTML = rows.length? rows.join('') : '<tr><td colspan="9" style="color:#8a97b1">Belum ada data.</td></tr>';
 
     // delta (perangkat A)
     const a=statsFor(dev.A,'istirahat'), b=statsFor(dev.A,'tertekan');
@@ -322,14 +333,23 @@
     if(!d.sawRR){ d.sawRR=true; log(`[${k}] bit RR (0x10) menyala.`); }
 
     const arrival = sessionT0!=null ? (performance.now()-sessionT0)/1000 : 0;
-    const cur = running && phaseIdx>=0 ? PHASES[phaseIdx].key : 'pra';
+    // 'pra' hanya untuk denyut SEBELUM protokol mulai. Denyut setelah blok
+    // terakhir selesai diberi label 'pasca'. Satu label untuk keduanya pernah
+    // menaruh 264 denyut pasca-protokol (t 663-898 s) ke dalam 'pra' — kalau
+    // dianalisis per label, itu empat menit data akhir sesi yang dibaca sebagai
+    // baseline sebelum sesi.
+    const cur = running && phaseIdx>=0 ? PHASES[phaseIdx].key
+              : (protocolDone ? 'pasca' : 'pra');
     // Beats are spread backwards from the packet's arrival, so several beats in
     // one notification no longer land on a single instant.
     const stamps = beatTimes(rrMs, arrival, d.lastT);
 
     rrMs.forEach((v,j)=>{
       d.rr.push(v); d.t.push(stamps[j]); d.phase.push(cur);
-      d.uniq.add(Math.round(v));
+      // JANGAN dibulatkan. Kisi alat berjarak 7,8125 ms; membulatkan ke ms bulat
+      // menghancurkan justru struktur yang diperiksa bpmGridCorrelation, dan
+      // membuat timingResolutionMs melaporkan 8 padahal 7,8125.
+      d.uniq.add(v);
       if(bpm>0){ d.synthTot++; if(looksDerivedFromBpm(v,bpm)) d.synthHits++; }
     });
     d.lastT = stamps[stamps.length-1];
@@ -370,7 +390,7 @@
     log(`▶ ${p.nama} (${p.dur} dtk)`);
   }
   function stop(selesai){
-    running=false; clearInterval(tick); tick=null;
+    running=false; protocolDone=true; clearInterval(tick); tick=null;
     $('btnStart').disabled=false; $('btnNext').disabled=true; $('btnStop').disabled=true;
     $('phaseName').textContent= selesai? 'Protokol selesai' : 'Dihentikan';
     $('phaseInstr').innerHTML= selesai
@@ -388,7 +408,7 @@
       setVerdict('v-bad','Tidak ada field RR — protokol tidak bisa dijalankan','Perangkat hanya mengirim bpm rata-rata. Kembalikan selagi masih dalam masa retur.');
       return;
     }
-    running=true; sessionT0=performance.now();
+    running=true; protocolDone=false; sessionT0=performance.now();
     ['A','B'].forEach(k=>{ dev[k].rr=[]; dev[k].t=[]; dev[k].phase=[]; dev[k].lastT=null; });
     $('btnStart').disabled=true; $('btnNext').disabled=false; $('btnStop').disabled=false;
     startPhase(0);
@@ -430,7 +450,10 @@
       protokol:PHASES.map(p=>({fase:p.key,durasi_dtk:p.dur})), perangkat:{} };
     ['A','B'].forEach(k=>{ const d=dev[k]; if(!d.connected) return;
       out.perangkat[k]={ nama:d.obj?.name||null,
-        rr_sumber:classifyRrSource({matches:d.synthHits, samples:d.synthTot, uniqueValues:d.uniq.size}),
+        rr_sumber:classifyRrSource({matches:d.synthHits, samples:d.synthTot, values:d.uniq}),
+        // Resolusi jam alat: dilaporkan, bukan dinilai. Ini sifat instrumen yang
+        // harus ikut ke laporan, bukan ditemukan belakangan dari tachogram.
+        resolusi_ms:(()=>{const r=timingResolutionMs(d.uniq);return r==null?null:+r.toFixed(2);})(),
         per_fase:Object.fromEntries(PHASES.map(p=>[p.key,statsFor(d,p.key)])),
         rr_ms:d.rr, t_dtk:d.t.map(x=>+x.toFixed(3)), fase:d.phase }; });
     const a=statsFor(dev.A,'istirahat'), b=statsFor(dev.A,'tertekan');
