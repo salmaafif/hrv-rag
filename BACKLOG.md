@@ -1,12 +1,23 @@
 # BACKLOG — Interpretasi Tingkat Tekanan dari HRV dengan RAG
 
 Tugas Akhir Salma Afifa Azis (3123600017) — Teknik Informatika PENS
-Terakhir diperbarui: 3 Agustus 2026
+Terakhir diperbarui: 20 Agustus 2026 — **status disinkronkan dengan isi repo**
 
 > Berkas ini melacak pekerjaan. Aturan desain dan alasan ilmiahnya ada di
 > `CLAUDE.md`; di sini hanya **apa yang dikerjakan, urutannya, dan statusnya**.
+>
+> Susunan di sini mengikuti **urutan pengerjaan** (T0 → T10, U1 → U4). Untuk melihat
+> satu bagian secara utuh — misalnya "frontend-ku sudah sampai mana" — pakai
+> `docs/PETA_PEKERJAAN.md`, yang menyusun ulang isi yang sama **menurut domain**.
 
 Status: `belum` · `jalan` · `selesai` · `tulis-ulang` · `blokir`
+
+**Sinkronisasi 20 Agustus 2026.** Status di bawah diperiksa langsung terhadap isi
+`src/`, `backend/`, `frontend/`, `scripts/`, `tests/`, `outputs/`, dan riwayat git —
+bukan disalin dari catatan sebelumnya. Tujuh baris ternyata tertinggal dari kodenya.
+Yang berubah: T9.2, T9.3, T9.4, U4.4, U4.5 menjadi `selesai`; U3.2 dan U3.3 menjadi
+`jalan` karena **kodenya sudah ada tetapi pengukurannya belum dijalankan** — perbedaan
+yang penting, sebab yang dinilai di sidang adalah angkanya, bukan kodenya.
 
 ---
 
@@ -179,7 +190,7 @@ Delapan chunk baru: `KB-LFHF-02`, `KB-RECOV-02`, `KB-CONF-02`, `KB-COGN-01`,
 | T3b.1 | Potong KB per heading `##` | selesai |
 | T3b.2 | Embedding `gemini-embedding-001` (3072 dim, batch, `task_type` dibedakan dokumen/kueri). `text-embedding-004` **404 — tidak tersedia** | selesai |
 | T3b.3 | ~~Chroma~~ → `vectors.npy` + `meta.json` di `data/processed/kb_index/`. Keputusan K13 | selesai |
-| T3b.4 | **Gold-standard mapping**: kondisi fitur → chunk yang *seharusnya* terambil (dasar Precision@k/Recall@k/MRR di T5.5). Dibuat manual oleh Salma, sebelum melihat hasil retrieval, supaya tidak bias | belum |
+| T3b.4 | **Gold-standard mapping**: kondisi fitur → chunk yang *seharusnya* terambil (dasar Precision@k/Recall@k/MRR di T5.5). Dibuat manual oleh Salma, sebelum melihat hasil retrieval, supaya tidak bias. **Ditunda dengan sadar:** kerangkanya ada di `docs/gold_standard_retrieval.md` dengan 24 kondisi masih kosong, dan syarat "ditulis buta" sudah tidak terpenuhi karena hasil retrieval sudah terlihat. Konsekuensinya T5.5 dilaporkan sebagai pemeriksaan kualitatif, bukan Precision@k. Jendelanya terbuka lagi kalau KB diganti versi | blokir |
 
 ---
 
@@ -247,8 +258,8 @@ cara menjawab "dari mana Anda tahu RAG-nya membantu?"
 | ID | Tugas | Status |
 |---|---|---|
 | U3.1 | **Pembanding aturan ambang** — SELESAI pada seluruh 293 segmen dev. Hasil: RMSSD saja macro-F1 0,742 / kappa 0,487; RMSSD atau HR macro-F1 **0,828** / kappa **0,656**; selalu-'low' kappa 0,000. Inilah bar yang harus dilampaui RAG | selesai |
-| U3.2 | **Ablasi: LLM tanpa KB** (fitur langsung ke Gemini, tanpa retrieval). Selisihnya = kontribusi nyata knowledge base | belum |
-| U3.3 | **Ablasi: chunk acak** menggantikan chunk relevan. Kalau hasilnya tidak turun, berarti retrieval tidak berperan dan sistem hanya mengandalkan pengetahuan bawaan LLM | belum |
+| U3.2 | **Ablasi: LLM tanpa KB** (fitur langsung ke Gemini, tanpa retrieval). Selisihnya = kontribusi nyata knowledge base. **Kodenya SUDAH ADA** — `RetrievalMode.NONE` di `rag/retrieval.py`, flag `--ablation none` di `run_evaluation.py`, prompt buku-tertutup terpisah, dan `tests/test_ablation.py` memastikan mode ini tidak pernah menyentuh API embedding. Yang belum: **menjalankannya**. `outputs/` belum memuat satu pun hasil ablasi | jalan |
+| U3.3 | **Ablasi: chunk acak** menggantikan chunk relevan. Kalau hasilnya tidak turun, berarti retrieval tidak berperan dan sistem hanya mengandalkan pengetahuan bawaan LLM. **Kodenya SUDAH ADA** — `RetrievalMode.RANDOM`, undian ber-seed per segmen lewat blake2b (bukan `hash()` yang bergaram per proses), melaporkan kemiripan sejati dari yang terundi, dan mengabaikan ambang. Yang belum: **menjalankannya**, di dua sumbu — klasifikasi *dan* grounding (kalau diberi chunk acak, apakah model tetap pede mengutipnya?) | jalan |
 | U3.4 | **Sapuan nilai k** (k=1,3,5,7) — berapa chunk yang optimal | belum |
 | U3.5 | **Sapuan temperature** — kaitkan dengan konsistensi antar-run (T5.4) | belum |
 | U3.6 | Ablasi: prompt tanpa info modalitas — apakah skor keyakinan benar-benar berubah? Menguji Aturan Wajib #5 | belum |
@@ -260,8 +271,8 @@ cara menjawab "dari mana Anda tahu RAG-nya membantu?"
 | U4.1 | **Pisah subjek pengembangan vs pengujian** — disetujui. Dev: S2, S6, S10, S14, S17 (dipilih menyebar). Uji: 10 sisanya, disegel. Sudah masuk `SplitConfig` | selesai |
 | U4.2 | Segel prompt & KB (beri versi, bekukan) sebelum menyentuh subjek uji | belum |
 | U4.3 | Tetapkan jumlah run untuk konsistensi (3 atau 5) dan cara melaporkan variasinya | belum |
-| U4.4 | Catat versi model Gemini di tiap keluaran — model bisa diperbarui pihak Google dan hasil ikut berubah | belum |
-| U4.5 | Simpan seluruh keluaran mentah LLM, bukan hanya labelnya — supaya faithfulness (T5.6) bisa diaudit ulang | belum |
+| U4.4 | Catat versi model Gemini di tiap keluaran — model bisa diperbarui pihak Google dan hasil ikut berubah. Terpasang di `rag/pipeline.py`: tiap keluaran membawa `kb_version`, `prompt_version`, `model`, `temperature`, ID chunk terambil beserta skornya | selesai |
+| U4.5 | Simpan seluruh keluaran mentah LLM, bukan hanya labelnya — supaya faithfulness (T5.6) bisa diaudit ulang. `outputs/assessment_cache.jsonl` menyimpan objek `response` utuh (level, keyakinan, penalaran, rujukan) berikut kunci provenance-nya | selesai |
 
 ---
 
@@ -349,9 +360,34 @@ overlap pada laporan SWELL.
 | T9.1 | **Backend FastAPI SELESAI** — `backend/hrv_api/`. Dua endpoint sesuai kontrak `types/api.ts`: `/api/v1/analyze/timeline` (V1, per jendela) dan `/api/v1/analyze/session` (V2/V3, per pertanyaan). Otentikasi lewat `X-API-Key`; **tanpa kunci terkonfigurasi layanan menolak semua**, bukan mengizinkan semua. CORS dari daftar origin, bukan `*`, karena endpoint ini membelanjakan kuota Gemini sungguhan. Angka teknis **ditahan secara bawaan** dan hanya keluar bila `include_technical` diminta eksplisit — aturan "pengguna tidak melihat RMSSD" tidak bisa dipaksakan dari API, jadi yang aman dibuat jadi bawaan. 22 tes | selesai |
 | T9.1b | **Degradasi anggun terverifikasi.** Label berasal dari aturan skor yang luring dan deterministik, jadi kuota habis / model tak terjangkau / guard menangkap angka karangan **hanya menghilangkan prosa**, bukan angkanya. `meta.trustworthy` menandai narasi yang tidak boleh ditampilkan apa adanya. Sesuai permintaan PRD KARIRLINK bahwa modul ini gagal secara lunak | selesai |
 | T2c.8 | **Uji narasi ujung-ke-ujung dengan API — SELESAI 7 Agt 2026.** Dijalankan lewat backend pada rekaman 7 menit: 4 jendela baseline, RMSSD 34,4 ms, label `low`, narasi Bahasa Indonesia keluar utuh, `trustworthy: true` (nol angka karangan, nol sitasi palsu). Satu panggilan per sesi sesuai arsitektur gabungan | selesai |
-| T9.2 | Dashboard Chart.js: timeline tekanan per pertanyaan | belum |
-| T9.3 | Terapkan K4 — layar hanya menampilkan bahasa awam | belum |
-| T9.4 | Bahasa perilaku, bukan label sifat ("butuh 90 detik kembali tenang", bukan "regulasi emosi rendah") | belum |
+| T9.2 | Dashboard Chart.js: timeline tekanan per pertanyaan. `frontend/src/components/StressTimeline.tsx` (chart.js 4 + react-chartjs-2), diplot dari **label** hasil aturan skor dan bukan dari persen perubahan, sehingga garis dan badge tidak pernah bisa berselisih. Ditemani `RecoveryBars`, `QuestionResultCard`, dan `ResponseRadar` | selesai |
+| T9.3 | Terapkan K4 — layar hanya menampilkan bahasa awam. Ditegakkan di `SessionResult.tsx` (tanpa RMSSD, tanpa persen terhadap baseline, tanpa skor, tanpa nama fitur) dan diperkuat pengaman `find_k4_violations` + `tests/test_k4_guard.py`. **Catatan:** penegakannya masih di sisi klien; A6 di `docs/ARSITEKTUR_KARIRLINK_HRV.md` memindahkannya ke bentuk respons API supaya tetap berlaku waktu tim web menulis ulang frontend | selesai |
+| T9.4 | Bahasa perilaku, bukan label sifat ("butuh 90 detik kembali tenang", bukan "regulasi emosi rendah"). Diterapkan di `lib/sessionInsights.ts` dan `lib/format.ts`; tiap angka adalah bagian dari sesi orang itu sendiri, tanpa norma populasi. **Belum tuntas:** badge Rendah/Sedang/Tinggi masih berupa label tekanan, dan sumbu grafik masih berbahasa Inggris — lihat A12 dan daftar layar hasil di `docs/PETA_PEKERJAAN.md` | selesai |
+
+---
+
+## Tahap 11 — Akuisisi & Perangkat *(dimulai 7 Agt 2026)*
+
+Seluruh domain ini tidak pernah masuk BACKLOG karena baru muncul setelah keputusan
+memakai sensor sungguhan. Rinciannya — riset perangkat, protokol, kriteria terkunci,
+dan keterbatasan L13–L22 — ada di **`docs/AKUISISI_HRV_WEB_BLUETOOTH.md`**. Di sini
+hanya statusnya, supaya BACKLOG tidak lagi diam soal satu bagian utuh pekerjaan.
+
+| ID | Tugas | Status |
+|---|---|---|
+| H1 | Riset tujuh perangkat + tabel perbandingan; proposal pengajuan dana; **Coospo HW9 dibeli** | selesai |
+| H2 | Halaman uji sensor & halaman protokol tiga blok, beserta modul logika bersama dan tesnya | selesai |
+| H3 | **Gerbang perangkat (G1) — LULUS.** Field RR ada; sumber RR terbukti asli, bukan `60000/bpm`; outlier 4,5% istirahat / 4,3% tertekan, setara mutu ECG dada di WESAD | selesai |
+| H4 | **Sifat instrumen HW9 terukur** — deteksi denyut tepat 128 Hz, kisi RR 7,8125 ms, harga kuantisasi terhitung 0,16 ms pada RMSSD istirahat (§3.3) | selesai |
+| H5 | **Enam cacat perkakas ditemukan lewat uji ini dan diperbaiki** — detektor RR sintetis salah kaidah, dua sumber pembulatan yang merusak presisi, label fase `'pra'` dipakai untuk pra *dan* pasca, cakupan waktu tak pernah dilaporkan, kartu Field RR memantulkan paket terakhir. **Nol cacat ada di perangkatnya** | selesai |
+| H6 | **Gerbang protokol (G2) — BELUM LULUS.** Stresor tidak menggigit (HR hanya +1,5%), dan baseline melayang sepanjang blok istirahat | jalan |
+| H7 | **Putuskan aturan baseline (L22).** Terukur: gerbang kestabilan justru **lebih buruk** daripada durasi tetap — melayang pelan tampak stabil di jendela pendek, dan semua varian yang diuji menyala di 120 dtk lalu mengunci nilai 28,5% terlalu rendah. Arah yang disarankan: blok 6–7 menit, baseline diambil dari 2–3 jendela **terakhir** saja, kestabilan dipakai sebagai penolakan bukan pemicu berhenti. **Harus diputuskan sebelum menyentuh subjek** | belum |
+| H8 | Uji rumus H7 pada 15 subjek WESAD (`analyse_baseline_duration.py`) sebelum dikunci — termasuk memeriksa apakah kriteria yang sudah ada di skrip itu jatuh ke perangkap 120 detik yang sama | belum |
+| H9 | Ulangi protokol tiga blok: pemasangan **lengan atas** (§6.2), stresor lebih menuntut, baseline hasil H7 | belum |
+| H10 | Pilot 1–2 subjek, dianalisis sampai tuntas dari sensor hingga layar, sebelum pengumpulan penuh | belum |
+| H11 | Chest strap H808S sebagai slot pembanding B — uji satu perangkat dapat **membantah**, tidak dapat **memastikan** | belum |
+| H12 | Aktifkan billing Gemini (HW-Q1) | belum |
+| H13 | Ambil teks lengkap versi IJSPP Protzen dkk. (HW-Q4) | belum |
 
 ---
 
@@ -385,9 +421,9 @@ keputusan paling mudah ditulis saat keputusannya baru diambil.
 
 | ID | Tugas | Status |
 |---|---|---|
-| D3.1 | Petakan tiap tahap backlog ke bab laporan | belum |
+| D3.1 | Petakan tiap tahap backlog ke bab laporan. Pengelompokan per domain di `docs/PETA_PEKERJAAN.md` bisa dipakai sebagai kerangka awal | belum |
 | D3.5 | **`docs/development_journey.md`** — kronologi, alasan keputusan, 10 temuan empiris terukur, status validasi. Sumber utama saat menyusun laporan | selesai |
-| D3.2 | Tulis bab keterbatasan dari daftar L1–L8 di bawah | belum |
+| D3.2 | Tulis bab keterbatasan dari daftar L di bawah (L1–L11 di sini) **dan** L13–L22 di `docs/AKUISISI_HRV_WEB_BLUETOOTH.md` §7 | belum |
 | D3.3 | Siapkan jawaban untuk pertanyaan sidang yang bisa diduga (lihat kolom alasan di tiap keputusan K1–K9) | belum |
 | D3.4 | Catat alasan perubahan metode dari 4 arsitektur DL → RAG | belum |
 
@@ -396,6 +432,12 @@ keputusan paling mudah ditulis saat keputusannya baru diambil.
 ## Keterbatasan untuk Ditulis di Laporan
 
 Bukan bug — ini yang harus jujur disebut dan hampir pasti ditanya penguji.
+
+> Seri ini **berlanjut di `docs/AKUISISI_HRV_WEB_BLUETOOTH.md` §7 sebagai L13–L22**,
+> yang memuat keterbatasan sisi akuisisi: firmware tertutup, ketiadaan Web Bluetooth di
+> iOS, RR sintetis, kuantisasi 7,8125 ms, lubang rekaman yang tak terlihat gerbang
+> outlier, dan baseline yang melayang. Waktu menulis bab keterbatasan (D3.2), ambil dari
+> **kedua** daftar.
 
 | ID | Keterbatasan |
 |---|---|
