@@ -39,7 +39,7 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from hrv_rag.core.types import Modality, Phase  # noqa: E402
-from hrv_rag.features.baseline import BaselineProfile  # noqa: E402
+from hrv_rag.features.baseline import BaselineProfile, check_baseline  # noqa: E402
 from hrv_rag.features.extractor import extract_features  # noqa: E402
 from hrv_rag.features.stress_level import classify  # noqa: E402
 from hrv_rag.preprocessing.intervals import (IntervalFormatError,  # noqa: E402
@@ -92,7 +92,7 @@ def report(path: Path, wear: str, baseline_minutes: float) -> int:
     print(f"  worn on           : {wear} -> {modality.value}")
     print(f"  baseline claimed  : first {baseline_minutes:g} minutes\n")
 
-    rest_rr, task_rr = split_baseline_and_task(rr_all, baseline_minutes)
+    rest_rr, task_rr, _ = split_baseline_and_task(rr_all, baseline_minutes)
 
     tables, series_by_phase = {}, {}
     for phase, rr in ((Phase.CALIBRATION, rest_rr), (Phase.QUESTION, task_rr)):
@@ -126,13 +126,25 @@ def report(path: Path, wear: str, baseline_minutes: float) -> int:
     baseline = BaselineProfile.from_series(
         path.stem, series_by_phase[Phase.CALIBRATION]
     )
-    spread = baseline.relative_spread("rmssd")
+    verdict = check_baseline(baseline)
     print(f"\n  baseline RMSSD    : {baseline.values['rmssd']:.1f} ms "
-          f"(relative IQR {spread:.0%})")
-    if spread == spread and spread > 0.40:
-        print("  WARNING: the resting period was not steady, so every percentage\n"
-              "           below is less certain than it looks. A baseline this\n"
-              "           variable usually means the person had not settled yet.")
+          f"(relative IQR {verdict.relative_spread:.0%}, "
+          f"{verdict.resting_hr_bpm:.0f} bpm at rest)")
+    print(f"  evidence          : {verdict.n_windows} resting windows "
+          f"({verdict.evidence.value})")
+    if verdict.is_thin:
+        print("  NOTE: a short resting period. It is not wrong, but it rests on\n"
+              "        less than a longer one would — measured on WESAD, under six\n"
+              "        windows hides a bad reference three times as often as ten\n"
+              "        or more do. Connecting the sensor a couple of minutes\n"
+              "        before starting costs nothing and fixes it.")
+    if not verdict.is_acceptable:
+        for reason in verdict.reasons:
+            print(f"  WARNING: {reason}")
+        print("           Every percentage below is measured against this resting\n"
+              "           period, so all of them are less certain than they look.\n"
+              "           In a live session this is the point to record the quiet\n"
+              "           minutes again, before the interview rather than after.")
 
     print(f"\n  {'minute':>7} {'RMSSD':>8} {'dRMSSD':>9} {'dHR':>8}  "
           f"{'LEVEL':<9} score")

@@ -64,6 +64,8 @@
     <div class="grid">
       <div class="stat"><div class="lab">Detak Jantung</div><div class="val"><span id="hr">—</span> <span>bpm</span></div></div>
       <div class="stat"><div class="lab">Field RR</div><div class="val" style="font-size:18px" id="rrFlag">—</div></div>
+      <div class="stat"><div class="lab">Sumber RR</div><div class="val" style="font-size:18px" id="rrSrc">—</div></div>
+      <div class="stat"><div class="lab">Resolusi jam alat</div><div class="val"><span id="res">—</span> <span>ms</span></div></div>
       <div class="stat"><div class="lab">RR Terakhir</div><div class="val"><span id="rrLast">—</span> <span>ms</span></div></div>
       <div class="stat"><div class="lab">Total RR</div><div class="val" id="rrCount">0</div></div>
       <div class="stat"><div class="lab">Outlier</div><div class="val"><span id="outPct">—</span> <span>%</span></div></div>
@@ -87,9 +89,12 @@
   <div class="card">
     <h2>Cara membaca hasilnya</h2>
     <div class="note" style="font-size:13.5px">
-      <p style="margin:6px 0"><span class="pill pill-ok">LULUS</span> &nbsp;Field RR terdeteksi <strong>dan</strong> outlier ≤ 5% saat duduk diam ±5 menit. Sebagai acuan, ECG dada pada WESAD menghasilkan outlier 0,0–4,2%. Sensor layak dipakai.</p>
-      <p style="margin:6px 0"><span class="pill pill-no">GAGAL</span> &nbsp;Field RR tidak muncul sama sekali → perangkat hanya mengirim bpm rata-rata, <strong>kembalikan segera</strong>. Atau outlier &gt; 10% → sinyal terlalu kotor; periksa kelembapan elektroda dan posisi sabuk, ulangi; kalau tetap tinggi, perangkat tidak layak untuk RMSSD.</p>
-      <p style="margin:6px 0">Basahi elektroda sabuk dengan sedikit air atau gel sebelum merekam, dan pasang tepat di bawah tulang dada. Elektroda kering adalah penyebab outlier tinggi yang paling sering.</p>
+      <p style="margin:6px 0">Ada <strong>tiga</strong> gerbang, diperiksa berurutan. Gerbang berikutnya tidak berarti apa-apa kalau gerbang sebelumnya gagal.</p>
+      <p style="margin:6px 0"><strong>1. Field RR ada?</strong> Kalau bit RR tidak pernah menyala, perangkat cuma mengirim bpm rata-rata. RMSSD/SDNN mustahil dihitung — <strong>kembalikan segera</strong>.</p>
+      <p style="margin:6px 0"><strong>2. Isinya asli?</strong> Sebagian perangkat menyalakan bit RR lalu mengisinya dengan 60000/bpm. Angkanya tetap muncul, RMSSD tetap keluar, dan hasilnya tanpa makna. Deret seperti itu <em>mulus</em>, jadi persentase outliernya justru rendah dan akan lolos gerbang ketiga — makanya diperiksa lebih dulu. Butuh ±60 denyut sebelum putusannya keluar. Yang diperiksa bukan berapa banyak nilai berbeda yang muncul (itu mengukur resolusi jam alat, bukan kejujurannya) melainkan bentuk jarak antar nilai: turunan bpm bulat punya jarak yang melebar seiring RR, jam yang jujur punya jarak seragam. <span class="pill pill-no">SINTETIS</span> berarti <strong>kembalikan</strong>.</p>
+      <p style="margin:6px 0"><strong>3. Sinyalnya bersih?</strong> <span class="pill pill-ok">LULUS</span> bila outlier ≤ 5% saat duduk diam ±5 menit; acuannya ECG dada pada WESAD, 0,0–4,2%. Di atas 10% berarti sinyal terlalu kotor untuk RMSSD.</p>
+      <p style="margin:6px 0">Untuk armband (HW9): pasang di <strong>lengan atas</strong> (bisep/trisep), bukan di lengan bawah dekat pergelangan — lihat §6.2 dokumen akuisisi. Kencang cukup agar tidak bergeser, tidak sampai menekan; kulit bersih tanpa losion. <strong>Pastikan lengan hangat:</strong> ruangan ber-AC menyebabkan vasokonstriksi, amplitudo PPG turun, dan mekanismenya sama persis dengan stres — jadi lengan dingin bisa menghasilkan “kegagalan” palsu. Untuk chest strap: basahi elektroda dengan sedikit air atau gel, pasang tepat di bawah tulang dada.</p>
+      <p style="margin:6px 0"><strong>Putuskan sambungan aplikasi ponsel dulu.</strong> Sebagian besar sensor BLE hanya melayani satu koneksi; selama aplikasi Coospo masih terhubung, pemilih perangkat di sini bisa tidak menemukan apa-apa.</p>
     </div>
   </div>
 </div>
@@ -102,6 +107,14 @@
   const $=id=>document.getElementById(id);
   const logEl=$('log');
   let device=null, char=null, rrAll=[], sawRRFlag=false, everConnected=false, t0=null, timer=null;
+
+  // Penghitung untuk gerbang RR sintetis (HW8). Dipisah dari rrAll karena
+  // penilaiannya butuh bpm yang menyertai tiap RR, bukan deret RR-nya saja.
+  let rrSamples=0, rrMatches=0, rrDistinct=new Set();
+  // Lengket: sekali bit RR menyala, faktanya tidak boleh hilang lagi hanya
+  // karena satu paket terakhir kebetulan datang tanpa RR. Kartu yang memantulkan
+  // paket terakhir sempat menampilkan 'TIDAK ADA' di atas 347 RR yang sudah masuk.
+  let rrPacketsWith=0, rrPacketsWithout=0;
 
   function log(m){
     const ts=new Date().toLocaleTimeString('id-ID');
@@ -131,6 +144,92 @@
     return n? Math.sqrt(s/n):null;
   }
 
+  // === Gerbang RR sintetis (HW8) ===========================================
+  //
+  // Sebagian monitor MENYALAKAN bit RR lalu mengisinya dengan 60000/bpm — detak
+  // rata-rata yang dibalik, bukan jarak antar denyut sungguhan. Semua yang di
+  // hilir tetap jalan, angka tetap muncul, RMSSD jadi tanpa makna, dan tidak ada
+  // satu pun pesan kesalahan. Rutenberg menemukan persis ini pada monitor
+  // Decathlon.
+  //
+  // Bahaya khususnya di halaman ini: deret sintetis itu MULUS, jadi persentase
+  // outliernya justru rendah. Kalau tidak diperiksa lebih dulu, perangkat
+  // sintetis akan LULUS gerbang outlier dengan angka yang kelihatan bagus.
+  // Karena itu putusan sintetis diperiksa sebelum putusan outlier.
+  //
+  // Dua tanda yang berdiri sendiri, salah satu saja sudah cukup menghukum:
+  //   1. RR terus jatuh tepat di 60000/bpm dalam ±2 ms — RR sungguhan hanya
+  //      sesekali kebetulan sama dengan laju rata-rata;
+  //   2. terlalu sedikit nilai berbeda — 60000/bpm hanya bisa menghasilkan
+  //      sebanyak nilai bpm bulatnya, sementara RR asli bervariasi kontinu.
+  //
+  // Logikanya sengaja disalin apa adanya dari uji-protokol-hrv.logic.js
+  // (classifyRrSource / looksDerivedFromBpm) yang sudah punya tesnya, supaya
+  // kedua halaman tidak pernah memberi putusan berbeda untuk perangkat sama.
+  const SYNTHETIC_MIN_SAMPLES=60;
+  const BPM_GRID_CORRELATION_LIMIT=0.7;
+  function medianOf(a){const s=[...a].sort((x,y)=>x-y);const m=s.length>>1;
+    return s.length%2? s[m] : (s[m-1]+s[m])/2;}
+  function looksDerivedFromBpm(rrMs,bpm){
+    if(!bpm || bpm<=0) return false;
+    return Math.abs(rrMs - 60000/bpm) < 2;
+  }
+  // Seberapa kuat jarak antar nilai RR bertetangga tumbuh sebanding RR^2.
+  // Alat yang mengirim 60000/bpm hanya bisa mengeluarkan nilai yang diizinkan bpm
+  // bulat, dan jaraknya TIDAK seragam: 60000/b - 60000/(b+1) membesar seperti
+  // RR^2 — 5 ms di 110 bpm, 12 ms di 69 bpm. Alat berjam kasar tapi jujur
+  // mengkuantisasi WAKTU, jadi jaraknya sama di mana-mana dan korelasinya nol.
+  function bpmGridCorrelation(values){
+    const u=[...new Set(values)].sort((a,b)=>a-b);
+    if(u.length<10) return null;
+    const gaps=[]; for(let i=0;i<u.length-1;i++) gaps.push(u[i+1]-u[i]);
+    const typical=medianOf(gaps);
+    const xs=[],ys=[];
+    for(let i=0;i<u.length-1;i++){
+      const g=u[i+1]-u[i];
+      if(g>2.5*typical) continue;          // anak tangga yang kebetulan tidak terpakai
+      xs.push(u[i]*u[i]); ys.push(g);
+    }
+    if(xs.length<8) return null;
+    const mx=xs.reduce((a,b)=>a+b,0)/xs.length, my=ys.reduce((a,b)=>a+b,0)/ys.length;
+    let num=0,vx=0,vy=0;
+    for(let i=0;i<xs.length;i++){const dx=xs[i]-mx,dy=ys[i]-my;num+=dx*dy;vx+=dx*dx;vy+=dy*dy;}
+    return (vx&&vy)? num/Math.sqrt(vx*vy) : null;
+  }
+  // Resolusi jam alat. DILAPORKAN, bukan dinilai: jam kasar tidak menggugurkan
+  // sensor — kisi 7,6 ms milik HW9 menggeser RMSSD istirahat sekitar 0,1 ms —
+  // tapi ia sifat instrumen yang harus ikut ke laporan.
+  function timingResolutionMs(values){
+    const u=[...new Set(values)].sort((a,b)=>a-b);
+    if(u.length<10) return null;
+    const gaps=[]; for(let i=0;i<u.length-1;i++) gaps.push(u[i+1]-u[i]);
+    return medianOf(gaps);
+  }
+  // === Gerbang RR sintetis (HW8) ===========================================
+  //
+  // Sebagian monitor MENYALAKAN bit RR lalu mengisinya dengan 60000/bpm. Semua
+  // yang di hilir tetap jalan, RMSSD tetap keluar dan tidak bermakna, dan tidak
+  // ada satu pun pesan kesalahan. Rutenberg menemukan persis ini pada monitor
+  // Decathlon.
+  //
+  // Deret sintetis itu MULUS, jadi outliernya rendah dan akan lolos gerbang
+  // berikutnya. Karena itu diperiksa lebih dulu.
+  //
+  // KENAPA BUKAN LAGI HITUNG-NILAI-BERBEDA. Aturan lama "nilai berbeda < 8%
+  // sampel" diam-diam mengandaikan resolusi ~1 ms seperti yang disiratkan field
+  // BLE. Rekaman HW9 sungguhan — 502 denyut, RMSSD 32 ms, jelas asli — dihukum
+  // olehnya, karena alatnya mengkuantisasi di 7,6 ms sehingga hanya punya sekitar
+  // empat puluh nilai yang mungkin. Menghitung nilai berbeda mengukur JAM alat,
+  // dan jam tidak pernah jadi pertanyaannya.
+  function classifyRrSource({matches,samples,values}){
+    if(samples<SYNTHETIC_MIN_SAMPLES) return 'menilai';
+    if(matches/samples>0.9) return 'sintetis';
+    if(new Set(values).size<8) return 'sintetis';
+    const c=bpmGridCorrelation(values);
+    if(c===null) return 'menilai';
+    return c>BPM_GRID_CORRELATION_LIMIT ? 'sintetis' : 'asli';
+  }
+
   function refresh(){
     const flags=markOutliers(rrAll);
     const nOut=flags.filter(Boolean).length;
@@ -141,16 +240,33 @@
     $('rmssd').textContent = r!=null? r.toFixed(1):'—';
     draw(rrAll,flags);
 
+    const src=classifyRrSource({matches:rrMatches,samples:rrSamples,values:rrDistinct});
+    const res=timingResolutionMs(rrDistinct);
+    $('res').textContent = res==null? '—' : res.toFixed(2);
+    $('rrFlag').innerHTML = rrPacketsWith
+      ? '<span class="pill pill-ok">ADA</span>' + (rrPacketsWithout? ` <small style="font-weight:400">(${rrPacketsWithout} paket tanpa RR)</small>`:'')
+      : '<span class="pill pill-no">TIDAK ADA</span>';
+    $('rrSrc').innerHTML = !sawRRFlag ? '—'
+      : src==='sintetis' ? '<span class="pill pill-no">SINTETIS</span>'
+      : src==='asli'     ? '<span class="pill pill-ok">ASLI</span>'
+      :                    '<span class="pill">menilai…</span>';
+
     if(!everConnected) return;
     if(!sawRRFlag){
       setVerdict('v-bad','✗ TIDAK ADA RR-INTERVAL — perangkat tidak layak',
         'Sensor hanya mengirim detak jantung rata-rata. RMSSD/SDNN tidak dapat dihitung. Kembalikan perangkat selagi masih dalam masa retur.');
+    } else if(src==='sintetis'){
+      // Diperiksa sebelum outlier: deret sintetis mulus, jadi outliernya rendah
+      // dan justru akan lolos gerbang berikutnya kalau urutannya dibalik.
+      const c=bpmGridCorrelation(rrDistinct);
+      setVerdict('v-bad','✗ RR SINTETIS — perangkat tidak layak',
+        `Field RR ada, tapi isinya 60000/bpm — detak rata-rata yang dibalik, bukan jarak antar denyut sungguhan. RMSSD yang dihitung darinya tidak bermakna. Bukti: ${rrMatches} dari ${rrSamples} RR jatuh tepat di 60000/bpm; jarak antar nilai membesar seiring RR (korelasi ${c==null?'—':c.toFixed(2)}, batas ${BPM_GRID_CORRELATION_LIMIT}). Kembalikan perangkat selagi masih dalam masa retur.`);
     } else if(rrAll.length<60){
       setVerdict('v-ok','✓ Field RR terdeteksi — lanjutkan merekam',
         `Baru ${rrAll.length} denyut terkumpul. Rekam sambil duduk diam ±5 menit (±300 denyut) agar persentase outlier bermakna.`);
     } else if(pct<=5){
-      setVerdict('v-ok',`✓ LULUS — RR terdeteksi, outlier ${pct.toFixed(1)}%`,
-        'Setara mutu ECG dada pada WESAD (0,0–4,2%). Sensor layak dipakai untuk analisis HRV.');
+      setVerdict('v-ok',`✓ LULUS — RR asli, outlier ${pct.toFixed(1)}%`,
+        `Field RR ada, jarak antar nilainya seragam sehingga bukan turunan bpm bulat, dan outliernya setara mutu ECG dada pada WESAD (0,0–4,2%). Resolusi jam alat ${res==null?'belum terukur':res.toFixed(2)+' ms'} — catat angka ini di laporan; ia tidak menggugurkan sensor, tapi ia sifat instrumen.`);
     } else if(pct<=10){
       setVerdict('v-wait',`⚠ Batas — outlier ${pct.toFixed(1)}%`,
         'Masih di bawah gerbang 10%, tapi di atas mutu WESAD. Basahi elektroda, betulkan posisi sabuk, lalu Reset dan ulangi.');
@@ -191,11 +307,23 @@
       if(!sawRRFlag){ sawRRFlag=true; log('✓ Bit RR (0x10) MENYALA — perangkat mengirim RR-interval.'); }
       const batch=[];
       for(; i+1<dv.byteLength; i+=2) batch.push(dv.getUint16(i,true)/1024*1000);
-      batch.forEach(v=>rrAll.push(Math.round(v*10)/10));
+      batch.forEach(v=>{
+        // Presisi penuh. Pembulatan ke satu desimal menghancurkan kisi alat:
+        // kisi 7,8125 ms terbaca campuran 7,8 dan 6,9 sehingga rata-ratanya
+        // meleset jadi 7,62 ms (dan 131 Hz, bukan 128 Hz yang sebenarnya).
+        const rr=v;
+        rrAll.push(rr);
+        // Dibandingkan dengan bpm yang datang di paket yang SAMA. Membandingkan
+        // dengan bpm paket lain akan meleset sendiri waktu detaknya berubah,
+        // dan itu terbaca sebagai "asli" padahal belum tentu.
+        rrSamples++;
+        if(looksDerivedFromBpm(rr,hr)) rrMatches++;
+        rrDistinct.add(rr);
+      });
       if(batch.length) $('rrLast').textContent=batch[batch.length-1].toFixed(1);
-      $('rrFlag').innerHTML='<span class="pill pill-ok">ADA</span>';
+      rrPacketsWith++;
     } else {
-      $('rrFlag').innerHTML='<span class="pill pill-no">TIDAK ADA</span>';
+      rrPacketsWithout++;
     }
     refresh();
   }
@@ -254,7 +382,12 @@
 
   $('btnConnect').onclick=connect;
   $('btnStop').onclick=()=>{ if(device&&device.gatt.connected) device.gatt.disconnect(); };
-  $('btnReset').onclick=()=>{ rrAll=[]; t0=Date.now(); log('Hitungan direset.'); refresh(); };
+  $('btnReset').onclick=()=>{
+    rrAll=[]; t0=Date.now();
+    rrSamples=0; rrMatches=0; rrDistinct=new Set(); rrPacketsWith=0; rrPacketsWithout=0;
+    log('Hitungan direset. Penilaian sumber RR mulai lagi dari nol; tunggu ±60 denyut.');
+    refresh();
+  };
   $('btnCsv').onclick=()=>{
     const flags=markOutliers(rrAll);
     let csv='index,rr_ms,outlier\n';
@@ -272,6 +405,17 @@
       outlier_persen: rrAll.length? +(nOut/rrAll.length*100).toFixed(2):null,
       rmssd_ms: (()=>{const r=rmssdOf(rrAll,flags);return r!=null? +r.toFixed(2):null;})(),
       kriteria_outlier: 'RR di luar 300-2000 ms atau selisih >20% dari RR sebelumnya (T1.5)',
+      sumber_rr: classifyRrSource({matches:rrMatches,samples:rrSamples,values:rrDistinct}),
+      resolusi_jam_ms: (()=>{const r=timingResolutionMs(rrDistinct);return r==null?null:+r.toFixed(3);})(),
+      sumber_rr_bukti: {
+        sampel: rrSamples,
+        cocok_60000_per_bpm: rrMatches,
+        nilai_berbeda: rrDistinct.size,
+        korelasi_jarak_thd_rr2: (()=>{const c=bpmGridCorrelation(rrDistinct);return c==null?null:+c.toFixed(3);})(),
+        paket_dengan_rr: rrPacketsWith,
+        paket_tanpa_rr: rrPacketsWithout,
+        kriteria: 'sintetis bila >90% RR jatuh dalam 2 ms dari 60000/bpm, ATAU nilai berbeda < 8, ATAU korelasi jarak-antar-nilai terhadap RR^2 > 0,7'
+      },
       rr_ms: rrAll
     },null,2),'application/json');
   };

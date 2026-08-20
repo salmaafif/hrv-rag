@@ -30,6 +30,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { parseHeartRateMeasurement } from './heartRateProtocol'
 import { mockDiscoveredDevices } from '../mocks/devices'
+import { DEMO_RR_MS, SIMULATION_SPEED } from '../mocks/recording'
 import { recogniseWearLocation, type WearLocation } from '../types/device'
 import type { HeartDevice } from '../types/device'
 
@@ -105,13 +106,15 @@ function judgeQuality(recent: number[]): SignalQuality | null {
 }
 
 /**
- * Beats a simulated sensor produces, in milliseconds.
+ * The beat at `index` of the playback recording, or undefined once it runs out.
  *
- * Around 70 bpm with realistic beat-to-beat variation, because a constant value
- * would give RMSSD exactly zero and hide any bug that flattens the series.
+ * Running out is reported rather than papered over. Looping would replay the
+ * same stress response as though it had happened twice, and holding the last
+ * value would feed a flat line into RMSSD — both would keep the demo running
+ * while quietly describing something that never happened.
  */
-function simulatedInterval(): number {
-  return 857 + (Math.random() - 0.5) * 60
+function recordedInterval(index: number): number | undefined {
+  return DEMO_RR_MS[index]
 }
 
 /**
@@ -222,20 +225,48 @@ export function useDeviceConnection(simulate = false): DeviceConnection {
     }
   }, [handleMeasurement, simulate])
 
-  // Feed the simulation, once connected. Real notifications arrive roughly once
-  // per beat, so this matches that rhythm rather than emitting in bursts.
+  // Feed the simulation, once connected. One beat at a time, as a real sensor
+  // notifies, rather than in bursts — the quality check reads the last few
+  // intervals and would see a different series if they arrived in clumps.
+  //
+  // A CHAINED TIMEOUT, NOT AN INTERVAL. Each wait is as long as the beat that
+  // just played, divided by the speed factor, so the playback keeps the
+  // recording's own rhythm: a fast stretch of the TSST arrives fast. A fixed
+  // interval would flatten exactly the variation the whole system measures.
   useEffect(() => {
     if (!simulate || status !== 'connected') return
-    const timer = window.setInterval(() => {
-      const beat = simulatedInterval()
+
+    // The played series is kept here rather than read back out of state.
+    //
+    // The first version computed the quality INSIDE the `setRrIntervals`
+    // updater, which is where the live sensor path does it. That is already
+    // questionable — an updater is meant to be pure — and here it broke
+    // outright: React runs the updater when it chooses, so the quality set on
+    // the final beat could land AFTER the end-of-recording signal and overwrite
+    // it. The demo then ran out of recording while still reporting a good
+    // signal, which is the exact failure this playback is supposed to make
+    // visible. A test caught it.
+    const played: number[] = []
+    let timer = 0
+
+    const emit = () => {
+      const beat = recordedInterval(played.length)
+      if (beat === undefined) {
+        // The recording is finished. Say so, rather than inventing beats to
+        // keep a demo looking alive.
+        setSignalQuality('poor')
+        setBpm(null)
+        return
+      }
+      played.push(beat)
       setBpm(Math.round(60000 / beat))
-      setRrIntervals((collected) => {
-        const next = [...collected, beat]
-        setSignalQuality(judgeQuality(next.slice(-QUALITY_WINDOW)))
-        return next
-      })
-    }, 900)
-    return () => window.clearInterval(timer)
+      setRrIntervals([...played])
+      setSignalQuality(judgeQuality(played.slice(-QUALITY_WINDOW)))
+      timer = window.setTimeout(emit, beat / SIMULATION_SPEED)
+    }
+
+    emit()
+    return () => window.clearTimeout(timer)
   }, [simulate, status])
 
   const disconnect = useCallback(() => {

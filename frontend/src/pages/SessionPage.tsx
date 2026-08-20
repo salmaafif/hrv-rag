@@ -34,12 +34,24 @@ import { Button } from '../components/Button'
 import { Card } from '../components/Card'
 import { NavigateKeepingSearch } from '../app/NavigateKeepingSearch'
 import { useNavigateKeepingSearch } from '../app/useNavigateKeepingSearch'
-import { buildQuestionTimeline, type AnsweredQuestion } from '../app/questionTiming'
+import { buildQuestionTimeline, sessionElapsedSec,
+         type AnsweredQuestion } from '../app/questionTiming'
 import { useDevMode } from '../app/useDevMode'
 import { INTERVIEW_REST_MINUTES } from '../app/useSessionState'
+
 import { questionBank } from '../mocks/questionBank'
 import { formatClock } from '../lib/format'
 import type { StageContext } from '../app/stageContext'
+
+/**
+ * Seconds a question must run before it can be measured at all.
+ *
+ * The segment length the whole pipeline is built on: features are computed
+ * over 60-second windows, so a shorter answer produces no segment rather than
+ * a noisier one. Mirrors `SegmentationConfig.window_sec` on the Python side.
+ */
+const SEGMENT_SEC = 60
+
 
 export function SessionPage({ mode, device, session }: StageContext) {
   const navigate = useNavigateKeepingSearch()
@@ -57,12 +69,19 @@ export function SessionPage({ mode, device, session }: StageContext) {
   // four minutes of waiting while the backend was told two.
   const restSec = INTERVIEW_REST_MINUTES * 60
   const setBaselineMinutes = session.setBaselineMinutes
+  const markSessionStart = session.markSessionStart
 
   // The same number has to reach the backend, because it is what marks where the
   // baseline ends in the recording. Written on mount so no entry path can miss it.
   useEffect(() => {
     setBaselineMinutes(INTERVIEW_REST_MINUTES)
-  }, [setBaselineMinutes])
+    // The sensor has been streaming since it paired; this is the moment the
+    // session clock starts, so this is where the distance between them is fixed.
+    markSessionStart()
+    // Deliberately mount-only: re-running it later would move the origin after
+    // timestamps had already been recorded against the old one.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // The first question opens the moment the resting period ends, so its start
   // time is known before the screen has even rendered. A ref rather than state
@@ -76,13 +95,17 @@ export function SessionPage({ mode, device, session }: StageContext) {
   //
   // Separate timers per phase, or per question, would each drift a little and
   // the errors would accumulate across a fifteen-minute session.
+  // `sessionElapsedSec` rather than plain arithmetic: in dev mode the simulated
+  // sensor plays its recording back faster than life, and this clock stamps
+  // positions INSIDE that recording. The scaling rule lives beside the timeline
+  // builder so a test can hold it — see the note there. Real sensors run at 1x.
   useEffect(() => {
     const startedAt = Date.now()
     const timer = window.setInterval(() => {
-      setTicks(Math.floor((Date.now() - startedAt) / 1000))
+      setTicks(sessionElapsedSec(Date.now() - startedAt, devMode))
     }, 250)
     return () => window.clearInterval(timer)
-  }, [])
+  }, [devMode])
 
   if (!mode.runsInterview) {
     return <NavigateKeepingSearch to={`/${mode.id}/mulai`} />
@@ -152,7 +175,24 @@ export function SessionPage({ mode, device, session }: StageContext) {
         ikut terekam tidak bisa diperbaiki setelahnya.
       </p>
 
-      {devMode && (
+      {/*
+        SKIPPING IS OFFERED ONLY WHEN NOTHING IS RECORDING.
+
+        The button moves the session clock and cannot move the beats with it —
+        nothing here can, the sensor produces them at its own pace. With a device
+        attached that desynchronises the two clocks completely: the timeline
+        claims a question was answered at second 130 while the recording holds
+        eight seconds of beats, and the backend rejects the whole session with
+        "only N intervals found". Which is what happened, repeatedly, and looked
+        like a broken server rather than a button doing exactly what it said.
+
+        It survives for the case it was written for — opening the screen with no
+        sensor to check the layout — because there is no recording to fall out of
+        step with. And it is barely needed even in dev now: the simulated sensor
+        plays back ten times faster, so two minutes of rest passes in twelve
+        seconds of waiting.
+      */}
+      {devMode && device.connected === null && (
         <div className="mt-6 border-t border-hairline pt-4">
           <Button
             variant="outline"
@@ -161,11 +201,21 @@ export function SessionPage({ mode, device, session }: StageContext) {
             Lewati periode tenang (mode pengembang)
           </Button>
           <p className="mt-2 text-xs text-ink-muted">
-            Memajukan jam sesi seolah periode tenang sudah selesai. Untuk
-            memeriksa tampilan saja — rekaman sungguhan tidak akan punya menit
-            tenang ini, sehingga hasilnya kehilangan acuan.
+            Memajukan jam sesi seolah periode tenang sudah selesai. Hanya untuk
+            memeriksa tampilan tanpa perangkat — tidak ada rekaman yang ikut
+            maju, jadi sesi ini tidak akan bisa dianalisis.
           </p>
         </div>
+      )}
+
+      {devMode && device.connected !== null && (
+        <p className="mt-6 border-t border-hairline pt-4 text-xs text-ink-muted">
+          Mode pengembang: sensor simulasi memutar rekaman sungguhan sepuluh kali
+          lebih cepat, jadi periode tenang ini selesai dalam sekitar dua belas
+          detik. Melewatinya tidak disediakan saat perangkat tersambung — jam
+          sesi akan maju tanpa denyutnya ikut, dan sesinya jadi tidak bisa
+          dianalisis.
+        </p>
       )}
     </Card>
   )
@@ -213,11 +263,39 @@ export function SessionPage({ mode, device, session }: StageContext) {
           })}
         </ol>
 
+        {/*
+          A QUESTION ANSWERED IN TEN SECONDS CANNOT BE MEASURED AT ALL.
+
+          Every HRV feature is computed over a 60-second window, so a question
+          shorter than that yields no segment — not a weaker reading, none. Six
+          such questions yield a session the backend rejects outright: "no
+          question had a usable window". Nothing on this screen used to say so,
+          and clicking briskly through the interview produced a complete-looking
+          session that could never be analysed. The failure surfaced two screens
+          later as "check your recording", which is the wrong advice for the
+          wrong person.
+
+          So the button waits, and says what it is waiting for. `Lewati` stays
+          live throughout: skipping a question on purpose is a real thing to want,
+          and the consequence is one unmeasured question rather than a dead
+          session.
+        */}
+        {sinceQuestion < SEGMENT_SEC && (
+          <p className="mt-6 rounded-xl bg-canvas p-4 text-sm text-ink-muted">
+            Jawaban diukur dalam potongan satu menit, jadi pertanyaan ini butuh{' '}
+            <span className="font-semibold text-navy">
+              {formatClock(SEGMENT_SEC - sinceQuestion)}
+            </span>{' '}
+            lagi sebelum bisa dinilai. Lanjut sekarang berarti pertanyaan ini
+            tidak akan muncul di hasil.
+          </p>
+        )}
+
         <div className="mt-8 flex justify-end gap-3">
           <Button variant="outline" onClick={advance}>
             Lewati
           </Button>
-          <Button onClick={advance}>
+          <Button onClick={advance} disabled={sinceQuestion < SEGMENT_SEC}>
             {isLast ? 'Selesai' : 'Lanjut'}
           </Button>
         </div>

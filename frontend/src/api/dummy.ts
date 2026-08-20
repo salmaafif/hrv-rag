@@ -29,6 +29,14 @@ export const DUMMY_LATENCY_MS = 1600
 
 export interface AnalyzeOptions {
   /**
+   * Serve the fixture instead of calling the backend, because `?dev=1` is on.
+   *
+   * Passed rather than read from the URL here: this module has no business
+   * knowing about routing, and the screen that starts the analysis already
+   * holds the flag.
+   */
+  devMode?: boolean
+  /**
    * Force a failure. Dummy only.
    *
    * Exists so the error screen can be reached deliberately instead of being

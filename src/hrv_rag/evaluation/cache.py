@@ -32,7 +32,8 @@ from ..core.schemas import Assessment, LLMResponse
 
 def cache_key(subject: str, phase: str, segment: int, modality: str,
               kb_version: str, prompt_version: str, model: str,
-              temperature: float, pinned: str | None) -> str:
+              temperature: float, pinned: str | None,
+              retrieval: str = "semantic") -> str:
     """
     Identity of one assessment under one exact configuration.
 
@@ -43,10 +44,19 @@ def cache_key(subject: str, phase: str, segment: int, modality: str,
     asking for the PPG assessment would hand back the ECG one that was already
     stored — and the paired comparison in T6.4 would be ECG measured against
     itself, reporting perfect agreement that was never computed.
+
+    `retrieval` names the ablation condition, and it is APPENDED ONLY WHEN IT IS
+    NOT THE DEFAULT. That is not tidiness — 293 assessments are already on disk,
+    each costing about nine seconds of rented GPU, and every one of them was stored
+    under a key with no such field. Adding a segment unconditionally would change
+    all 293 keys at once, every lookup would miss, and the next run would silently
+    re-pay for results that were sitting right there. An ablation row still gets
+    its own key, which is the property that actually matters.
     """
     pin = pinned or "none"
-    return (f"{subject}|{phase}|{segment}|{modality}|{kb_version}"
-            f"|{prompt_version}|{model}|{temperature}|{pin}")
+    key = (f"{subject}|{phase}|{segment}|{modality}|{kb_version}"
+           f"|{prompt_version}|{model}|{temperature}|{pin}")
+    return key if retrieval == "semantic" else f"{key}|{retrieval}"
 
 
 class AssessmentCache:

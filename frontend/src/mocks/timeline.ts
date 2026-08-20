@@ -105,6 +105,10 @@ const STABLE_BASELINE: Baseline = {
   mean_hr_bpm: 73,
   n_segments: BASELINE_SEC / HOP_SEC - 1, // 7 windows fit inside 240 seconds
   is_stable: true,
+  // Seven windows is 'limited', not 'full' — the two fields answer different
+  // questions and a fixture that always said 'full' would let a screen conflate
+  // them without any test noticing.
+  evidence: 'limited',
   warning: null,
 }
 

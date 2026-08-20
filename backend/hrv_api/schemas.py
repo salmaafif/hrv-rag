@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field, model_validator
 
-from ..config.settings import settings
+from hrv_rag.config.settings import settings
 
 #: Shortest resting period that produces any baseline window at all.
 #:
@@ -68,6 +68,17 @@ class AnalyzeRequest(BaseModel):
 
     #: Anonymous. Never a name, an email, or a student number.
     session_id: str = "session"
+
+    #: How many seconds of recording already existed when the session clock
+    #: reached zero.
+    #:
+    #: Zero for an uploaded file, where the recording and the session begin
+    #: together. Non-zero whenever a Bluetooth sensor was connected before the
+    #: person pressed start — the sensor streams from the moment it pairs, so the
+    #: array can begin minutes earlier than every timestamp the caller reports.
+    #: Left unstated, that difference silently shifts both the resting period and
+    #: every question window.
+    offset_sec: float = Field(default=0.0, ge=0.0, le=1800.0)
 
     #: Include feature names, scores and evidence in the response.
     #:

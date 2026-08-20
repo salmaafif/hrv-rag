@@ -29,12 +29,23 @@ from __future__ import annotations
 
 import re
 
+#: Hyphen-like characters a model may write instead of an ASCII "-".
+#:
+#: Found in the wild: gpt-oss cited "KB‑PNN50‑ 01" — a NON-BREAKING HYPHEN,
+#: which looks identical on screen. Every one of those citations was correct, and
+#: every one was reported as fabricated, because the comparison is string equality
+#: and the strings genuinely differ. The guard was accusing the model of inventing
+#: chunks it had actually been given.
+_HYPHENS = str.maketrans({"‐": "-", "‑": "-", "‒": "-",
+                          "–": "-", "—": "-", "−": "-"})
+
+
 #: Matches integers and decimals, with an optional sign.
 _NUMBER = re.compile(r"[-+]?\d+(?:\.\d+)?")
 
 #: Stable chunk identifiers, e.g. KB-RMSSD-01. Used both to strip them out of the
 #: prompt's number pool and to spot fabricated ones inside prose.
-_CHUNK_ID = re.compile(r"\bKB-[A-Z0-9]+-\d+\b", re.I)
+_CHUNK_ID = re.compile(r"\bKB[\-\u2010-\u2015\u2212][A-Z0-9]+[\-\u2010-\u2015\u2212]\d+\b", re.I)
 
 #: The provenance line `format_context` writes above every chunk:
 #: "(relevance 0.807; sources: Task Force 1996; Shaffer 2017)".
@@ -164,7 +175,15 @@ def find_unknown_references(cited: list[str], retrieved_ids: list[str]) -> list[
 
 
 def _canonical_id(raw: str) -> str:
-    return raw.strip().upper()
+    """
+    One spelling for a chunk ID, so formatting is never read as dishonesty.
+
+    Whitespace inside is collapsed as well as trimmed: "KB-PNN50- 01" names a real
+    chunk, and a model that puts a stray space in an identifier has not invented
+    anything. The failure being hunted is a citation to knowledge that was never
+    supplied — not a typographic slip.
+    """
+    return re.sub(r"\s+", "", raw.translate(_HYPHENS)).upper()
 
 
 def find_fabricated_citations(response_text: str,
@@ -187,3 +206,75 @@ def find_fabricated_citations(response_text: str,
             seen.add(canonical)
             fabricated.append(match)
     return fabricated
+
+
+# ===========================================================================
+# K4 — what the user is allowed to read
+# ===========================================================================
+#
+# WHY THIS GUARD EXISTS, AND WHY IT DID NOT UNTIL NOW.
+#
+# The two guards above catch a model INVENTING something. This one catches a
+# model DISCLOSING something — and the difference is why it was missed. Asked to
+# narrate one segment, `deepseek-r1:latest` wrote, into the field a KARIRLINK user
+# reads: "HRV menunjukkan penurunan signifikan ... dengan RMSSD, SDNN, dan pNN50
+# semuanya berkurang terhadap baseline sendiri." Every number in it was real, every
+# citation was real, and both existing guards reported zero violations. They were
+# right: nothing was fabricated. The output was still unusable.
+#
+# The gap stayed invisible while Gemini was the only backend, because Gemini
+# happened to obey the instruction. An instruction is a request; a second model
+# declined it, and there was nothing underneath to catch that.
+#
+# SCOPE: user-facing fields ONLY. `reasoning` and `uncertainty_notes` are English,
+# are meant for the developer, and are SUPPOSED to name features — running this
+# over them would flag correct behaviour.
+
+#: Measurement vocabulary that must never reach the user. Written as whole words
+#: so "HF" does not fire inside an unrelated Indonesian word.
+_FEATURE_TERMS = (
+    "rmssd", "sdnn", "pnn50", "nn50", "lf/hf", "lfhf", "hrv", "prv",
+    "meanrr", "mean rr", "rr-interval", "rr interval", "ibi", "bpm",
+)
+
+#: Physiology the user is not being taught. "detak jantung" is deliberately absent
+#: — it is the plain Indonesian phrase and exactly what SHOULD be used instead.
+_CLINICAL_TERMS = (
+    "parasimpat", "simpatik", "simpatis", "vagal", "otonom",
+    "variabilitas", "baseline", "interval", "segmen", "amplitudo",
+)
+
+#: A value with a unit attached: "24%", "31,7 ms", "88 bpm".
+#:
+#: Bare digits are NOT matched, and that is deliberate. "Tarik napas selama empat
+#: hitungan" and "jeda 10 detik" are good advice, and a guard that forbade them
+#: would be switched off within a week — at which point it protects nothing.
+_MEASURED_VALUE = re.compile(
+    r"\d+(?:[.,]\d+)?\s*(?:%|persen|ms|milidetik|bpm|denyut/menit)", re.I
+)
+
+#: Whole-word matcher built once per term, so "lf" cannot fire inside "sendiri".
+_TERM_PATTERNS = tuple(
+    (term, re.compile(rf"(?<![a-z]){re.escape(term)}", re.I))
+    for term in _FEATURE_TERMS + _CLINICAL_TERMS
+)
+
+
+def find_k4_violations(user_text: str) -> list[str]:
+    """
+    Technical language that reached the text a user reads (decision K4).
+
+    Returns what was found, not a count, because the point is to be able to look
+    at it: a guard that says "3 violations" sends you hunting, while one that says
+    `['rmssd', 'sdnn', '24%']` has already answered the question.
+
+    Prefix matching on the clinical terms is intentional — "parasimpat" catches
+    both "parasimpatik" and "parasimpatis", and Indonesian will keep producing
+    variants of the same root that a word list would have to chase forever.
+    """
+    found: list[str] = []
+    for term, pattern in _TERM_PATTERNS:
+        if pattern.search(user_text):
+            found.append(term)
+    found.extend(m.group(0).strip() for m in _MEASURED_VALUE.finditer(user_text))
+    return found

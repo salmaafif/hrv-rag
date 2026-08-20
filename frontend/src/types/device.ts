@@ -31,10 +31,20 @@ export function modalityFor(location: WearLocation): Modality {
   return MODALITY_OF[location]
 }
 
-/** Indonesian labels, in device words rather than signal words. */
+/**
+ * Indonesian labels, in device words rather than signal words.
+ *
+ * The wrist option deliberately says "armband", not "smartwatch". A consumer
+ * smartwatch (Apple Watch, Galaxy Watch, Fitbit, Garmin's own watches) keeps
+ * its heart-rate reading inside its own app and does not expose the standard
+ * Bluetooth Heart Rate Service Web Bluetooth pairs against — so offering
+ * "smartwatch" as a choice here promised a connection this app cannot make.
+ * Only chest straps and dedicated optical armbands (Polar OH1, Coospo HW-series)
+ * broadcast that standard service.
+ */
 const WEAR_LABEL: Record<WearLocation, string> = {
-  chest: 'Heart rate monitor (dipakai di dada)',
-  wrist: 'Smartwatch atau gelang (di pergelangan tangan)',
+  chest: 'Chest strap (dipakai di dada)',
+  wrist: 'Armband (di pergelangan tangan)',
 }
 
 export function wearLabel(location: WearLocation): string {
@@ -87,6 +97,10 @@ const OPTICAL_OVERRIDES = [
   // series (HW9, HW807, HW706) are optical armbands. Matching the brand alone
   // sent every one of them down the ECG path.
   /\bcoospo\b.*\bhw\d/i,
+  // The advertised Bluetooth name for these often omits "Coospo" entirely —
+  // an HW9 paired in practice as plain "HW9 25819", brand nowhere in sight.
+  // "HW" followed by a digit is distinctive enough on its own to trust.
+  /\bhw\d/i,
 ]
 
 const CHEST_PATTERNS = [

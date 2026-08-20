@@ -11,12 +11,24 @@
  * these behaviours would exist to test, and none of them would exist to handle.
  */
 
-import { describe, expect, it } from 'vitest'
-import { analyzeSession, analyzeTimeline } from './client'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { analyzeSession, analyzeTimeline, usesMockData } from './client'
 import { ApiError } from './errors'
 import { mockQuestionTimeline } from '../mocks/questionTimeline'
 
 const FAST = { latencyMs: 0 }
+
+// State what this file assumes instead of inheriting it.
+//
+// These tests are about the DUMMY backend, and they used to reach it by relying
+// on the default — which held only while nobody had a .env.local. The moment one
+// existed with `VITE_USE_MOCK_API=false`, five tests started calling a real
+// server that was not there and failing with "this recording cannot be
+// processed". A test that changes behaviour with the developer's local config is
+// not testing what it claims to.
+beforeEach(() => {
+  vi.stubEnv('VITE_USE_MOCK_API', 'true')
+})
 
 const baseRequest = {
   baseline_minutes: 4,
@@ -76,5 +88,39 @@ describe('failures', () => {
       expect((cause as ApiError).retryable).toBe(true)
       expect((cause as ApiError).message).not.toBe('')
     }
+  })
+})
+
+describe('developer mode serves the fixture', () => {
+  /**
+   * Working on the result screen otherwise costs a whole interview per look:
+   * connect, sit out the resting period, wait a minute per question, and end up
+   * with whatever shape that run happened to produce. `?dev=1` hands back a full
+   * fixture instead — and keeps the "data tiruan" banner on, so nobody mistakes
+   * it for a measurement.
+   */
+  it('returns the fixture without calling the backend', async () => {
+    // The env flag is turned OFF here on purpose. Left on, the fixture would be
+    // served for that reason instead and the test could not tell whether
+    // `devMode` did anything at all — which is exactly how it first passed
+    // against a build where the flag was ignored.
+    vi.stubEnv('VITE_USE_MOCK_API', 'false')
+    vi.stubEnv('VITE_API_BASE_URL', 'http://localhost:8000')
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+
+    const result = await analyzeSession(
+      { baseline_minutes: 2, modality: 'ECG', questions: [] } as never,
+      { devMode: true, latencyMs: 0 },
+    )
+
+    expect(fetchSpy).not.toHaveBeenCalled()
+    expect(result.questions.length).toBeGreaterThan(0)
+    fetchSpy.mockRestore()
+  })
+
+  it('keeps saying the data is invented', () => {
+    vi.stubEnv('VITE_USE_MOCK_API', 'false')
+    expect(usesMockData(false)).toBe(false)   // real backend, real banner off
+    expect(usesMockData(true)).toBe(true)     // dev mode, banner back on
   })
 })

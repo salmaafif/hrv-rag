@@ -16,6 +16,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useDeviceConnection } from './useDeviceConnection'
+import { DEMO_RR_MS, SIMULATION_SPEED } from '../mocks/recording'
 
 /** Encode milliseconds the way the spec does: units of 1/1024 second. */
 const rr = (ms: number) => {
@@ -282,5 +283,103 @@ describe('simulation mode', () => {
     await act(async () => { result.current.scan() })
 
     expect(requestDevice).not.toHaveBeenCalled()
+  })
+})
+
+describe('the simulated sensor', () => {
+  /**
+   * The simulation exists so a fifteen-minute session can be checked without
+   * sitting through fifteen minutes. Two things have to hold for that to be
+   * worth anything, and both are quiet when broken: the beats must be real
+   * measurements rather than noise, and the clock they imply must agree with
+   * the one that stamps the questions.
+   */
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  const connectSimulated = async () => {
+    const view = renderHook(() => useDeviceConnection(true))
+    // In simulation `scan` IS the connection: there is no chooser to open.
+    await act(async () => {
+      view.result.current.scan()
+      await vi.advanceTimersByTimeAsync(0)
+    })
+    return view
+  }
+
+  it('plays a real recording rather than inventing numbers', async () => {
+    const view = await connectSimulated()
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000)
+    })
+
+    const collected = view.result.current.rrIntervals
+    expect(collected.length).toBeGreaterThan(5)
+    // The exact opening beats of WESAD S2. Random intervals would match the
+    // range but never the sequence, which is the difference between a demo that
+    // shows the system working and one that only shows it running.
+    expect(collected.slice(0, 5)).toEqual(DEMO_RR_MS.slice(0, 5))
+  })
+
+  it('advances the recording at exactly the shared speed factor', async () => {
+    const view = await connectSimulated()
+
+    const REAL_MS = 6_000
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(REAL_MS)
+    })
+
+    const played = view.result.current.rrIntervals.reduce((a, b) => a + b, 0)
+
+    // THE INVARIANT THE WHOLE FEATURE RESTS ON. After six real seconds the
+    // recording must have advanced sixty of its own. `SessionPage` scales its
+    // clock by the same constant, so the question stamps and the beat positions
+    // describe the same moments. Drop the factor from either side and the
+    // windows silently move to the wrong minutes.
+    //
+    // Tolerance is one beat, not a fudge factor: the beat currently playing is
+    // already counted while its own delay is still running. Anything wrong with
+    // the speed misses by a multiple, not by a beat — no factor at all lands on
+    // six seconds, and thirty times lands on a hundred and eighty.
+    const expected = (REAL_MS / 1000) * SIMULATION_SPEED
+    expect(Math.abs(played / 1000 - expected)).toBeLessThan(1.5)
+  })
+
+  it('stops when the recording runs out instead of inventing more', async () => {
+    const view = await connectSimulated()
+
+    // Long past the fourteen minutes of recording, at ten times speed.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5 * 60_000)
+    })
+    const atEnd = view.result.current.rrIntervals.length
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000)
+    })
+
+    expect(atEnd).toBe(DEMO_RR_MS.length)
+    expect(view.result.current.rrIntervals.length).toBe(atEnd)
+    // Looping would replay one person's stress response as though it happened
+    // twice; holding the last value would feed a flat line into RMSSD. Both
+    // keep the demo moving while describing something that never happened.
+    expect(view.result.current.signalQuality).toBe('poor')
+  })
+
+  it('produces intervals that actually vary, so RMSSD means something', async () => {
+    const view = await connectSimulated()
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(20_000)
+    })
+
+    const unique = new Set(view.result.current.rrIntervals)
+    expect(unique.size).toBeGreaterThan(10)
   })
 })

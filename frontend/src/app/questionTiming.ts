@@ -29,6 +29,28 @@
 
 import type { QuestionTimelineEntry } from '../types/api'
 import type { BankQuestion } from '../mocks/questionBank'
+import { SIMULATION_SPEED } from '../mocks/recording'
+
+/**
+ * Seconds of RECORDING that have passed, given how long the screen has been open.
+ *
+ * The two are the same thing with a real sensor and are not in dev mode, where
+ * the simulated device plays its recording back faster than life. Every stamp
+ * this clock produces is read as a position in that recording, so it has to be
+ * scaled by the same factor the playback uses — otherwise a question answered at
+ * real second 9 is recorded as second 9 while the beats have already reached
+ * minute 15, and the backend scores that question against a stretch of recording
+ * the person was never in.
+ *
+ * It lives here, beside the code that builds the timeline, rather than inline in
+ * the page: the failure it prevents is invisible in the output, so the rule
+ * belongs somewhere a test can hold it.
+ */
+export function sessionElapsedSec(realElapsedMs: number,
+                                  devMode: boolean): number {
+  const speed = devMode ? SIMULATION_SPEED : 1
+  return Math.floor((realElapsedMs / 1000) * speed)
+}
 
 export interface AnsweredQuestion {
   question: BankQuestion

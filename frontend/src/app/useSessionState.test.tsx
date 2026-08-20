@@ -293,3 +293,63 @@ describe('recovering from a failure', () => {
     expect(result.current.isReady).toBe(false)
   })
 })
+
+describe('the two clocks', () => {
+  // The sensor streams from the moment it pairs; the session clock starts when
+  // the person presses start. Nothing ever cleared the buffer between those two
+  // instants, so the array could begin minutes before every timestamp describing
+  // it — and the report stayed complete while describing different minutes.
+
+  it('reports how much recording preceded the session', async () => {
+    const { analyzeSession } = await import('../api/client')
+    const { session } = spyOnApi()
+    void analyzeSession
+    const { useSessionState: hook } = await import('./useSessionState')
+
+    // 200 beats of 900 ms = 180 seconds of sitting still before pressing start.
+    const beats = Array.from({ length: 200 }, () => 900)
+    const { result } = renderHook(() => hook(connectedDevice({ rrIntervals: beats })))
+
+    act(() => { result.current.markSessionStart() })
+    act(() => { result.current.run(V3) })
+
+    await waitFor(() => expect(session).toHaveBeenCalled())
+    expect(session.mock.calls[0][0].offset_sec).toBeCloseTo(180, 1)
+  })
+
+  it('sends zero when the session started with an empty buffer', async () => {
+    // Beats that arrive AFTER the session began are session data, not prelude.
+    // The offset is fixed once, at the instant the clocks diverge.
+    const { session } = spyOnApi()
+    const { useSessionState: hook } = await import('./useSessionState')
+
+    const { result, rerender } = renderHook(
+      ({ device }: { device: DeviceConnection }) => hook(device),
+      { initialProps: { device: connectedDevice({ rrIntervals: [] }) } },
+    )
+    act(() => { result.current.markSessionStart() })
+
+    rerender({
+      device: connectedDevice({
+        rrIntervals: Array.from({ length: 100 }, () => 900),
+      }),
+    })
+    act(() => { result.current.run(V3) })
+
+    await waitFor(() => expect(session).toHaveBeenCalled())
+    expect(session.mock.calls[0][0].offset_sec).toBe(0)
+  })
+
+  it('sends zero for an uploaded file, where the clocks coincide', async () => {
+    const { timeline } = spyOnApi()
+    const { useSessionState: hook } = await import('./useSessionState')
+    const { result } = renderHook(() => hook(noDevice()))
+
+    act(() => { result.current.setFile(recording()) })
+    act(() => { result.current.setFileWornAt('chest') })
+    act(() => { result.current.run(V1) })
+
+    await waitFor(() => expect(timeline).toHaveBeenCalled())
+    expect(timeline.mock.calls[0][0].offset_sec).toBe(0)
+  })
+})

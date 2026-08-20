@@ -18,8 +18,12 @@ import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
-from hrv_rag.api import app as app_module
-from hrv_rag.api.app import app
+from hrv_api.app import app
+# The narrative writers are patched where they are USED, not where they are
+# defined — each route module imported the name into its own namespace, so
+# patching the definition would leave the route still holding the original.
+from hrv_api.routes import session as session_route
+from hrv_api.routes import timeline as timeline_route
 
 KEY = "test-key"
 
@@ -30,12 +34,12 @@ def configured(monkeypatch):
     # Every test runs with the model unavailable unless it says otherwise. That
     # is the honest default: the numbers must stand on their own.
     monkeypatch.setattr(
-        app_module, "write_session_narrative",
+        session_route, "write_session_narrative",
         lambda *a, **k: ({"ringkasan_sesi": "", "penyemangat": ""},
                          {"kb_version": "", "model": "", "trustworthy": False}),
     )
     monkeypatch.setattr(
-        app_module, "write_timeline_narrative",
+        timeline_route, "write_timeline_narrative",
         lambda *a, **k: ({"ringkasan": "", "rekomendasi": "", "penyemangat": ""},
                          {"kb_version": "", "model": "", "trustworthy": False}),
     )
@@ -145,7 +149,7 @@ def test_the_floor_is_enforced_by_the_schema_not_only_by_the_analysis():
     """
     from pydantic import ValidationError
 
-    from hrv_rag.api.schemas import MIN_BASELINE_MINUTES, SessionRequest
+    from hrv_api.schemas import MIN_BASELINE_MINUTES, SessionRequest
 
     with pytest.raises(ValidationError):
         SessionRequest(
@@ -278,9 +282,15 @@ def test_timeline_windows_carry_authoritative_seconds(client):
                           headers={"X-API-Key": KEY}).json()
 
     first = payload["timeline"][0]
-    assert first["end_sec"] - first["start_sec"] == 60
-    # The first window starts after the resting period, not at zero.
-    assert first["start_sec"] >= 120
+    # `approx`, because both ends are rounded to a tenth from a start that now
+    # falls on a beat boundary rather than on a whole second. 179.3 - 119.3 is
+    # exactly 60 in decimal and 59.999... in binary floating point.
+    assert first["end_sec"] - first["start_sec"] == pytest.approx(60)
+    # The first window starts where the resting period ENDED, which is a beat
+    # boundary near the requested two minutes rather than exactly on it. It used
+    # to read 120.0 because the code added `baseline_minutes * 60` — the same
+    # assumption that put every question window in the wrong place.
+    assert first["start_sec"] == pytest.approx(120, abs=2)
 
 
 def test_modality_travels_with_the_result(client):
@@ -317,8 +327,8 @@ def test_a_narrative_that_raises_does_not_take_the_response_with_it(
 
     monkeypatch.setattr("hrv_rag.rag.narrative.NarrativeWriter", explode)
     # Restore the real wrapper so its own error handling is what runs.
-    from hrv_rag.api.narrative import write_session_narrative
-    monkeypatch.setattr(app_module, "write_session_narrative",
+    from hrv_api.services.narrative import write_session_narrative
+    monkeypatch.setattr(session_route, "write_session_narrative",
                         write_session_narrative)
 
     response = client.post("/api/v1/analyze/session", json=session_body(),

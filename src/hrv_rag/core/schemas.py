@@ -202,10 +202,36 @@ class Assessment:
     invented_numbers: list[str] = field(default_factory=list)
     unknown_references: list[str] = field(default_factory=list)
 
+    #: Technical language that reached the user-facing fields (decision K4).
+    #: A DIFFERENT failure from the two above: nothing here was fabricated, it
+    #: simply should not have been shown.
+    k4_violations: list[str] = field(default_factory=list)
+
+    #: Which experimental condition produced this row: "semantic" for the system as
+    #: built, "random" or "none" for an ablation. Stored with the result rather than
+    #: inferred from the run that made it, because an ablation row that loses its
+    #: label is indistinguishable from a real one and would quietly poison every
+    #: figure it was later averaged into.
+    retrieval_mode: str = "semantic"
+
     @property
     def is_trustworthy(self) -> bool:
-        """False when a guard caught the model inventing numbers or citations."""
+        """
+        False when a guard caught the model inventing numbers or citations.
+
+        K4 violations are deliberately NOT counted here. This property already
+        appears in API responses and feeds the faithfulness metric (T5.6), where
+        it means one specific thing: the model did not make anything up. A K4
+        violation is the opposite kind of fault — every word of it is true, and it
+        still must not be displayed. Folding the two together would silently
+        change what every previously reported figure meant.
+        """
         return not self.invented_numbers and not self.unknown_references
+
+    @property
+    def is_user_safe(self) -> bool:
+        """False when the user-facing text names a feature, a value, or physiology."""
+        return not self.k4_violations
 
     def user_view(self) -> dict[str, str]:
         """The user layer — Indonesian, no technical terms (decision K4)."""

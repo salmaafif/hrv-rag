@@ -57,6 +57,18 @@ export interface Baseline {
    * presenting the numbers at face value.
    */
   is_stable: boolean
+  /**
+   * How much resting recording the baseline stands on — a SEPARATE question from
+   * `is_stable`, and one the UI must not merge into it. `is_stable` says nothing
+   * looked wrong; `evidence` says how much was looked at.
+   *
+   * Few windows means the checks passed for want of evidence rather than on the
+   * strength of it. Measured on WESAD: under six windows, 11.8% of sessions carry
+   * a bad baseline with nothing flagged, against 3.9% at ten or more. The number
+   * of windows is decided by how long the sensor was connected before the person
+   * pressed start, which is why `warning` explains it in words they can act on.
+   */
+  evidence: 'full' | 'limited' | 'minimal'
   warning: string | null
 }
 
@@ -222,6 +234,21 @@ export interface AnalyzeRequest {
   /** How many minutes at the start of the recording form the baseline. */
   baseline_minutes: number
   modality: Modality
+  /**
+   * Seconds of recording that already existed when the session clock reached
+   * zero.
+   *
+   * A Bluetooth sensor streams from the moment it pairs, while every timestamp
+   * below is measured from the moment the person pressed start. Those two
+   * instants are not the same, and the gap between them is however long fitting
+   * the band and reading the screen took. Left unstated, it shifts the resting
+   * period and every question window by that amount — silently, because the
+   * response stays complete and merely describes different minutes.
+   *
+   * Zero for an uploaded file, where the recording and the session begin
+   * together.
+   */
+  offset_sec?: number
 }
 
 export interface SessionRequest extends AnalyzeRequest {

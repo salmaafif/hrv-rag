@@ -136,14 +136,33 @@ tetap berlaku untuk jalur dataset penelitian, yang memang mulai dari gelombang.
 **Masukan**: sama seperti di atas, ditambah linimasa pertanyaan:
 ```json
 {
+  "offset_sec": 0,
   "questions": [
     { "number": 1, "text": "Ceritakan tentang diri Anda",
       "type": "introduction",
-      "answer_start_sec": 0, "answer_end_sec": 90,
-      "gap_end_sec": 150, "is_difficult": true }
+      "answer_start_sec": 120, "answer_end_sec": 210,
+      "gap_end_sec": 270, "is_difficult": true }
   ]
 }
 ```
+
+**TITIK NOL WAKTU — dulu tidak tertulis di mana pun, dan itu penyebab satu bug.**
+
+Semua `*_sec` di atas diukur dari **saat pengguna menekan mulai**, bukan dari akhir
+fase istirahat. Jadi dengan istirahat 2 menit, pertanyaan pertama dimulai di detik
+**120**, bukan 0. Contoh di dokumen ini sebelumnya menulis 0 sementara frontend
+mengirim 120 dan backend memperlakukannya sebagai 0 — akibatnya setiap jendela
+pertanyaan dinilai dari rekaman 2 menit lebih lambat daripada yang disebutkan.
+Responsnya tetap lengkap dan tetap masuk akal, hanya menggambarkan menit yang lain.
+Keluaran V1 (`start_sec` pada `timeline`) memakai titik nol yang sama.
+
+**`offset_sec`** menjembatani jam ketiga: sensor Bluetooth mengalirkan denyut sejak
+ia berpasangan, sedangkan jam sesi baru mulai saat tombol ditekan. Isi dengan berapa
+detik rekaman sudah terkumpul pada saat itu. **0 untuk berkas unggahan**, karena di
+sana rekaman dan sesi mulai bersamaan. Menit-menit sebelum sesi itu tidak dibuang —
+orangnya memang sedang duduk memasang sensor, dan baseline 2 menit terlalu pendek
+untuk menyia-nyiakannya; tapi kontribusinya dibatasi paling banyak sepanjang fase
+istirahat yang benar-benar diamati.
 
 `type` harus salah satu dari: `introduction`, `behavioural`, `technical`,
 `numerical`, `situational`.
@@ -196,7 +215,7 @@ tetap berlaku untuk jalur dataset penelitian, yang memang mulai dari gelombang.
 
 | Hal | Keputusan | Alasan |
 |---|---|---|
-| Repo | **Satu repo (monorepo)**. Frontend di `frontend/`, API di `src/hrv_rag/api/` | Pengembang tunggal; frontend dan backend berubah bersamaan. Vercel/Railway bisa diarahkan ke subfolder |
+| Repo | **Satu repo (monorepo)**. Frontend di `frontend/`, API di `backend/hrv_api/` | Pengembang tunggal; frontend dan backend berubah bersamaan. Vercel/Railway bisa diarahkan ke subfolder |
 | Frontend | **React** | Pilihan Salma; akan di-deploy untuk keperluan TA |
 | Format file utama | **CSV interval RR** | Berkas WESAD `.pkl` ratusan MB — tidak realistis diunggah ke demo terhosting. CSV cuma beberapa KB |
 | Kunci API | **Wajib di server**, tidak pernah di React | Apa pun di frontend bisa dibaca lewat DevTools; kunci akan terekspos |

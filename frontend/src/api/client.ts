@@ -41,6 +41,27 @@ function dummyEnabled(): boolean {
   return import.meta.env.VITE_USE_MOCK_API !== 'false'
 }
 
+/**
+ * Whether what the screen shows is invented.
+ *
+ * Exported so the banner can say so, and — more importantly — can STOP saying so.
+ * It used to be written unconditionally into the layout, which was honest while
+ * the dummy was the only backend and became a lie the moment a real one answered:
+ * a genuine measurement of a real person, labelled as fake. For a demo shown to
+ * examiners that is the more damaging direction of the two.
+ *
+ * DEVELOPER MODE COUNTS AS A REASON. Working on the result screen otherwise
+ * costs a full interview per look: connect, sit out the resting period, wait a
+ * minute per question, and end up with whatever shape that particular run
+ * happened to produce. `?dev=1` serves the fixture instead — a complete session
+ * with every panel populated — so a layout can be changed and seen in seconds.
+ * The banner keeps saying the data is invented, which is the whole point of
+ * routing this through the same flag the banner reads.
+ */
+export function usesMockData(devMode = false): boolean {
+  return dummyEnabled() || devMode
+}
+
 function baseUrl(): string {
   const configured = import.meta.env.VITE_API_BASE_URL
   if (typeof configured !== 'string' || configured === '') {
@@ -58,6 +79,27 @@ function baseUrl(): string {
  * what either status means.
  */
 const RETRYABLE_CLIENT_STATUSES = new Set([408, 429])
+
+/**
+ * The key the backend requires on every analysis request.
+ *
+ * This was missing entirely, and nothing caught it: with the dummy backend on by
+ * default, the two halves had never actually spoken to each other. Every real
+ * request would have come back 401, and the message shown would have been
+ * "rekaman ini tidak bisa diproses" — sending the person to inspect a recording
+ * that was fine.
+ *
+ * IT IS NOT A SECRET, AND MUST NOT BE TREATED AS ONE. Anything the browser holds
+ * can be read from DevTools, so this key is a gate against passing scanners, not
+ * against a person. That is acceptable here because the deployed architecture
+ * has KARIRLINK's own gateway calling the API server-to-server, with the browser
+ * never holding a key at all — this path exists so the demo can run without one.
+ * The Gemini key stays on the server regardless, which is the one that matters.
+ */
+function apiKey(): string {
+  const configured = import.meta.env.VITE_API_KEY
+  return typeof configured === 'string' ? configured : ''
+}
 
 function messageForStatus(status: number): string {
   if (status === 404) {
@@ -82,7 +124,7 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
   try {
     response = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey() },
       body: JSON.stringify(body),
     })
   } catch {
@@ -117,7 +159,7 @@ export function analyzeTimeline(
   request: AnalyzeRequest,
   options: AnalyzeOptions = {},
 ): Promise<TimelineResponse> {
-  if (dummyEnabled()) return dummyAnalyzeTimeline(request, options)
+  if (usesMockData(options.devMode)) return dummyAnalyzeTimeline(request, options)
   return postJson<TimelineResponse>('/api/v1/analyze/timeline', request)
 }
 
@@ -125,6 +167,6 @@ export function analyzeSession(
   request: SessionRequest,
   options: AnalyzeOptions = {},
 ): Promise<SessionResponse> {
-  if (dummyEnabled()) return dummyAnalyzeSession(request, options)
+  if (usesMockData(options.devMode)) return dummyAnalyzeSession(request, options)
   return postJson<SessionResponse>('/api/v1/analyze/session', request)
 }

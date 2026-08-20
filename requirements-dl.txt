@@ -1,0 +1,16 @@
+# Dependensi pembanding deep learning SAJA.
+#
+# Terpisah dari requirements.txt dengan sengaja: `hrv_rag` tidak pernah mengimpor
+# PyTorch, jadi siapa pun yang memasang sistemnya untuk DIJALANKAN tidak perlu
+# menarik pustaka pelatihan sama sekali. Panahnya satu arah — `hrv_dl` membaca
+# dari `hrv_rag`, tidak pernah sebaliknya.
+#
+#   pip install -r requirements.txt -r requirements-dl.txt
+#
+# Versi CPU sudah lebih dari cukup: modelnya ~80 ribu parameter dan datanya 854
+# segmen. Satu sapuan LOSO 15 fold selesai dalam hitungan menit di CPU, jadi
+# tidak ada alasan menarik build CUDA yang berukuran gigabyte.
+#
+#   pip install torch --index-url https://download.pytorch.org/whl/cpu
+
+torch>=2.0

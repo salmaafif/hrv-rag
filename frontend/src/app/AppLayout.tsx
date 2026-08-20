@@ -16,6 +16,7 @@ import { Outlet, useParams } from 'react-router'
 import { MODES, toModeId, type StageSegment } from './modes'
 import { NavigateKeepingSearch } from './NavigateKeepingSearch'
 import { useDevMode } from './useDevMode'
+import { usesMockData } from '../api/client'
 import { useDeviceConnection } from './useDeviceConnection'
 import { useSessionState } from './useSessionState'
 import type { StageContext } from './stageContext'
@@ -114,10 +115,12 @@ export function AppLayout() {
         </div>
       </header>
 
-      <p className="mb-4 rounded-lg bg-amber-soft px-4 py-2 text-sm text-level-moderate">
-        <strong className="font-semibold">Data tiruan.</strong> Angka di layar
-        ini belum berasal dari pengukuran sungguhan.
-      </p>
+      {usesMockData(devMode) && (
+        <p className="mb-4 rounded-lg bg-amber-soft px-4 py-2 text-sm text-level-moderate">
+          <strong className="font-semibold">Data tiruan.</strong> Angka di layar
+          ini belum berasal dari pengukuran sungguhan.
+        </p>
+      )}
 
       <p className="mb-5 text-sm text-ink-muted">{mode.tagline}</p>
 
