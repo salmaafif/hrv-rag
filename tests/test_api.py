@@ -26,6 +26,7 @@ from hrv_api.routes import session as session_route
 from hrv_api.routes import timeline as timeline_route
 
 KEY = "test-key"
+DEBUG_KEY = "test-debug-key"
 
 
 @pytest.fixture(autouse=True)
@@ -225,12 +226,45 @@ def test_technical_numbers_are_withheld_by_default(client):
         assert field not in question
 
 
-def test_technical_numbers_appear_when_explicitly_requested(client):
+def test_technical_numbers_appear_for_a_debug_scoped_key(client, monkeypatch):
+    # A debug key must also be an accepted key — HRV_API_KEYS_DEBUG narrows
+    # who gets the technical layer, it does not replace HRV_API_KEYS as the
+    # check for whether the caller may call the service at all.
+    monkeypatch.setenv("HRV_API_KEYS", f"{KEY},{DEBUG_KEY}")
+    monkeypatch.setenv("HRV_API_KEYS_DEBUG", DEBUG_KEY)
+    response = client.post("/api/v1/analyze/session",
+                           json=session_body(include_technical=True),
+                           headers={"X-API-Key": DEBUG_KEY})
+    question = response.json()["questions"][0]
+    assert "score" in question and "evidence" in question
+
+
+def test_a_debug_scoped_key_still_needs_include_technical_asked_for(client, monkeypatch):
+    # Scope alone is not enough either — both `debug_scope` and
+    # `request.include_technical` must be true. A debug key should not change
+    # the default response shape for a caller who never asked for more.
+    monkeypatch.setenv("HRV_API_KEYS", f"{KEY},{DEBUG_KEY}")
+    monkeypatch.setenv("HRV_API_KEYS_DEBUG", DEBUG_KEY)
+    response = client.post("/api/v1/analyze/session", json=session_body(),
+                           headers={"X-API-Key": DEBUG_KEY})
+    question = response.json()["questions"][0]
+    assert "score" not in question
+
+
+def test_an_ordinary_key_cannot_grant_itself_the_technical_layer(client):
+    """
+    The finding A6 exists to close: `include_technical` used to be the whole
+    gate, and it lives in the request body — a field the caller writes. A key
+    that never appears in `HRV_API_KEYS_DEBUG` must not be able to unlock the
+    technical layer just by asking for it, no matter what the body says.
+    """
     response = client.post("/api/v1/analyze/session",
                            json=session_body(include_technical=True),
                            headers={"X-API-Key": KEY})
+    assert response.status_code == 200
     question = response.json()["questions"][0]
-    assert "score" in question and "evidence" in question
+    for field in ("score", "delta_rmssd_pct", "delta_hr_pct", "evidence"):
+        assert field not in question
 
 
 def test_the_disagreement_flag_survives_stripping(client):

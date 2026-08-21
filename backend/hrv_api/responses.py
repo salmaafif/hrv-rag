@@ -32,13 +32,19 @@ TIER_FOR_MODALITY = {
 
 def build_response(request, prepared: Prepared, body: dict, narrative: dict,
                    meta: dict, modality: Modality,
-                   include_duration: bool) -> dict:
+                   include_duration: bool, debug_scope: bool = False) -> dict:
     """
     Assemble the response, withholding the technical layer by default.
 
-    `include_technical` has to be asked for. The rule that users never see RMSSD
-    or a raw score cannot be enforced from here, so the next best thing is to make
-    the compliant response the one an integrator gets without thinking about it.
+    `request.include_technical` alone is NOT the enforcement of decision K4 —
+    it is a body flag, and any caller can set it on itself (A6,
+    docs/ARSITEKTUR_KARIRLINK_HRV.md §3.1). The real gate is `debug_scope`,
+    which `deps.require_api_key` derives from the CALLER's own key
+    (`HRV_API_KEYS_DEBUG`) and which the caller cannot influence by anything
+    it sends in the request. A careless integrator that flips
+    `include_technical` on a normal key is silently ignored here rather than
+    rejected, so a misconfiguration costs it nothing but the data — not a
+    500 in production.
     """
     payload = {
         "session_id": request.session_id,
@@ -52,7 +58,7 @@ def build_response(request, prepared: Prepared, body: dict, narrative: dict,
     if include_duration:
         payload["duration_sec"] = round(prepared.duration_sec, 1)
 
-    if not request.include_technical:
+    if not (request.include_technical and debug_scope):
         payload = strip_technical(payload)
     return payload
 

@@ -20,8 +20,9 @@ from ..services.narrative import write_session_narrative
 router = APIRouter()
 
 
-@router.post("/api/v1/analyze/session", dependencies=[Depends(require_api_key)])
-def analyze_session(request: SessionRequest) -> dict:
+@router.post("/api/v1/analyze/session")
+def analyze_session(request: SessionRequest,
+                    debug_scope: bool = Depends(require_api_key)) -> dict:
     """V2 and V3: score each interview question against the person's baseline."""
     modality = Modality(request.modality)
     try:
@@ -37,4 +38,4 @@ def analyze_session(request: SessionRequest) -> dict:
     narrative, meta = write_session_narrative(prepared, body, measurements,
                                               modality, request.session_id)
     return build_response(request, prepared, body, narrative, meta, modality,
-                          include_duration=False)
+                          include_duration=False, debug_scope=debug_scope)

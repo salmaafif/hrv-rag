@@ -21,8 +21,9 @@ from ..services.narrative import write_timeline_narrative
 router = APIRouter()
 
 
-@router.post("/api/v1/analyze/timeline", dependencies=[Depends(require_api_key)])
-def analyze_timeline(request: TimelineRequest) -> dict:
+@router.post("/api/v1/analyze/timeline")
+def analyze_timeline(request: TimelineRequest,
+                     debug_scope: bool = Depends(require_api_key)) -> dict:
     """V1: score every 60-second window after the resting period."""
     modality = Modality(request.modality)
     try:
@@ -37,4 +38,4 @@ def analyze_timeline(request: TimelineRequest) -> dict:
     narrative, meta = write_timeline_narrative(prepared, body, modality,
                                                request.session_id)
     return build_response(request, prepared, body, narrative, meta, modality,
-                          include_duration=True)
+                          include_duration=True, debug_scope=debug_scope)
