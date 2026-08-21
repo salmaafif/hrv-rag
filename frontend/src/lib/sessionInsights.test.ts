@@ -73,12 +73,12 @@ describe('the response axes', () => {
      * Sorting them by value — the tempting way to make every chart look
      * flattering — would turn two identical shapes into two different pictures.
      */
-    // Nilainya sengaja menanjak (calm 0, recovery 90, endurance 50): kalau ada
-    // yang menyortirnya, urutannya pasti berubah.
+    // Nilainya sengaja tidak seragam (calm 0, recovery 90, resilience 0):
+    // kalau ada yang menyortirnya, urutannya pasti berubah.
     const dimensions = responseDimensions(
       session([question(1, 'high', 90), question(2, 'high', 90)]),
     )
-    expect(dimensions.map((d) => d.key)).toEqual(['calm', 'recovery', 'endurance'])
+    expect(dimensions.map((d) => d.key)).toEqual(['calm', 'recovery', 'resilience'])
   })
 
   it('no longer carries the evenness axis', () => {
@@ -130,38 +130,49 @@ describe('the response axes', () => {
     expect(axis(result, 'recovery').value).toBe(40)
   })
 
-  it('reads endurance as a direction, with no change sitting in the middle', () => {
-    const steady = session([
-      question(1, 'moderate'),
-      question(2, 'moderate'),
-      question(3, 'moderate'),
-      question(4, 'moderate'),
-    ])
-    expect(axis(steady, 'endurance').value).toBe(50)
-    expect(axis(steady, 'endurance').meaning).toContain('Segitu-gitu saja')
+  it('translates the quadrant additively: each favourable half is worth 50', () => {
+    /**
+     * The two mixed quadrants deliberately SHARE the middle. "Big reaction but
+     * fast recovery" and "small reaction but slow recovery" each got one half
+     * right, and the rule never ranked one above the other — so neither does
+     * the chart. The meaning sentence is what tells them apart.
+     */
+    const withQuadrant = (
+      quadrant: SessionResponse['summary']['resilience'],
+    ) => {
+      const result = session([question(1, 'high'), question(2, 'low')])
+      return { ...result, summary: { ...result.summary, resilience: quadrant } }
+    }
 
-    const fading = session([
-      question(1, 'high'),
-      question(2, 'high'),
-      question(3, 'low'),
-      question(4, 'low'),
-    ])
-    expect(axis(fading, 'endurance').value).toBe(100)
-    expect(axis(fading, 'endurance').meaning).toContain('makin santai')
+    expect(axis(withQuadrant('high resilience'), 'resilience').value).toBe(100)
+    expect(axis(withQuadrant('responsive but flexible'), 'resilience').value)
+      .toBe(50)
+    expect(axis(withQuadrant('held-in tension'), 'resilience').value).toBe(50)
+    expect(axis(withQuadrant('low resilience'), 'resilience').value).toBe(0)
 
-    const piling = session([
-      question(1, 'low'),
-      question(2, 'low'),
-      question(3, 'high'),
-      question(4, 'high'),
-    ])
-    expect(axis(piling, 'endurance').value).toBe(0)
-    expect(axis(piling, 'endurance').meaning).toContain('menumpuk')
+    // Read from the label, never recomputed: same questions, opposite verdicts,
+    // different spokes. Deriving the value from the questions instead would
+    // return the same answer twice and contradict the sentence beside it.
+    expect(axis(withQuadrant('high resilience'), 'resilience').value)
+      .not.toBe(axis(withQuadrant('low resilience'), 'resilience').value)
   })
 
-  it('refuses to compare halves of a single question', () => {
-    const result = session([question(1, 'high')])
-    expect(axis(result, 'endurance').value).toBeNull()
+  it('reports resilience as unmeasured when the backend could not conclude', () => {
+    /**
+     * `summary.resilience` is null when recovery was never measurable — one
+     * axis of the quadrant's definition is missing. Falling back to a value
+     * would draw a spoke for a conclusion nobody reached.
+     */
+    const result = session([question(1, 'high', null)])
+    const noQuadrant = {
+      ...result,
+      summary: { ...result.summary, resilience: null },
+    }
+
+    const dimension = axis(noQuadrant, 'resilience')
+    expect(dimension.value).toBeNull()
+    expect(dimension.value).not.toBe(0)
+    expect(dimension.unmeasured).toBeTruthy()
   })
 })
 
@@ -240,13 +251,18 @@ describe('nothing technical reaches the text a user reads', () => {
      * does not judge a person. A radar invites trait labels more than any other
      * chart, so the axis names are checked against the words the thesis rules
      * out.
+     *
+     * 'Resilience' is NOT on this list, by explicit request: it is the name of
+     * one of the document's three promised outputs (reaktivitas, pemulihan,
+     * ketahanan), and its meaning sentence describes a reaction and a recovery
+     * — two events — rather than scoring the person.
      */
     const result = session([question(1, 'high'), question(2, 'low')])
     const labels = responseDimensions(result).map((d) => d.label).join(' ')
 
     for (const trait of [
       'Kepribadian', 'Regulasi', 'Kecemasan', 'Mental', 'Karakter', 'Emosi',
-      'Personality', 'Anxiety', 'Regulation', 'Resilience',
+      'Personality', 'Anxiety', 'Regulation',
     ]) {
       expect(labels).not.toContain(trait)
     }
