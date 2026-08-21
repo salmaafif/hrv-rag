@@ -1,13 +1,21 @@
+# Versi dikunci persis (bukan >=), bukan hanya <=. Alasannya bukan cuma
+# reproduksibilitas hasil di laporan (G6, docs/ARSITEKTUR_KARIRLINK_HRV.md
+# §5): neurokit2 mengubah algoritma deteksi puncak-R antar versi minor tanpa
+# mengubah tanda tangan fungsinya, jadi kegagalannya senyap — tidak ada error,
+# cuma RMSSD yang berbeda dari yang tertulis di laporan. Angka di belakang
+# `==` adalah versi yang benar-benar terpasang saat evaluasi tersegel
+# dijalankan (`pip show <paket>`), bukan versi terbaru yang kebetulan ada.
+
 # --- Sinyal & fitur HRV ---
-neurokit2
-numpy
-scipy
-pandas
+neurokit2==0.2.13
+numpy==2.2.6
+scipy==1.15.3
+pandas==2.3.3
 
 # --- RAG + LLM ---
-google-genai               # SDK Gemini terkini (pengganti google-generativeai)
-python-dotenv              # baca kunci dari .env
-httpx                      # model swa-inang (Ollama lewat OpenWebUI).
+google-genai==1.74.0        # SDK Gemini terkini (pengganti google-generativeai)
+python-dotenv==1.2.2        # baca kunci dari .env
+httpx==0.28.1               # model swa-inang (Ollama lewat OpenWebUI).
                            # Sudah terpasang sebagai dependensi google-genai,
                            # tapi ditulis eksplisit: kode kita memakainya
                            # langsung, jadi tidak boleh bergantung pada
@@ -18,10 +26,10 @@ httpx                      # model swa-inang (Ollama lewat OpenWebUI).
 # jauh lebih mudah dipertanggungjawabkan baris per baris saat sidang.
 
 # --- Evaluasi & visualisasi ---
-scikit-learn               # accuracy, macro-F1, confusion matrix, Cohen's Kappa
-matplotlib
-seaborn
+scikit-learn==1.7.2         # accuracy, macro-F1, confusion matrix, Cohen's Kappa
+matplotlib==3.10.9
+seaborn==0.13.2
 
 # --- Backend ---
-fastapi
-uvicorn
+fastapi==0.141.1
+uvicorn==0.46.0
