@@ -36,6 +36,7 @@
  * prompt change, not a layout one, and is tracked separately.
  */
 
+import { CandidateCheckIn } from './CandidateCheckIn'
 import { Card } from './Card'
 import { QuestionResultCard } from './QuestionResultCard'
 import { RecoveryBars } from './RecoveryBars'
@@ -150,6 +151,8 @@ export function SessionResult({ result }: { result: SessionResponse }) {
           ))}
         </ul>
       </Card>
+
+      <CandidateCheckIn />
     </>
   )
 }
