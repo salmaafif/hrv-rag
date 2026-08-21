@@ -66,27 +66,6 @@ export function formatLevel(level: StressLevel): string {
 }
 
 /**
- * A behavioural sentence in place of the raw level word (decision A12,
- * docs/ARSITEKTUR_KARIRLINK_HRV.md §4).
- *
- * Not about the numbers — those are already hidden. It is the WORD "Tinggi"
- * itself that is risky: heart-rate biofeedback improves the match between felt
- * stress and physiology, but people with high anxiety sensitivity report MORE
- * stress specifically when the feedback is labelled with a stress word. Naming
- * the behaviour instead of scoring the person keeps the same information
- * without handing back a label to react to.
- */
-const LEVEL_BEHAVIOR: Record<StressLevel, string> = {
-  low: 'Tubuhmu tetap tenang di pertanyaan ini.',
-  moderate: 'Tubuhmu bereaksi sedang di pertanyaan ini.',
-  high: 'Tubuhmu bereaksi kuat di pertanyaan ini.',
-}
-
-export function formatLevelBehavior(level: StressLevel): string {
-  return LEVEL_BEHAVIOR[level]
-}
-
-/**
  * Indonesian labels for the resilience quadrants.
  *
  * `null` is a real answer here, not a missing one: `resilience_quadrant()`

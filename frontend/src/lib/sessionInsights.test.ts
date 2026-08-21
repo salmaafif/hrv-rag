@@ -9,12 +9,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import {
-  headlines,
-  pressureTimeline,
-  resilienceCell,
-  sessionTrend,
-} from './sessionInsights'
+import { headlines, pressureTimeline, responseDimensions } from './sessionInsights'
 import type { QuestionResult, SessionResponse, StressLevel } from '../types/api'
 
 function question(
@@ -67,95 +62,110 @@ function session(questions: QuestionResult[]): SessionResponse {
   }
 }
 
-// ------------------------------------------------------------ ketahanan
-describe('the resilience quadrant', () => {
-  const withQuadrant = (quadrant: SessionResponse['summary']['resilience']) => {
-    const result = session([question(1, 'high'), question(2, 'low')])
-    return { ...result, summary: { ...result.summary, resilience: quadrant } }
-  }
+const axis = (result: SessionResponse, key: string) =>
+  responseDimensions(result).find((dimension) => dimension.key === key)!
 
-  it('maps every quadrant the backend can return', () => {
-    // No default branch and no fallback cell: an unmapped quadrant must be a
-    // type error at build time, not a silently wrong square at render time.
-    expect(resilienceCell('high resilience')).toEqual({
-      reaction: 'kecil', recovery: 'cepat',
-    })
-    expect(resilienceCell('held-in tension')).toEqual({
-      reaction: 'kecil', recovery: 'lambat',
-    })
-    expect(resilienceCell('responsive but flexible')).toEqual({
-      reaction: 'besar', recovery: 'cepat',
-    })
-    expect(resilienceCell('low resilience')).toEqual({
-      reaction: 'besar', recovery: 'lambat',
-    })
-  })
-
-  it('returns nothing when the backend could not conclude', () => {
+// ------------------------------------------------------------ the axes
+describe('the response axes', () => {
+  it('always returns the same three, in the same order', () => {
     /**
-     * THE ONE THAT MATTERS MOST here. `resilience` is null when recovery could
-     * not be measured at all — one of the two axes is missing, so there is no
-     * cell. Falling back to a square would light one up and tell somebody where
-     * they landed on a measurement nobody took.
+     * A radar is only comparable between two sessions if its axes stay put.
+     * Sorting them by value — the tempting way to make every chart look
+     * flattering — would turn two identical shapes into two different pictures.
      */
-    expect(resilienceCell(null)).toBeNull()
-    expect(resilienceCell(withQuadrant(null).summary.resilience)).toBeNull()
+    // Nilainya sengaja menanjak (calm 0, recovery 90, endurance 50): kalau ada
+    // yang menyortirnya, urutannya pasti berubah.
+    const dimensions = responseDimensions(
+      session([question(1, 'high', 90), question(2, 'high', 90)]),
+    )
+    expect(dimensions.map((d) => d.key)).toEqual(['calm', 'recovery', 'endurance'])
   })
 
-  it('reads the cell from the label, never recomputed from the questions', () => {
-    // Same questions, opposite verdicts. If this module derived the cell from
-    // the levels and recoveries it would return the same answer twice, and the
-    // picture would contradict the sentence beside it.
-    const a = { ...withQuadrant('high resilience') }
-    const b = { ...withQuadrant('low resilience') }
-    expect(a.questions).toEqual(b.questions)
-    expect(resilienceCell(a.summary.resilience))
-      .not.toEqual(resilienceCell(b.summary.resilience))
+  it('no longer carries the evenness axis', () => {
+    /**
+     * Removed on purpose, not lost. It measured the gap between the hardest and
+     * easiest question — which the timeline next to the chart already shows, and
+     * as a shape rather than a number. It also had to be explained to everybody
+     * who saw it, including the person who commissioned it.
+     */
+    const dimensions = responseDimensions(session([question(1, 'high')]))
+    expect(dimensions.map((d) => d.key)).not.toContain('evenness')
   })
-})
 
-// ------------------------------------------------------------- arah sesi
-describe('the session trend', () => {
-  it('says the pressure held steady', () => {
+  it('counts calmness as the share of questions that stayed low', () => {
+    const result = session([
+      question(1, 'low'),
+      question(2, 'moderate'),
+      question(3, 'high'),
+      question(4, 'moderate'),
+    ])
+    // One in four, not two — half of four is what a lazy stand-in returns, and
+    // it would have matched a fixture where two of the four ran calm.
+    expect(axis(result, 'calm').value).toBe(25)
+    expect(axis(result, 'calm').meaning).toContain('1 dari 4')
+  })
+
+  it('reports recovery it could not measure as unmeasured, never as zero', () => {
+    /**
+     * THE ONE THAT MATTERS MOST. Zero says the person never settled down;
+     * null says the pause was too short to tell. Collapsing the second into
+     * the first would draw a flat spoke on the chart and tell somebody
+     * something about themselves that was never measured.
+     */
+    const result = session([question(1, 'high', null), question(2, 'high', null)])
+    const recovery = axis(result, 'recovery')
+
+    expect(recovery.value).toBeNull()
+    expect(recovery.value).not.toBe(0)
+    expect(recovery.unmeasured).toBeTruthy()
+    expect(recovery.meaning).toContain('Belum terukur')
+  })
+
+  it('takes the median of the recoveries it does have', () => {
+    const result = session([
+      question(1, 'high', 20),
+      question(2, 'high', null),
+      question(3, 'high', 60),
+    ])
+    expect(axis(result, 'recovery').value).toBe(40)
+  })
+
+  it('reads endurance as a direction, with no change sitting in the middle', () => {
     const steady = session([
-      question(1, 'moderate'), question(2, 'moderate'),
-      question(3, 'moderate'), question(4, 'moderate'),
+      question(1, 'moderate'),
+      question(2, 'moderate'),
+      question(3, 'moderate'),
+      question(4, 'moderate'),
     ])
-    expect(sessionTrend(steady)).toContain('Segitu-gitu saja')
-  })
+    expect(axis(steady, 'endurance').value).toBe(50)
+    expect(axis(steady, 'endurance').meaning).toContain('Segitu-gitu saja')
 
-  it('says it eased towards the end', () => {
     const fading = session([
-      question(1, 'high'), question(2, 'high'),
-      question(3, 'low'), question(4, 'low'),
+      question(1, 'high'),
+      question(2, 'high'),
+      question(3, 'low'),
+      question(4, 'low'),
     ])
-    expect(sessionTrend(fading)).toContain('makin santai')
-  })
+    expect(axis(fading, 'endurance').value).toBe(100)
+    expect(axis(fading, 'endurance').meaning).toContain('makin santai')
 
-  it('says it piled up towards the end', () => {
     const piling = session([
-      question(1, 'low'), question(2, 'low'),
-      question(3, 'high'), question(4, 'high'),
+      question(1, 'low'),
+      question(2, 'low'),
+      question(3, 'high'),
+      question(4, 'high'),
     ])
-    expect(sessionTrend(piling)).toContain('menumpuk')
+    expect(axis(piling, 'endurance').value).toBe(0)
+    expect(axis(piling, 'endurance').meaning).toContain('menumpuk')
   })
 
   it('refuses to compare halves of a single question', () => {
-    expect(sessionTrend(session([question(1, 'high')]))).toBeNull()
-  })
-
-  it('is a sentence, never a number', () => {
-    /**
-     * The reason this stopped being a chart axis. On a 0-100 scale its midpoint
-     * meant "no change" while every other axis midpoint meant "half", so a
-     * steady session drew the same dent as a bad one. In words there is nothing
-     * left to misread.
-     */
-    const steady = session([question(1, 'moderate'), question(2, 'moderate')])
-    expect(sessionTrend(steady)).not.toMatch(/\d/)
+    const result = session([question(1, 'high')])
+    expect(axis(result, 'endurance').value).toBeNull()
   })
 })
 
+// -------------------------------------------------------- the headlines
 describe('the headline figures', () => {
   it('names the question that triggered the most', () => {
     const result = session([question(1, 'high'), question(2, 'low')])
@@ -208,8 +218,12 @@ describe('nothing technical reaches the text a user reads', () => {
     ])
 
     const shown = [
+      ...responseDimensions(result).flatMap((d) => [
+        d.label,
+        d.meaning,
+        d.unmeasured ?? '',
+      ]),
       ...headlines(result).flatMap((h) => [h.label, h.value, h.hint]),
-      sessionTrend(result) ?? '',
     ].join(' ')
 
     for (const forbidden of [
@@ -220,30 +234,21 @@ describe('nothing technical reaches the text a user reads', () => {
     }
   })
 
-  it('phrases the outcome as something that happened, not as a trait', () => {
+  it('phrases every axis as something that happened, not as a trait', () => {
     /**
      * Mandatory Rule #4 and decision K5: this system indicates pressure and
-     * does not judge a person. The quadrant is the riskiest place for that to
-     * slip, because sorting somebody into one of four boxes is what a
-     * personality instrument does — so the words in those boxes are checked
-     * against the vocabulary the thesis rules out. They describe a reaction and
-     * a recovery, both of which are events, and neither of which is a person.
+     * does not judge a person. A radar invites trait labels more than any other
+     * chart, so the axis names are checked against the words the thesis rules
+     * out.
      */
     const result = session([question(1, 'high'), question(2, 'low')])
-    const shown = [
-      resilienceCell('high resilience')!.reaction,
-      resilienceCell('high resilience')!.recovery,
-      resilienceCell('low resilience')!.reaction,
-      resilienceCell('low resilience')!.recovery,
-      sessionTrend(result) ?? '',
-      ...headlines(result).map((h) => h.label),
-    ].join(' ')
+    const labels = responseDimensions(result).map((d) => d.label).join(' ')
 
     for (const trait of [
       'Kepribadian', 'Regulasi', 'Kecemasan', 'Mental', 'Karakter', 'Emosi',
-      'Personality', 'Anxiety', 'Regulation', 'Resilience', 'Ketahanan',
+      'Personality', 'Anxiety', 'Regulation', 'Resilience',
     ]) {
-      expect(shown).not.toContain(trait)
+      expect(labels).not.toContain(trait)
     }
   })
 })
