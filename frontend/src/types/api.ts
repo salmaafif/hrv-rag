@@ -94,6 +94,20 @@ export interface ResponseMeta {
    * is false.
    */
   trustworthy: boolean
+  /**
+   * Which prompt template wrote the narrative (§3.3,
+   * `docs/ARSITEKTUR_KARIRLINK_HRV.md`). `kb_version` and `model` alone are
+   * not enough to reproduce a past result — the exact prompt content matters
+   * too, and prompts change independently of both.
+   */
+  prompt_version: string
+  /**
+   * Which frozen calibration of the rule (K16) assigned `level`. Stays
+   * present even when `trustworthy` is false or the narrative failed
+   * entirely — the rule runs and labels every question before the narrative
+   * is even attempted, so its version is always known.
+   */
+  rule_version: string
 }
 
 // ---------------------------------------------------------------------------

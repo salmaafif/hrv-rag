@@ -5,6 +5,13 @@ from dataclasses import dataclass
 from ..config.settings import StressRuleConfig, settings
 from ..core.schemas import StressLevel
 
+#: Identifies which frozen calibration of this rule produced a given label
+#: (decision K16; §3.3 of docs/ARSITEKTUR_KARIRLINK_HRV.md). The date is the
+#: freeze date recorded on `StressRuleConfig` in config/settings.py — the
+#: rule is calibrated once against the development subjects and then never
+#: retuned, so a version only needs to change if that config's thresholds do.
+RULE_VERSION = "K16-2026-08-03"
+
 
 @dataclass(frozen=True)
 class StressVerdict:

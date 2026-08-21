@@ -60,7 +60,10 @@ function session(questions: QuestionResult[]): SessionResponse {
       median_recovery_pct: 40,
     },
     narrative: { ringkasan_sesi: 'Ringkasan.', penyemangat: 'Semangat.' },
-    meta: { kb_version: 'kb_v2.0', model: 'gemini-2.5-flash', trustworthy: true },
+    meta: {
+      kb_version: 'kb_v2.0', model: 'gemini-2.5-flash', trustworthy: true,
+      prompt_version: 'HRV_session_narrative', rule_version: 'K16-2026-08-03',
+    },
   }
 }
 

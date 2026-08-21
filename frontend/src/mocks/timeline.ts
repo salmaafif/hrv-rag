@@ -137,6 +137,8 @@ export const mockTimeline: TimelineResponse = {
     kb_version: 'kb_v2.0',
     model: 'gemini-2.5-flash',
     trustworthy: true,
+    prompt_version: 'HRV_session_narrative',
+    rule_version: 'K16-2026-08-03',
   },
 }
 
