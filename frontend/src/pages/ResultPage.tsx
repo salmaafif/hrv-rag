@@ -27,17 +27,6 @@ export function ResultPage({ mode, session }: StageContext) {
 
   return (
     <div className="space-y-6">
-      {!result.baseline.is_stable && (
-        <Card className="border-level-moderate/40 bg-level-moderate-bg">
-          <p className="text-sm font-semibold text-level-moderate">
-            Periode tenang di awal rekaman kurang stabil
-          </p>
-          <p className="mt-1 text-sm text-level-moderate">
-            {result.baseline.warning}
-          </p>
-        </Card>
-      )}
-
       {!result.meta.trustworthy && (
         <Card className="border-level-high/40 bg-level-high-bg">
           <p className="text-sm font-semibold text-level-high">

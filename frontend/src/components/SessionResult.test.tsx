@@ -5,10 +5,10 @@
  *
  * A smoke test on purpose. The arithmetic is covered in `sessionInsights.test.ts`
  * where it can be checked exactly; what cannot be checked there is whether the
- * charts actually mount — a missing Chart.js registration throws at render time
+ * chart actually mounts — a missing Chart.js registration throws at render time
  * and nothing before this point would have noticed.
  *
- * The second assertion is the one worth keeping forever: decision K4 says a user
+ * The K4 assertion is the one worth keeping forever: decision K4 says a user
  * never sees a feature name or a raw value, and this walks the rendered text
  * looking for one.
  */
@@ -18,23 +18,54 @@ import { describe, expect, it, vi } from 'vitest'
 import { SessionResult } from './SessionResult'
 import { mockSession } from '../mocks/session'
 
-// Chart.js draws to a canvas jsdom does not implement. The charts are replaced
-// with their accessible labels, which is what a screen reader would receive
-// anyway — so the test still covers that they were handed sensible data.
+// Chart.js draws to a canvas jsdom does not implement. The timeline is replaced
+// with a stand-in; the quadrant needs no mock, because it is plain markup rather
+// than a chart — which is part of why it replaced the radar.
 vi.mock('react-chartjs-2', () => ({
-  Radar: () => <div data-testid="radar" />,
   Line: () => <div data-testid="line" />,
 }))
 
 describe('the result dashboard', () => {
-  it('mounts both charts and the panels around them', () => {
+  it('mounts the timeline and the panels around it', () => {
     render(<SessionResult result={mockSession} />)
 
-    expect(screen.getByTestId('radar')).toBeDefined()
     expect(screen.getByTestId('line')).toBeDefined()
-    expect(screen.getByText('Gambaran sesi kamu')).toBeDefined()
     expect(screen.getByText('Naik-turun sepanjang sesi')).toBeDefined()
-    expect(screen.getByText('Balik tenang setelah tiap pertanyaan')).toBeDefined()
+    expect(screen.getByText('Rincian per pertanyaan')).toBeDefined()
+  })
+
+  it('names Ketahanan on screen, and draws all four cells', () => {
+    /**
+     * The word used to appear nowhere at all. Ketahanan is one of the three
+     * outputs the design document promises, and the screen showed its quadrant
+     * under the heading "Besar reaksi dan kecepatan pulih" — the definition
+     * instead of the name, so somebody reading the document could not find it
+     * here.
+     *
+     * All four cells are drawn whatever the verdict, because a lone highlighted
+     * box means nothing without the three it was chosen over.
+     */
+    render(<SessionResult result={mockSession} />)
+
+    expect(screen.getByText('Ketahanan')).toBeDefined()
+    for (const cell of [
+      'Reaksi kecil, pulih cepat',
+      'Reaksi besar, pulih cepat',
+      'Reaksi kecil, pulih lambat',
+      'Reaksi besar, pulih lambat',
+    ]) {
+      expect(screen.getByText(cell)).toBeDefined()
+    }
+  })
+
+  it('states the hardest question once, not twice', () => {
+    /**
+     * It was a headline figure at the top AND a row in a card below the
+     * per-question list — one fact, twice, several screens apart.
+     */
+    const { container } = render(<SessionResult result={mockSession} />)
+    const parts = (container.textContent ?? '').split('Paling bikin tegang')
+    expect(parts).toHaveLength(2) // one split point = one occurrence
   })
 
   it('shows no feature name, raw value or score anywhere on screen', () => {

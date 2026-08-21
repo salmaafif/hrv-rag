@@ -20,13 +20,34 @@
  * duration a fact rather than a hope, and it means every timestamp this screen
  * produces is already measured from the start of the recording.
  *
- * WHAT IT DELIBERATELY DOES NOT SHOW. The Figma frame paired the live heart
- * rate with a "mulai tegang" badge. That badge is gone. Telling someone
- * mid-answer that they are getting tense changes how tense they are, which
- * would leave the measurement partly caused by the screen reporting it. The
- * bare number stays, because it is the only evidence the sensor is still
- * reading — and it is absent entirely when nothing is connected, rather than
- * being faked.
+ * THIS SCREEN IS PART OF THE INSTRUMENT, so its own text is a source of error.
+ * Every paragraph a person reads while being measured is cognitive load, load
+ * raises arousal, and arousal is the quantity under measurement. That is the
+ * reason for each of the following, and the reason none of them should be
+ * reinstated without a better one:
+ *
+ *   NO PER-QUESTION STOPWATCH. There used to be a counter here in
+ *   `bg-level-high-bg / text-level-high` — the exact pair `LevelBadge` uses for
+ *   "Tinggi". A rising number in the stress colour, beside the question, for the
+ *   whole answer. The Figma "mulai tegang" badge was cut for precisely this
+ *   argument; the timer survived it only because nobody noticed it was the same
+ *   thing with a clock attached. A quiet bar fills instead: it says the same
+ *   thing about progress and says nothing about the person.
+ *
+ *   NO LIVE BPM outside developer mode. The sensor still has to prove it is
+ *   reading — a silent dropout is worse than any of this — but proving THAT it
+ *   reads does not require showing WHAT it reads. Watching your own pulse climb
+ *   during an interview is feedback on the very thing being measured.
+ *
+ *   NO SEGMENT LENGTH ON SCREEN. The 60-second window is real and the button
+ *   still waits for it, but the wait is now phrased as interview advice — take
+ *   your time, answer fully — which is true regardless of the sensor. Naming the
+ *   window taught people to stretch answers to satisfy the instrument, which
+ *   quietly damages the recording it was meant to protect.
+ *
+ * The wording rule the rest of the screen follows: a sentence earns its place
+ * only if it changes what the person does in the next ten seconds. Why the
+ * system works this way belongs in `docs/`, not here.
  */
 
 import { useEffect, useRef, useState } from 'react'
@@ -52,6 +73,16 @@ import type { StageContext } from '../app/stageContext'
  */
 const SEGMENT_SEC = 60
 
+/**
+ * How long the "is your recorder running?" reminder stays up.
+ *
+ * It is only actionable at the very beginning — noticing at second 5 that
+ * nothing is recording is worth a restart, noticing at second 90 is not. Left
+ * up for the whole resting period it stopped being a reminder and became two
+ * minutes of being told the session might be wasted, during the one phase whose
+ * entire purpose is that the person is calm.
+ */
+const RECORDER_REMINDER_SEC = 15
 
 export function SessionPage({ mode, device, session }: StageContext) {
   const navigate = useNavigateKeepingSearch()
@@ -116,6 +147,8 @@ export function SessionPage({ mode, device, session }: StageContext) {
   const question = questionBank[current]!
   const isLast = current === questionBank.length - 1
   const sinceQuestion = Math.max(0, elapsed - questionStartRef.current)
+  const answerProgress = Math.min(100, (sinceQuestion / SEGMENT_SEC) * 100)
+  const canAdvance = sinceQuestion >= SEGMENT_SEC
 
   const advance = () => {
     if (finishedRef.current) return
@@ -164,57 +197,45 @@ export function SessionPage({ mode, device, session }: StageContext) {
         {formatClock(Math.max(0, restRemaining))}
       </p>
       <p className="mt-5 text-sm text-ink-muted">
-        Duduk diam dan bernapas seperti biasa. Menit-menit ini jadi pembanding
-        untuk seluruh sesi, jadi semakin tenang bagian ini, semakin bermakna
-        hasilnya. Pertanyaan pertama muncul sendiri saat waktunya habis — tidak
-        perlu menekan apa pun.
-      </p>
-      <p className="mt-4 rounded-xl bg-canvas p-4 text-sm text-ink-muted">
-        Pastikan perekaman di alatmu sudah berjalan sejak tadi. Kalau belum,
-        mulai sekarang dan ulangi sesi ini dari awal — periode tenang yang tidak
-        ikut terekam tidak bisa diperbaiki setelahnya.
+        Duduk diam, bernapas seperti biasa. Pertanyaan pertama muncul sendiri.
       </p>
 
-      {/*
-        SKIPPING IS OFFERED ONLY WHEN NOTHING IS RECORDING.
+      {elapsed < RECORDER_REMINDER_SEC && (
+        <p className="mt-4 rounded-xl bg-canvas p-4 text-sm text-ink-muted">
+          Perekaman di alatmu sudah jalan?
+        </p>
+      )}
 
-        The button moves the session clock and cannot move the beats with it —
-        nothing here can, the sensor produces them at its own pace. With a device
-        attached that desynchronises the two clocks completely: the timeline
-        claims a question was answered at second 130 while the recording holds
-        eight seconds of beats, and the backend rejects the whole session with
-        "only N intervals found". Which is what happened, repeatedly, and looked
-        like a broken server rather than a button doing exactly what it said.
-
-        It survives for the case it was written for — opening the screen with no
-        sensor to check the layout — because there is no recording to fall out of
-        step with. And it is barely needed even in dev now: the simulated sensor
-        plays back ten times faster, so two minutes of rest passes in twelve
-        seconds of waiting.
-      */}
       {devMode && device.connected === null && (
         <div className="mt-6 border-t border-hairline pt-4">
+          {/*
+            SKIPPING IS OFFERED ONLY WHEN NOTHING IS RECORDING.
+
+            The button moves the session clock and cannot move the beats with it —
+            nothing here can, the sensor produces them at its own pace. With a
+            device attached that desynchronises the two clocks completely: the
+            timeline claims a question was answered at second 130 while the
+            recording holds eight seconds of beats, and the backend rejects the
+            whole session with "only N intervals found". Which is what happened,
+            repeatedly, and looked like a broken server rather than a button doing
+            exactly what it said.
+          */}
           <Button
             variant="outline"
             onClick={() => setSkippedSec(Math.max(0, restRemaining))}
           >
-            Lewati periode tenang (mode pengembang)
+            Lewati periode tenang
           </Button>
           <p className="mt-2 text-xs text-ink-muted">
-            Memajukan jam sesi seolah periode tenang sudah selesai. Hanya untuk
-            memeriksa tampilan tanpa perangkat — tidak ada rekaman yang ikut
-            maju, jadi sesi ini tidak akan bisa dianalisis.
+            Mode pengembang. Rekamannya tidak ikut maju, jadi sesi ini tidak bisa
+            dianalisis.
           </p>
         </div>
       )}
 
       {devMode && device.connected !== null && (
         <p className="mt-6 border-t border-hairline pt-4 text-xs text-ink-muted">
-          Mode pengembang: sensor simulasi memutar rekaman sungguhan sepuluh kali
-          lebih cepat, jadi periode tenang ini selesai dalam sekitar dua belas
-          detik. Melewatinya tidak disediakan saat perangkat tersambung — jam
-          sesi akan maju tanpa denyutnya ikut, dan sesinya jadi tidak bisa
-          dianalisis.
+          Mode pengembang: sensor simulasi berjalan 10× lebih cepat.
         </p>
       )}
     </Card>
@@ -224,19 +245,15 @@ export function SessionPage({ mode, device, session }: StageContext) {
     <div className="grid gap-6 xl:grid-cols-[1fr_22rem]">
       {restRemaining > 0 ? restingPanel : (
       <Card>
-        <div className="flex items-center justify-between">
-          <p className="text-sm text-ink-muted">
-            Pertanyaan {current + 1} dari {questionBank.length}
-          </p>
-          <span className="rounded-full bg-level-high-bg px-3 py-1 text-sm font-semibold text-level-high">
-            {formatClock(sinceQuestion)}
-          </span>
-        </div>
-
-        <h2 className="mt-4 text-3xl font-bold tracking-tight text-navy">
+        <h2 className="text-3xl font-bold tracking-tight text-navy">
           {question.text}
         </h2>
 
+        {/*
+          The dots are the only place the question number is stated. It used to be
+          said three times over — "Pertanyaan 3 dari 6", then the dot row, then the
+          filled dot — which is one fact in three encodings and two of them noise.
+        */}
         <ol className="mt-6 flex flex-wrap gap-2" aria-label="Kemajuan pertanyaan">
           {questionBank.map((entry, index) => {
             const isDone = index < current
@@ -264,40 +281,47 @@ export function SessionPage({ mode, device, session }: StageContext) {
         </ol>
 
         {/*
-          A QUESTION ANSWERED IN TEN SECONDS CANNOT BE MEASURED AT ALL.
+          A QUESTION ANSWERED IN TEN SECONDS CANNOT BE MEASURED AT ALL — every HRV
+          feature needs a 60-second window, so a shorter answer yields no segment
+          rather than a weaker one, and six of them yield a session the backend
+          rejects outright.
 
-          Every HRV feature is computed over a 60-second window, so a question
-          shorter than that yields no segment — not a weaker reading, none. Six
-          such questions yield a session the backend rejects outright: "no
-          question had a usable window". Nothing on this screen used to say so,
-          and clicking briskly through the interview produced a complete-looking
-          session that could never be analysed. The failure surfaced two screens
-          later as "check your recording", which is the wrong advice for the
-          wrong person.
-
-          So the button waits, and says what it is waiting for. `Lewati` stays
-          live throughout: skipping a question on purpose is a real thing to want,
-          and the consequence is one unmeasured question rather than a dead
-          session.
+          The bar carries that constraint without naming it. Naming it produced
+          people talking to a stopwatch instead of to the question, which is a
+          worse recording than the one the rule was protecting. `aria-hidden`
+          because the sentence below already says the same thing in words, and a
+          screen reader announcing a percentage every 250 ms is its own problem.
         */}
-        {sinceQuestion < SEGMENT_SEC && (
-          <p className="mt-6 rounded-xl bg-canvas p-4 text-sm text-ink-muted">
-            Jawaban diukur dalam potongan satu menit, jadi pertanyaan ini butuh{' '}
-            <span className="font-semibold text-navy">
-              {formatClock(SEGMENT_SEC - sinceQuestion)}
-            </span>{' '}
-            lagi sebelum bisa dinilai. Lanjut sekarang berarti pertanyaan ini
-            tidak akan muncul di hasil.
-          </p>
-        )}
+        <div
+          aria-hidden="true"
+          className="mt-8 h-1 w-full overflow-hidden rounded-full bg-canvas"
+        >
+          <div
+            className={
+              'h-full rounded-full transition-[width] duration-500 ease-linear ' +
+              (canAdvance ? 'bg-level-low' : 'bg-hairline')
+            }
+            style={{ width: `${answerProgress}%` }}
+          />
+        </div>
 
-        <div className="mt-8 flex justify-end gap-3">
-          <Button variant="outline" onClick={advance}>
-            Lewati
-          </Button>
-          <Button onClick={advance} disabled={sinceQuestion < SEGMENT_SEC}>
-            {isLast ? 'Selesai' : 'Lanjut'}
-          </Button>
+        <div className="mt-5 flex items-center justify-between gap-4">
+          <p id="answer-hint" className="text-sm text-ink-muted">
+            {canAdvance ? 'Sudah cukup. Lanjut kalau kamu siap.'
+                        : 'Ambil waktumu, jawab selengkapnya.'}
+          </p>
+          <div className="flex shrink-0 gap-3">
+            <Button variant="outline" onClick={advance}>
+              Lewati
+            </Button>
+            <Button
+              onClick={advance}
+              disabled={!canAdvance}
+              aria-describedby="answer-hint"
+            >
+              {isLast ? 'Selesai' : 'Lanjut'}
+            </Button>
+          </div>
         </div>
       </Card>
       )}
@@ -305,38 +329,61 @@ export function SessionPage({ mode, device, session }: StageContext) {
       <div className="space-y-6">
         {restRemaining <= 0 && (
           <Card>
-            <p className="mb-2 text-xs font-semibold tracking-wider text-amber uppercase">
-              Tips
-            </p>
             <p className="rounded-xl bg-amber-soft p-4 text-sm text-level-moderate">
               {question.tip}
             </p>
           </Card>
         )}
 
-        <Card title="Detak jantung">
-          {device.bpm !== null ? (
-            <p className="text-navy">
-              <span className="text-4xl font-bold">{device.bpm}</span>
-              <span className="ml-1 text-sm font-semibold text-ink-muted">bpm</span>
-            </p>
-          ) : (
+        {/*
+          PROOF THE SENSOR IS READING, NOT A READOUT OF WHAT IT READS.
+
+          A silent dropout mid-interview costs the whole session, so something has
+          to show the stream is alive. It does not have to be the number. Outside
+          developer mode this is a pulsing dot; the bpm itself appears only when
+          `dev=1`, where the person watching is Salma and not a candidate.
+        */}
+        <Card title="Sensor">
+          {device.connected === null ? (
             <p className="text-sm text-ink-muted">
-              Tidak ada perangkat tersambung. Rekam detak jantungmu dengan alat
-              sendiri, lalu unggah berkasnya setelah sesi ini selesai.
+              Tidak tersambung. Rekam dengan alatmu sendiri, unggah setelah sesi.
             </p>
+          ) : device.bpm !== null ? (
+            <div className="flex items-center gap-3">
+              <span
+                aria-hidden="true"
+                className="h-2.5 w-2.5 shrink-0 animate-pulse rounded-full bg-level-low"
+              />
+              <p className="text-sm text-navy">
+                Terbaca
+                {devMode && (
+                  <span className="ml-2 font-semibold tabular-nums text-ink-muted">
+                    {device.bpm} bpm
+                  </span>
+                )}
+              </p>
+            </div>
+          ) : (
+            <p className="text-sm text-unknown">Menunggu denyut…</p>
           )}
         </Card>
 
-        <Card title="Waktu sesi">
-          <p className="text-2xl font-semibold text-navy">
-            {formatClock(elapsed)}
-          </p>
-          <p className="mt-1 text-sm text-ink-muted">
-            Dihitung sejak sesi dimulai, termasuk periode tenang — supaya cocok
-            dengan jam rekamanmu.
-          </p>
-        </Card>
+        {/*
+          The session clock lives here in developer mode only. It is what Salma
+          checks against the recorder's own clock while debugging; a candidate can
+          do nothing with it, and a second running number on a screen that just
+          lost its first one would put the arousal straight back.
+        */}
+        {devMode && (
+          <Card title="Waktu sesi">
+            <p className="text-2xl font-semibold tabular-nums text-navy">
+              {formatClock(elapsed)}
+            </p>
+            <p className="mt-1 text-xs text-ink-muted">
+              Termasuk periode tenang, agar cocok dengan jam rekaman.
+            </p>
+          </Card>
+        )}
       </div>
     </div>
   )

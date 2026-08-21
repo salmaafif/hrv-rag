@@ -9,25 +9,34 @@
  * "resilience 72" only means something against other people, and comparing
  * people is the thing this design set out to avoid.
  *
- * So each axis below is a percentage OF THIS SESSION: a share of its questions,
- * a median of its own recoveries, a comparison of its own halves. Read one out
- * loud and it describes something that happened, in a sentence a person could
- * check against their memory of the interview.
- *
- * WHAT THEY ARE NOT. They are not traits. "Calm 60" means three of five
- * questions passed without a spike, not that the person is 60% calm. The naming
- * throughout follows the rule already set in `docs/development_journey.md`:
- * feedback is phrased as trainable behaviour, never as a label about the person
- * — "needed longer to settle after hard questions", not "low emotional
- * regulation". The chart carries that caveat in its own caption, because a
- * radar looks like a personality profile whatever the axes are called.
+ * WHAT THEY ARE NOT. They are not traits. The naming throughout follows the rule
+ * already set in `docs/development_journey.md`: feedback is phrased as trainable
+ * behaviour, never as a label about the person — "needed longer to settle after
+ * hard questions", not "low emotional regulation".
  *
  * K4 applies here too: nothing in this file produces a feature name, a raw
  * value, or a score out of four. Those exist in the response and stay behind
  * the developer panel.
+ *
+ * THE RADAR IS GONE, and with it `responseDimensions`. Two independent lines of
+ * reasoning arrived at the same place. Geometrically, only two honest magnitudes
+ * exist in this data — reaction size and recovery speed — and a two-axis radar
+ * is a line. The third axis that made it drawable measured a DIRECTION on a
+ * chart whose other two measured magnitudes, so its midpoint meant "no change"
+ * while everywhere else the midpoint meant "half"; a steady session drew the
+ * same dent as a bad one. And psychologically, a radar is read as a personality
+ * profile whatever its axes are called, which is the cue Feedback Intervention
+ * Theory identifies behind the third of feedback effects that make performance
+ * WORSE (Kluger & DeNisi 1996).
+ *
+ * What replaced it is the quadrant — reaction size against recovery speed —
+ * which is what the design document called Ketahanan all along. The direction
+ * the third axis carried survives as `sessionTrend`, one sentence under the
+ * timeline that already shows it as a shape.
  */
 
-import type { QuestionResult, SessionResponse, StressLevel } from '../types/api'
+import type { QuestionResult, ResilienceQuadrant, SessionResponse,
+               StressLevel } from '../types/api'
 
 /**
  * Pressure carried by one label, on a 0-100 scale.
@@ -42,18 +51,6 @@ const PRESSURE: Record<StressLevel, number> = {
   high: 100,
 }
 
-export interface Dimension {
-  key: string
-  /** Axis label on the chart. Short, and never a trait. */
-  label: string
-  /** 0-100, or null when this session could not measure it. */
-  value: number | null
-  /** One sentence a person can check against their own memory of the session. */
-  meaning: string
-  /** Why it cannot be shown, when `value` is null. */
-  unmeasured?: string
-}
-
 const clamp = (value: number) => Math.max(0, Math.min(100, value))
 
 function median(values: number[]): number | null {
@@ -65,116 +62,71 @@ function median(values: number[]): number | null {
     : sorted[middle]!
 }
 
-/**
- * Share of questions answered without a pressure spike.
- *
- * Counts labels rather than averaging them: the label is what the rule actually
- * decided, and a person can verify this number by looking at the badges on the
- * cards below the chart.
- */
-function calmness(questions: QuestionResult[]): Dimension {
-  const calm = questions.filter((q) => q.level === 'low').length
-  return {
-    key: 'calm',
-    label: 'Calm',
-    value: questions.length ? (calm / questions.length) * 100 : null,
-    meaning: `Kamu santai di ${calm} dari ${questions.length} pertanyaan`,
-  }
+// ---------------------------------------------------------------- ketahanan
+
+/** Which cell of the 2×2 a session landed in. */
+export interface ResilienceCell {
+  /** Column: was the reaction big or small? */
+  reaction: 'kecil' | 'besar'
+  /** Row: did the body settle quickly or slowly? */
+  recovery: 'cepat' | 'lambat'
+}
+
+const CELL: Record<ResilienceQuadrant, ResilienceCell> = {
+  'high resilience': { reaction: 'kecil', recovery: 'cepat' },
+  'held-in tension': { reaction: 'kecil', recovery: 'lambat' },
+  'responsive but flexible': { reaction: 'besar', recovery: 'cepat' },
+  'low resilience': { reaction: 'besar', recovery: 'lambat' },
 }
 
 /**
- * How much of the rise had settled again before the next question began.
+ * Where this session sits on the two axes of Ketahanan.
  *
- * Null when no question had a long enough pause after it — which is a different
- * statement from "did not recover", and the difference is preserved all the way
- * from the Python side. Showing zero here would tell somebody they never calmed
- * down, on the strength of a measurement nobody took.
+ * READ FROM THE LABEL, NOT RECOMPUTED. The backend's rule decides the quadrant
+ * from its own thresholds; deriving a position here from `recovery_pct` and the
+ * level counts would let the picture and the words disagree, which is the exact
+ * failure `pressureTimeline` was written to avoid. Same principle, same reason.
+ *
+ * `null` is a real answer: `resilience_quadrant()` returns nothing when recovery
+ * could not be measured at all, because one of the two axes is missing. Guessing
+ * a cell anyway would invent a conclusion out of an absent measurement.
  */
-function recovery(questions: QuestionResult[]): Dimension {
-  const measured = questions
-    .map((q) => q.recovery_pct)
-    .filter((value): value is number => value !== null)
-  const middle = median(measured)
-
-  return {
-    key: 'recovery',
-    label: 'Recovery',
-    value: middle === null ? null : clamp(middle),
-    meaning:
-      middle === null
-        ? 'Belum terukur'
-        : `Tekanan turun sekitar ${Math.round(clamp(middle))}% sebelum lanjut`,
-    unmeasured:
-      middle === null
-        ? 'Jedanya kependekan buat diukur. Bukan berarti kamu tidak pulih.'
-        : undefined,
-  }
+export function resilienceCell(
+  quadrant: ResilienceQuadrant | null,
+): ResilienceCell | null {
+  return quadrant === null ? null : CELL[quadrant]
 }
+
+// ---------------------------------------------------------------- arah sesi
 
 /**
  * Whether the later half of the interview ran calmer than the earlier half.
  *
- * Fifty is "no change", not "average" — this axis measures a DIRECTION, and a
- * session that held steady genuinely sits in the middle of it. Reading it as a
- * mediocre score would be a misreading, which is why `meaning` says which way
- * it went in words rather than leaving the number to speak.
+ * A SENTENCE, NOT A NUMBER — and that is the whole point of the change. As a
+ * chart axis this had to be squeezed onto a 0-100 scale where 50 meant "no
+ * change", which reads as a mediocre score to everyone who has ever seen a
+ * chart. In words the same finding is unambiguous and needs no caveat.
  *
  * An odd number of questions puts the middle one in neither half. Splitting it
  * across both would let one question pull both ends at once.
+ *
+ * Returns `null` under two questions, where there are no halves to compare.
  */
-function endurance(questions: QuestionResult[]): Dimension {
+export function sessionTrend(result: SessionResponse): string | null {
+  const questions = result.questions
   const half = Math.floor(questions.length / 2)
-  if (half === 0) {
-    return {
-      key: 'endurance',
-      label: 'Endurance',
-      value: null,
-      meaning: 'Belum terukur',
-      unmeasured:
-        'Butuh minimal dua pertanyaan.',
-    }
-  }
+  if (half === 0) return null
 
   const mean = (part: QuestionResult[]) =>
     part.reduce((total, q) => total + PRESSURE[q.level], 0) / part.length
-  const early = mean(questions.slice(0, half))
-  const late = mean(questions.slice(-half))
-  const shift = early - late
+  const shift = mean(questions.slice(0, half)) - mean(questions.slice(-half))
 
-  return {
-    key: 'endurance',
-    label: 'Endurance',
-    value: clamp(50 + shift / 2),
-    meaning:
-      shift > 5
-        ? 'Kamu makin santai menjelang akhir'
-        : shift < -5
-          ? 'Tekanannya menumpuk di akhir'
-          : 'Segitu-gitu saja dari awal sampai akhir',
-  }
+  if (shift > 5) return 'Kamu makin santai menjelang akhir.'
+  if (shift < -5) return 'Tekanannya menumpuk di akhir.'
+  return 'Segitu-gitu saja dari awal sampai akhir.'
 }
 
-/**
- * The three axes of the response chart, in a fixed order.
- *
- * Fixed because the shape of a radar is only comparable between two sessions if
- * the axes stay where they are. Sorting them by value would make every session
- * look like a different chart.
- *
- * A fourth axis, "evenness", was built and then removed. It measured the gap
- * between the hardest and easiest question — which the timeline beside the chart
- * already shows better, as a shape rather than a number. It also needed
- * explaining every time somebody saw it, and an axis that has to be explained is
- * an axis that is not communicating.
- */
-export function responseDimensions(result: SessionResponse): Dimension[] {
-  const questions = result.questions
-  return [
-    calmness(questions),
-    recovery(questions),
-    endurance(questions),
-  ]
-}
+// ------------------------------------------------------------------ ringkas
 
 export interface Headline {
   label: string

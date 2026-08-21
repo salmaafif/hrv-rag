@@ -35,7 +35,7 @@ export function QuestionResultCard({ result }: { result: QuestionResult }) {
   const recoveryUnmeasured = result.recovery_pct === null
 
   return (
-    <li className="rounded-xl border border-hairline bg-surface p-5">
+    <div className="rounded-xl border border-hairline bg-surface p-5">
       <div className="flex items-start justify-between gap-4">
         <div className="flex items-start gap-3">
           <span
@@ -80,6 +80,6 @@ export function QuestionResultCard({ result }: { result: QuestionResult }) {
           )}
         </ul>
       )}
-    </li>
+    </div>
   )
 }
