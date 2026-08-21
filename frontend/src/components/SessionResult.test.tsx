@@ -13,8 +13,8 @@
  * looking for one.
  */
 
-import { render, screen } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { cleanup, render, screen } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SessionResult } from './SessionResult'
 import { mockSession } from '../mocks/session'
 
@@ -24,6 +24,12 @@ import { mockSession } from '../mocks/session'
 vi.mock('react-chartjs-2', () => ({
   Line: () => <div data-testid="line" />,
 }))
+
+// This project runs vitest without `globals: true`, so React Testing
+// Library's automatic per-test cleanup never registers itself. Without this,
+// each `it` below leaves its render mounted, and a later `getByText` matches
+// one heading per accumulated render instead of one.
+afterEach(cleanup)
 
 describe('the result dashboard', () => {
   it('mounts the timeline and the panels around it', () => {
