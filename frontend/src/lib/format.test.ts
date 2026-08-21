@@ -14,6 +14,7 @@ import {
   formatClock,
   formatDuration,
   formatLevel,
+  formatLevelBehavior,
   formatModality,
   formatQuestionType,
   formatRecovery,
@@ -70,6 +71,26 @@ describe('formatLevel', () => {
     expect(formatLevel('low')).toBe('Rendah')
     expect(formatLevel('moderate')).toBe('Sedang')
     expect(formatLevel('high')).toBe('Tinggi')
+  })
+})
+
+describe('formatLevelBehavior', () => {
+  it('describes behaviour instead of naming a stress level', () => {
+    // Decision A12: no "Rendah"/"Sedang"/"Tinggi" said about the person.
+    // Asserting the word is absent, not just that some string comes back, is
+    // the point of this test — a regression here is a silent label.
+    for (const level of ['low', 'moderate', 'high'] as const) {
+      const sentence = formatLevelBehavior(level)
+      expect(sentence).not.toBe(formatLevel(level))
+      expect(sentence.length).toBeGreaterThan(0)
+    }
+  })
+
+  it('gives each level its own distinct sentence', () => {
+    const sentences = new Set(
+      (['low', 'moderate', 'high'] as const).map(formatLevelBehavior),
+    )
+    expect(sentences.size).toBe(3)
   })
 })
 

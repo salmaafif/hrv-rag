@@ -17,10 +17,15 @@
  * When the two markers disagree, the card says the reading is less certain.
  * Hiding that would present a shaky result with the same confidence as a firm
  * one.
+ *
+ * NO STRESS-LEVEL BADGE (decision A12). "Rendah"/"Sedang"/"Tinggi" as a label
+ * on a person, rather than as a hidden number, is the single riskiest element
+ * on this screen — people with high anxiety sensitivity report MORE stress
+ * specifically when heart-rate feedback carries a stress word. A behavioural
+ * sentence carries the same information without handing back a label.
  */
 
-import { LevelBadge } from './LevelBadge'
-import { formatQuestionType } from '../lib/format'
+import { formatLevelBehavior, formatQuestionType } from '../lib/format'
 import type { QuestionResult } from '../types/api'
 
 /**
@@ -36,25 +41,26 @@ export function QuestionResultCard({ result }: { result: QuestionResult }) {
 
   return (
     <div className="rounded-xl border border-hairline bg-surface p-5">
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex items-start gap-3">
-          <span
-            aria-hidden="true"
-            className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-canvas text-xs font-semibold text-ink-muted"
-          >
-            {result.number}
-          </span>
-          <div>
-            <p className="font-semibold text-navy">{result.text}</p>
-            <p className="text-xs text-ink-muted">
-              {formatQuestionType(result.type)}
-            </p>
-          </div>
+      <div className="flex items-start gap-3">
+        <span
+          aria-hidden="true"
+          className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-canvas text-xs font-semibold text-ink-muted"
+        >
+          {result.number}
+        </span>
+        <div>
+          <p className="font-semibold text-navy">{result.text}</p>
+          <p className="text-xs text-ink-muted">
+            {formatQuestionType(result.type)}
+          </p>
         </div>
-        <LevelBadge level={result.level} />
       </div>
 
-      <p className="mt-4 text-sm">{result.penjelasan}</p>
+      <p className="mt-3 text-sm font-medium text-navy">
+        {formatLevelBehavior(result.level)}
+      </p>
+
+      <p className="mt-3 text-sm">{result.penjelasan}</p>
 
       <p className="mt-3 rounded-lg bg-brand-soft px-4 py-3 text-sm text-navy">
         <span className="font-semibold">Saran: </span>
