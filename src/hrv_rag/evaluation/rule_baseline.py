@@ -19,6 +19,14 @@ data demanded it: two of five development subjects show RMSSD RISING under stres
 while heart rate rose in all five. A rule that only watches RMSSD is guaranteed to
 misclassify those subjects, and comparing the two variants quantifies exactly how
 much that costs.
+
+A third variant watches heart rate alone (docs/PETA_PEKERJAAN.md ablation #9,
+docs/ARSITEKTUR_KARIRLINK_HRV.md A4). It answers a narrower but higher-stakes
+question than the first two: `development_journey.md` §4.13 found PPG agrees
+with ECG on heart rate but not on RMSSD-derived variability, so the tier-T1
+product row (armband/watch, HR-only) can only be claimed honestly if a rule
+built on heart rate alone still separates stress from calm. If its macro-F1
+collapses toward chance, T1 has no basis and the product table has to say so.
 """
 
 from __future__ import annotations
@@ -82,3 +90,21 @@ def rule_rmssd_and_hr(reactivity: dict[str, float],
     hr_says_stress = (hr is not None and hr == hr and hr >= cfg.hr_rise_pct)
 
     return TrueLabel.HIGH if (rmssd_says_stress or hr_says_stress) else TrueLabel.LOW
+
+
+def rule_hr_only(reactivity: dict[str, float],
+                 cfg: RuleConfig | None = None) -> TrueLabel:
+    """
+    Single-feature rule: stressed when heart rate rises far enough above baseline.
+
+    Deliberately the same shape as `rule_rmssd_only`, with the one feature a PPG
+    armband can report with confidence swapped in for the one it cannot (Mandatory
+    Rule #5 modality note; `development_journey.md` §4.13). Its macro-F1 against
+    `rule_rmssd_only`'s, on the same subjects, is the whole ablation #9 result —
+    whichever one a tier-T1 product can actually claim.
+    """
+    cfg = cfg or RuleConfig()
+    hr = reactivity.get("delta_pct_mean_hr")
+    if hr is None or hr != hr:
+        return TrueLabel.LOW          # no evidence of stress available
+    return TrueLabel.HIGH if hr >= cfg.hr_rise_pct else TrueLabel.LOW
