@@ -16,6 +16,18 @@
 export type Modality = 'ECG' | 'PPG'
 
 /**
+ * The product surface a response is allowed to render, per the T0/T1/T2 table
+ * in `docs/ARSITEKTUR_KARIRLINK_HRV.md` A4 (decision A5).
+ *
+ * 'T0' (no sensor) never appears here — both endpoints require a `modality`,
+ * so a response reaching this file always carries 'T1' (PPG) or 'T2' (ECG).
+ * It is typed as the full three-way union anyway, so a client checking
+ * `tier === 'T0'` is validated against the contract rather than against
+ * what this backend happens to send today.
+ */
+export type ProductTier = 'T0' | 'T1' | 'T2'
+
+/**
  * The stress label.
  *
  * Note the absence of 'uncertain'. The backend's `StressLevel` enum does have
@@ -134,6 +146,7 @@ export interface TimelineNarrative {
 export interface TimelineResponse {
   session_id: string
   modality: Modality
+  tier: ProductTier
   duration_sec: number
   baseline: Baseline
   timeline: TimelinePoint[]
@@ -197,6 +210,7 @@ export interface SessionResponse {
    * watch. Flagged as a proposed addition to the contract.
    */
   modality: Modality
+  tier: ProductTier
   baseline: Baseline
   questions: QuestionResult[]
   summary: SessionSummary

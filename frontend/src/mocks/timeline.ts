@@ -115,6 +115,7 @@ const STABLE_BASELINE: Baseline = {
 export const mockTimeline: TimelineResponse = {
   session_id: 'demo-timeline-001',
   modality: 'ECG',
+  tier: 'T2',
   duration_sec: 900,
   baseline: STABLE_BASELINE,
   timeline: points,

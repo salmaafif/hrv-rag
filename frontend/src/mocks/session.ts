@@ -204,6 +204,7 @@ function summarise(results: QuestionResult[]): SessionSummary {
 export const mockSession: SessionResponse = {
   session_id: 'demo-session-001',
   modality: 'ECG',
+  tier: 'T2',
   baseline: {
     rmssd_ms: 32,
     mean_hr_bpm: 73,

@@ -43,6 +43,7 @@ function session(questions: QuestionResult[]): SessionResponse {
   return {
     session_id: 'test',
     modality: 'ECG',
+    tier: 'T2',
     baseline: {
       rmssd_ms: 32,
       mean_hr_bpm: 73,

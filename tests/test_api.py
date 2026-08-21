@@ -193,8 +193,8 @@ def test_session_response_matches_the_contract(client):
     assert response.status_code == 200
     body = response.json()
 
-    assert set(body) >= {"session_id", "modality", "baseline", "questions",
-                         "summary", "narrative", "meta"}
+    assert set(body) >= {"session_id", "modality", "tier", "baseline",
+                         "questions", "summary", "narrative", "meta"}
     assert body["modality"] == "ECG"
     question = body["questions"][0]
     assert set(question) >= {"number", "text", "type", "level", "recovery_pct",
@@ -300,6 +300,20 @@ def test_modality_travels_with_the_result(client):
     payload = client.post("/api/v1/analyze/session", json=body,
                           headers={"X-API-Key": KEY}).json()
     assert payload["modality"] == "PPG"
+
+
+def test_tier_matches_the_modality(client):
+    """
+    Decision A5: a client must be able to tell which product surface it may
+    render (docs/ARSITEKTUR_KARIRLINK_HRV.md A4's T0/T1/T2 table) without
+    inferring it from which fields happen to be present.
+    """
+    ecg = client.post("/api/v1/analyze/session", json=session_body(modality="ECG"),
+                      headers={"X-API-Key": KEY}).json()
+    ppg = client.post("/api/v1/analyze/session", json=session_body(modality="PPG"),
+                      headers={"X-API-Key": KEY}).json()
+    assert ecg["tier"] == "T2"
+    assert ppg["tier"] == "T1"
 
 
 # ----------------------------------------------------- degrading gracefully
