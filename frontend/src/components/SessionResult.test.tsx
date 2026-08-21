@@ -84,6 +84,14 @@ describe('the result dashboard', () => {
     ).toBeDefined()
   })
 
+  it('states its scope, so tension is not read as a forecast of the interview', () => {
+    // Decision A16. HRV covers one of five MASI dimensions of interview
+    // anxiety, not "interview anxiety" as a whole.
+    render(<SessionResult result={mockSession} />)
+
+    expect(screen.getByText(/Tegang di sini tidak berarti/)).toBeDefined()
+  })
+
   it('shows no feature name, raw value or score anywhere on screen', () => {
     const { container } = render(<SessionResult result={mockSession} />)
     const text = container.textContent ?? ''

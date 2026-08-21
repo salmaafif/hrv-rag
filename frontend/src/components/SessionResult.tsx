@@ -53,18 +53,32 @@ export function SessionResult({ result }: { result: SessionResponse }) {
         </p>
       </Card>
 
-      {/*
-        Decision A14. A CHI 2021 study of 17 stress-tracker wearable users found
-        the main reason people stopped wearing them was not accuracy — it was a
-        mismatch between how they understand stress (psychologically) and how
-        the device measures it (physiologically). One sentence here says that
-        mismatch is expected, before the reader hits any number that might
-        surprise them.
-      */}
-      <p className="rounded-lg bg-unknown-bg px-4 py-3 text-xs text-unknown">
-        Kalau ini terasa tidak cocok dengan yang kamu rasakan, itu wajar — alat
-        ini membaca reaksi tubuh, yang tidak selalu sama dengan perasaan.
-      </p>
+      <div className="space-y-2 rounded-lg bg-unknown-bg px-4 py-3 text-xs text-unknown">
+        {/*
+          Decision A14. A CHI 2021 study of 17 stress-tracker wearable users
+          found the main reason people stopped wearing them was not accuracy
+          — it was a mismatch between how they understand stress
+          (psychologically) and how the device measures it (physiologically).
+          One sentence here says that mismatch is expected, before the reader
+          hits any number that might surprise them.
+        */}
+        <p>
+          Kalau ini terasa tidak cocok dengan yang kamu rasakan, itu wajar —
+          alat ini membaca reaksi tubuh, yang tidak selalu sama dengan
+          perasaan.
+        </p>
+        {/*
+          Decision A16. HRV touches one of MASI's five dimensions of interview
+          anxiety (Communication, Appearance, Social, Performance,
+          Behavioral/autonomic). Without this line the screen can be read as
+          measuring "interview anxiety" whole, which it does not, and tension
+          here can be misread as a forecast of a poor interview.
+        */}
+        <p>
+          Alat ini cuma membaca satu dari beberapa sisi kecemasan wawancara —
+          reaksi tubuhmu. Tegang di sini tidak berarti tampilmu buruk.
+        </p>
+      </div>
 
       {/* The three figures somebody can act on tomorrow. */}
       <div className="grid gap-4 sm:grid-cols-3">
