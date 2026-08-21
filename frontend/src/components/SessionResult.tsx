@@ -24,6 +24,16 @@
  * enforced by the API as it stands — it can only be enforced here, on the screen
  * that renders it, which is why A6 in `docs/ARSITEKTUR_KARIRLINK_HRV.md` moves
  * the enforcement into the response shape before the web team rebuilds this.
+ *
+ * THE FIRST THING ON SCREEN IS THE `penyemangat` CARD, not the session summary
+ * (decision A13, position half). Telling someone that a body's stress spike is
+ * a resource rather than a warning sign — reappraisal — is the one part of this
+ * screen with experimental evidence it changes what happens next (Jamieson et
+ * al.: d = 0.55 on performance, d = 0.53 on evaluation anxiety, effects that
+ * held up months later). Nothing else on this screen can make that claim, so it
+ * is read before anything else can compete for attention. A13's other half —
+ * steering what the LLM actually writes there toward reappraisal framing — is a
+ * prompt change, not a layout one, and is tracked separately.
  */
 
 import { Card } from './Card'
@@ -47,6 +57,10 @@ export function SessionResult({ result }: { result: SessionResponse }) {
 
   return (
     <>
+      <Card>
+        <p className="text-sm text-navy">{result.narrative.penyemangat}</p>
+      </Card>
+
       <Card eyebrow="Ringkasan sesi kamu">
         <p className="text-lg font-semibold text-navy">
           {result.narrative.ringkasan_sesi}
@@ -135,10 +149,6 @@ export function SessionResult({ result }: { result: SessionResponse }) {
             <QuestionResultCard key={question.number} result={question} />
           ))}
         </ul>
-      </Card>
-
-      <Card>
-        <p className="text-sm text-navy">{result.narrative.penyemangat}</p>
       </Card>
     </>
   )

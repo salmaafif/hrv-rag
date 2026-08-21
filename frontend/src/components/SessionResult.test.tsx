@@ -64,6 +64,20 @@ describe('the result dashboard', () => {
     }
   })
 
+  it('reads the encouragement card before the session summary', () => {
+    // Decision A13 (position half). Reappraisal is the one part of this
+    // screen with experimental evidence it changes what happens next, so it
+    // has to win the race for attention against everything else here.
+    const { container } = render(<SessionResult result={mockSession} />)
+    const text = container.textContent ?? ''
+
+    const encouragementAt = text.indexOf(mockSession.narrative.penyemangat)
+    const summaryAt = text.indexOf(mockSession.narrative.ringkasan_sesi)
+
+    expect(encouragementAt).toBeGreaterThanOrEqual(0)
+    expect(summaryAt).toBeGreaterThan(encouragementAt)
+  })
+
   it('states the hardest question once, not twice', () => {
     /**
      * It was a headline figure at the top AND a row in a card below the
