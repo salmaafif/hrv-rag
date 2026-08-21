@@ -74,6 +74,16 @@ describe('the result dashboard', () => {
     expect(parts).toHaveLength(2) // one split point = one occurrence
   })
 
+  it('tells the reader a mismatch with how they felt is expected', () => {
+    // Decision A14. Without this line, a body reading that disagrees with how
+    // someone remembers feeling reads as the tool being wrong about them.
+    render(<SessionResult result={mockSession} />)
+
+    expect(
+      screen.getByText(/tidak cocok dengan yang kamu rasakan/),
+    ).toBeDefined()
+  })
+
   it('shows no feature name, raw value or score anywhere on screen', () => {
     const { container } = render(<SessionResult result={mockSession} />)
     const text = container.textContent ?? ''
