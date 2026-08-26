@@ -383,3 +383,99 @@ def test_a_narrative_that_raises_does_not_take_the_response_with_it(
                            headers={"X-API-Key": KEY})
     assert response.status_code == 200
     assert response.json()["meta"]["trustworthy"] is False
+
+
+# ------------------------------------------------------- the session archive
+def test_a_consented_session_is_kept_whole(client, tmp_path, monkeypatch):
+    """
+    The archive is the answer to K17: no real session had ever been kept, so
+    nothing could be re-analysed, cited, or later labelled. What it stores must
+    be the EXACT recording — the response can always be recomputed from it, the
+    recording can never be produced again.
+    """
+    monkeypatch.setenv("HRV_ARCHIVE_DIR", str(tmp_path))
+    body = session_body(store_consented=True, session_id="pilot-01")
+
+    reply = client.post("/api/v1/analyze/session", json=body,
+                        headers={"X-API-Key": KEY})
+    assert reply.status_code == 200
+
+    files = list(tmp_path.glob("*.json"))
+    assert len(files) == 1
+    import json as jsonlib
+    kept = jsonlib.loads(files[0].read_text(encoding="utf-8"))
+    assert kept["format"] == "hrv-session-archive-v1"
+    assert kept["request"]["rr_ms"] == body["rr_ms"]          # verbatim, whole
+    assert kept["response"]["questions"], "the shown result travels with it"
+
+
+def test_no_consent_means_nothing_is_stored(client, tmp_path, monkeypatch):
+    """
+    The unticked checkbox is a complete answer. A configured server must not
+    'helpfully' keep the recording anyway — that would turn an infrastructure
+    setting into a consent override.
+    """
+    monkeypatch.setenv("HRV_ARCHIVE_DIR", str(tmp_path))
+
+    reply = client.post("/api/v1/analyze/session", json=session_body(),
+                        headers={"X-API-Key": KEY})
+    assert reply.status_code == 200
+    assert list(tmp_path.glob("*.json")) == []
+
+
+def test_an_unconfigured_server_stores_nothing_even_with_consent(
+        client, tmp_path, monkeypatch):
+    """
+    The second lock. The module will run on somebody else's infrastructure one
+    day; a caller's flag alone must not be able to start collection on a server
+    whose operator never chose a destination for it.
+    """
+    monkeypatch.delenv("HRV_ARCHIVE_DIR", raising=False)
+
+    reply = client.post("/api/v1/analyze/session",
+                        json=session_body(store_consented=True),
+                        headers={"X-API-Key": KEY})
+    assert reply.status_code == 200
+    assert list(tmp_path.glob("*.json")) == []
+
+    # Asked DIRECTLY, because "nothing appeared in tmp_path" cannot see a write
+    # that went somewhere else. A fallback directory smuggled in as a default
+    # would make this return a path — and that is precisely the mutation this
+    # line exists to catch.
+    from hrv_api.services.archive import archive_session
+    assert archive_session({"store_consented": True, "session_id": "x"},
+                           {}) is None
+
+
+def test_a_hostile_session_id_cannot_escape_the_archive_directory(
+        client, tmp_path, monkeypatch):
+    """
+    `session_id` comes from the caller and ends up in a filename. Dots and
+    separators are stripped, so `../../etc/passwd` can only ever name a file
+    INSIDE the archive directory.
+    """
+    monkeypatch.setenv("HRV_ARCHIVE_DIR", str(tmp_path))
+    body = session_body(store_consented=True, session_id="../../etc/passwd")
+
+    reply = client.post("/api/v1/analyze/session", json=body,
+                        headers={"X-API-Key": KEY})
+    assert reply.status_code == 200
+
+    files = list(tmp_path.glob("*.json"))
+    assert len(files) == 1
+    assert ".." not in files[0].name and "/" not in files[0].name
+
+
+def test_a_failed_archive_never_fails_the_analysis(client, monkeypatch):
+    """
+    The person answered questions and is owed their result. Losing the archive
+    copy is an operational regret, not a reason to throw their session away —
+    so a directory that cannot be written costs a log line, never a 500.
+    """
+    monkeypatch.setenv("HRV_ARCHIVE_DIR", "Z:/tidak-ada/dan-tidak-bisa-dibuat")
+
+    reply = client.post("/api/v1/analyze/session",
+                        json=session_body(store_consented=True),
+                        headers={"X-API-Key": KEY})
+    assert reply.status_code == 200
+    assert reply.json()["questions"]

@@ -259,6 +259,14 @@ export interface AnalyzeRequest {
    * something anyone will upload to a hosted demo.
    */
   csv?: string
+  /**
+   * The person agreed to their recording being kept for research.
+   *
+   * Set ONLY from an explicit checkbox the person ticked themselves — never
+   * defaulted on, never inferred. The flag alone stores nothing: the server
+   * must also be configured with an archive directory (two locks).
+   */
+  store_consented?: boolean
   /** How many minutes at the start of the recording form the baseline. */
   baseline_minutes: number
   modality: Modality

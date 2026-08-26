@@ -138,6 +138,33 @@ export function StartPage({ mode, device, session }: StageContext) {
           </Card>
         )}
 
+        {/*
+          Consent to keep the recording, asked HERE — before anything records —
+          and never pre-ticked. The wording states the three things consent law
+          and decency both require: what is kept (the heart data), what for
+          (research and module improvement), and what is not attached (their
+          name — the module only ever receives an opaque session id, A1).
+          The unticked state is a complete, respected answer: the session runs
+          identically and nothing is stored.
+        */}
+        <Card className="p-4!">
+          <label className="flex cursor-pointer items-start gap-3 text-sm">
+            <input
+              type="checkbox"
+              className="mt-0.5 h-4 w-4 accent-navy"
+              checked={session.storeConsented}
+              onChange={(event) => session.setStoreConsented(event.target.checked)}
+            />
+            <span className="text-ink-muted">
+              Saya setuju data detak jantung sesi ini{' '}
+              <span className="font-semibold text-navy">disimpan untuk riset</span>{' '}
+              dan perbaikan modul. Tanpa nama — hanya rekaman denyut dan hasil
+              analisisnya. Kalau tidak dicentang, sesi tetap jalan penuh dan
+              tidak ada yang disimpan.
+            </span>
+          </label>
+        </Card>
+
         <Button
           variant="accent"
           full

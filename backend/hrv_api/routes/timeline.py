@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from hrv_rag.core.types import Modality
 from ..deps import require_api_key
 from ..responses import build_response
+from ..services.archive import archive_session
 from ..schemas import TimelineRequest
 from ..services.analysis import AnalysisError, build_timeline, prepare
 from ..services.narrative import write_timeline_narrative
@@ -37,5 +38,9 @@ def analyze_timeline(request: TimelineRequest,
 
     narrative, meta = write_timeline_narrative(prepared, body, modality,
                                                request.session_id)
-    return build_response(request, prepared, body, narrative, meta, modality,
+    response = build_response(request, prepared, body, narrative, meta, modality,
                           include_duration=True, debug_scope=debug_scope)
+    # After the response is fully built, never before: the archive keeps what
+    # the person was actually shown. Failure to archive never fails the call.
+    archive_session(request.model_dump(), response)
+    return response

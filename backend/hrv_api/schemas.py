@@ -87,6 +87,15 @@ class AnalyzeRequest(BaseModel):
     #: returned to an integrator who never thinks about it.
     include_technical: bool = False
 
+    #: The person agreed to their recording being kept for research.
+    #:
+    #: Off by default, and the flag alone stores nothing: the server must also
+    #: have `HRV_ARCHIVE_DIR` configured (two locks — the caller holds consent,
+    #: the operator holds the destination; see `services/archive.py`). Consent
+    #: is a statement by the CALLER, who is the only party that ever met the
+    #: person; this module has no identity to attach it to, by design (A1).
+    store_consented: bool = False
+
     @model_validator(mode="after")
     def _exactly_one_recording(self) -> "AnalyzeRequest":
         if not self.rr_ms and not self.csv:
