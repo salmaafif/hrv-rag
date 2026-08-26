@@ -110,7 +110,7 @@ Sisanya:
   bukan Precision@k. Jendelanya terbuka lagi kalau KB diganti versi.
 - **#7** praregistrasi DL sebelum menyentuh holdout lagi
 - **#8** bedah S2 (aturan 0,920 vs CNN 0,398)
-- **#9** ablasi HR-saja — murah, nggak butuh LLM, melengkapi argumen PPG
+- ~~**#9** ablasi HR-saja~~ **SELESAI 25 Agt**: membuang RMSSD justru menaikkan hasil (tersegel 0,839 → 0,871; menolong 5 subjek, merugikan 0). T1/HW9 terbukti. Detail di BACKLOG U3.1b
 - **#10** putuskan durasi kalibrasi (lihat §5)
 - **#11** tiga gerbang mutu HW5 di React — logikanya sudah ada di
   `frontend/uji-protokol-hrv.logic.js`, tinggal dipakai ulang

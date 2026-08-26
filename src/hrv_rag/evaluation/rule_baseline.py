@@ -95,16 +95,34 @@ def rule_rmssd_and_hr(reactivity: dict[str, float],
 def rule_hr_only(reactivity: dict[str, float],
                  cfg: RuleConfig | None = None) -> TrueLabel:
     """
-    Single-feature rule: stressed when heart rate rises far enough above baseline.
+    Heart rate alone — the comparator that decides whether an armband is enough.
 
-    Deliberately the same shape as `rule_rmssd_only`, with the one feature a PPG
-    armband can report with confidence swapped in for the one it cannot (Mandatory
-    Rule #5 modality note; `development_journey.md` §4.13). Its macro-F1 against
-    `rule_rmssd_only`'s, on the same subjects, is the whole ablation #9 result —
-    whichever one a tier-T1 product can actually claim.
+    NOT AN ACADEMIC EXERCISE. The first test device is a Coospo HW9, an optical
+    armband, and optical sensors give a trustworthy heart rate but an untrustworthy
+    RMSSD: paired against ECG on WESAD, meanHR reached ICC +0.986 while RMSSD
+    managed +0.109, and beat detection fell to 78-84% during the stressor itself.
+    So this is not "the rule minus a feature" — it is the rule as it will actually
+    run on the hardware that was bought.
+
+    THE RESULT WAS NOT THE EXPECTED ONE. Measured on the ten sealed subjects,
+    dropping RMSSD did not cost anything; it HELPED. Macro-F1 went from 0.839 to
+    0.871 and kappa from 0.678 to 0.742, and per subject the change was positive
+    five times, zero five times, and negative never. The paired difference is
+    +0.031 with a 95% interval of [+0.008, +0.056], which does not touch zero.
+
+    The reason is already documented as limitation L9: RMSSD moved the WRONG way
+    under stress in two of five development subjects, while heart rate rose in all
+    five. A feature that points backwards for a substantial minority of people is
+    not adding evidence, it is adding noise — and on this dataset removing it is a
+    net gain rather than a compromise.
+
+    WHAT THIS DOES NOT SAY. It does not say RMSSD is useless in general; it says
+    RMSSD measured over 60-second windows, on this stressor, in this population of
+    fifteen, did not help this rule. And it is measured on ECG recordings with
+    RMSSD withheld, which is a simulation of an armband rather than an armband.
     """
     cfg = cfg or RuleConfig()
     hr = reactivity.get("delta_pct_mean_hr")
     if hr is None or hr != hr:
-        return TrueLabel.LOW          # no evidence of stress available
+        return TrueLabel.LOW          # nothing measured, nothing to claim
     return TrueLabel.HIGH if hr >= cfg.hr_rise_pct else TrueLabel.LOW
