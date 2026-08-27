@@ -108,16 +108,18 @@ atomic yang bisa dites & di-commit sendiri, urut dari paling independen:
 | ID | Tugas | Status |
 |---|---|---|
 | E3a | **Writer `ExternalSignal` — SELESAI 27 Agt.** `ExternalSignalService.recordHeartRate()` di `apps/backend/src/modules/integration/` (repo karirlink): tulis **satu baris** `signalType` dari kontrak (bukan literal), payload `SessionResponse` disimpan **buram**. `create` bukan `upsert` (tak ada indeks unik). Hanya menulis — jalur baca KSAO sengaja tak ditiru (B2). Commit `627f5900` di branch `feat/hrv`. **Belum ada pemanggil** | selesai |
-| E3b | **Panggilan server-ke-server ke modul HRV** → dapat `SessionResponse` → panggil writer E3a. **Butuh keputusan arsitektur dulu (lihat catatan bawah).** Saat slice ini nyambung: balik penanda `sudahMengirimData` di kontrak jadi `true` — tripwire `external-signal.contract.spec.ts` akan menggigit dan memaksa catatan status diperbarui | blokir |
+| E3b-1 | **Klien keluar `HrvModuleService` — SELESAI 27 Agt.** Panggilan server-ke-server ke modul HRV (`POST /api/v1/analyze/session`), meniru `AiGatewayService`: base URL/kunci/timeout dari env (`HRV_API_URL`/`HRV_API_KEY`/`HRV_API_TIMEOUT_MS`), terjemah request camel→snake, respons dikembalikan **buram**. `include_technical` dikunci `false`. Commit `3654f752` di branch `feat/hrv`. **Belum ada pemanggil** | selesai |
+| E3b-2 | **Penyambungan end-to-end**: endpoint NestJS yang menerima data denyut dari browser → `HrvModuleService.analyzeSession` → `ExternalSignalService.recordHeartRate`, degradasi anggun (kontrak §4.3), lalu **balik penanda `sudahMengirimData`** jadi `true` (tripwire `external-signal.contract.spec.ts` menggigit). Butuh kontrak masukan denyut yang sumbernya baru ada setelah E1 | belum |
 | E-port-1 | **Port logika murni** `heartRateProtocol.ts` + `questionTiming.ts` + `questionHeartRate.ts` + tipe kontrak dari `frontend/` (Vite) ke Next.js, bawa tesnya. Aman (fungsi murni), tapi jadi kode mati sampai UI (E1) memakainya | belum |
 | E2 | **Jaga dua jam** (`offset_sec`) di sisi Next.js: sensor mengalir **sejak tersambung**, jam sesi mulai **saat tombol ditekan**. Salah di sini tidak error — hanya tiap pertanyaan dinilai dari menit rekaman yang salah, diam-diam. Bergantung E-port-1 (belum ada "client karirlink" sebelum itu). Kelas bug ini dijaga tes di backend hrv-rag dan client (`questionHeartRate.test.ts`) | belum |
 | E1 | **Port akuisisi Web Bluetooth** dari `frontend/` (Vite) ke Next.js KARIRLINK: hook + layar sesi ke App Router. Termasuk watchdog aliran denyut (5 dtk sunyi saat "tersambung" → banner merah; `gattserverdisconnected` TIDAK menyala saat aplikasi lain merebut sensor — hanya kedatangan denyut yang mendeteksinya). Paling besar, paling banyak keputusan desain | belum |
 | E4 | **Degradasi anggun** (kontrak §4.3): modul mati / sensor tak tersambung → wawancara jalan penuh tanpa baris `heart_rate`. LLM gagal / kuota habis → label tetap keluar (aturan luring), hanya narasi kosong, `meta.trustworthy` menandainya | belum |
 
-**Keputusan arsitektur yang memblokir E3b:** modul HRV (FastAPI terpisah) dipanggil
-**lewat AI Gateway** (sesuai diagram rancangan §2: NestJS → AI Gateway → Modul HRV)
-atau **NestJS memanggil modul HRV langsung**? Pola `AiGatewayService` sudah jadi
-template untuk salah satunya. Harus diputuskan sebelum E3b.
+**Keputusan arsitektur (DIPUTUSKAN 27 Agt): NestJS memanggil modul HRV langsung**,
+bukan lewat AI Gateway. Alasannya `apps/ai-gateway` khusus Gemini sedangkan modul
+HRV mandiri (endpoint sendiri, `X-API-Key`, panggil Gemini sendiri) — proxy hanya
+menambah hop Python→Python tanpa manfaat. Koreksi bertanggal ada di
+`rancangan-rag-hrv.md` §4.1.
 
 ---
 
