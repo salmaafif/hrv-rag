@@ -56,6 +56,18 @@ const RR_MAX_MS = 2000
 /** How many recent intervals the quality estimate looks at. */
 const QUALITY_WINDOW = 60
 
+/**
+ * Silence this long, while connected, means the beat stream has stalled.
+ *
+ * A heart-rate strap notifies about once per second; even at 30 bpm a beat
+ * arrives every two. Five seconds of nothing is not a slow heart, it is a
+ * stolen connection — the third real pilot session died exactly this way when
+ * another app grabbed the sensor mid-interview, the badge stayed green, and
+ * the loss surfaced fifteen minutes later as an unanalysable recording. The
+ * money moment for this warning is second five, not minute fifteen.
+ */
+const STALL_AFTER_MS = 5000
+
 export interface DeviceConnection {
   /** False when the browser cannot do Web Bluetooth at all. */
   isSupported: boolean
@@ -71,6 +83,13 @@ export interface DeviceConnection {
   signalQuality: SignalQuality | null
   /** Live beats per minute. Shown as evidence the sensor is reading. */
   bpm: number | null
+  /**
+   * True while the device claims to be connected but no beat has arrived for
+   * several seconds. Distinct from a disconnect: when another app takes over
+   * the sensor, no `gattserverdisconnected` ever fires — the notifications
+   * simply stop, and only a watchdog on the last beat's arrival can tell.
+   */
+  streamStalled: boolean
   /**
    * Whether this device actually sends beat-to-beat intervals.
    *
@@ -137,6 +156,11 @@ export function useDeviceConnection(simulate = false): DeviceConnection {
   const [rrIntervals, setRrIntervals] = useState<number[]>([])
   const [signalQuality, setSignalQuality] = useState<SignalQuality | null>(null)
 
+  const [streamStalled, setStreamStalled] = useState(false)
+  //: When the last beat arrived. A ref, not state — it changes every second and
+  //: nothing renders from it; only the watchdog below reads it.
+  const lastBeatAtRef = useRef<number>(0)
+
   const deviceRef = useRef<BluetoothDevice | null>(null)
 
   const handleMeasurement = useCallback((event: Event) => {
@@ -144,6 +168,8 @@ export function useDeviceConnection(simulate = false): DeviceConnection {
     if (!characteristic.value) return
 
     const sample = parseHeartRateMeasurement(characteristic.value)
+    lastBeatAtRef.current = Date.now()
+    setStreamStalled(false)
     setBpm(sample.bpm)
     setSendsRr((known) => known ?? sample.hasRrIntervals)
 
@@ -259,6 +285,8 @@ export function useDeviceConnection(simulate = false): DeviceConnection {
         return
       }
       played.push(beat)
+      lastBeatAtRef.current = Date.now()
+      setStreamStalled(false)
       setBpm(Math.round(60000 / beat))
       setRrIntervals([...played])
       setSignalQuality(judgeQuality(played.slice(-QUALITY_WINDOW)))
@@ -268,6 +296,24 @@ export function useDeviceConnection(simulate = false): DeviceConnection {
     emit()
     return () => window.clearTimeout(timer)
   }, [simulate, status])
+
+  // The watchdog. `gattserverdisconnected` covers a sensor that switches off;
+  // it does NOT cover a sensor another app takes over — the connection stays
+  // "up" and the notifications simply stop. Only the beats' own arrival time
+  // can tell those states apart, so that is what is watched.
+  useEffect(() => {
+    if (status !== 'connected') {
+      setStreamStalled(false)
+      return
+    }
+    lastBeatAtRef.current = Date.now()      // connecting is not yet a stall
+    const timer = window.setInterval(() => {
+      if (Date.now() - lastBeatAtRef.current > STALL_AFTER_MS) {
+        setStreamStalled(true)
+      }
+    }, 1000)
+    return () => window.clearInterval(timer)
+  }, [status])
 
   const disconnect = useCallback(() => {
     deviceRef.current?.gatt?.disconnect()
@@ -298,6 +344,7 @@ export function useDeviceConnection(simulate = false): DeviceConnection {
     wornAt,
     signalQuality,
     bpm,
+    streamStalled,
     sendsRrIntervals,
     rrIntervals,
     clearIntervals,

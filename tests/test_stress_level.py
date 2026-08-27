@@ -10,7 +10,7 @@ import pytest
 
 from hrv_rag.config.settings import settings
 from hrv_rag.core.schemas import StressLevel
-from hrv_rag.features.stress_level import classify
+from hrv_rag.features.stress_level import RULE_VERSION, classify
 
 #: Read the thresholds rather than hard-coding them.
 #:
@@ -158,3 +158,14 @@ def test_just_inside_the_flat_zone_is_low():
                    hr=CFG.hr_moderate_pct - 0.1))
     assert v.points == 0
     assert v.level is StressLevel.LOW
+
+
+def test_rule_version_is_traceable_to_a_freeze_date():
+    """
+    docs/ARSITEKTUR_KARIRLINK_HRV.md §3.3: a result has to be traceable to the
+    exact rule that produced it, not just to "the current code". This is a
+    thin test on purpose — it exists to notice a silent regression to an
+    empty string, not to police the exact format of the identifier.
+    """
+    assert RULE_VERSION
+    assert "2026" in RULE_VERSION

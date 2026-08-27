@@ -224,6 +224,39 @@ class DynamicsConfig:
 
 
 # ===========================================================================
+# SIGNAL FITNESS — is this recording good enough for RMSSD?
+# ===========================================================================
+@dataclass(frozen=True)
+class SignalFitnessConfig:
+    """
+    When RMSSD from a recording is allowed to influence the label.
+
+    Judged per SIGNAL, not per device class — the case against "PPG" turned out
+    to be the case against one wrist device (Empatica E4: 16-37% outliers under
+    stress), while the project's armband passed every check here while its
+    wearer spoke. Full reasoning in `features/signal_fitness.py`.
+    """
+
+    # Whole-recording flagged-beat ratio during the answering phase. Matches the
+    # per-segment production gate. What separated the devices in measured data:
+    # E4 under TSST 16-37% (fails), HW9 while speaking 2-7% (passes).
+    max_task_outlier_ratio: float = 0.10
+
+    # Intervals near twice the median = beats the detector missed. Each one
+    # forges a whole-beat successive difference, the exact quantity RMSSD
+    # squares. HW9 field sessions measured 0.6-0.7%; the limit leaves headroom
+    # for a rough patch without accepting a detector that keeps dropping beats.
+    max_missed_beat_ratio: float = 0.02
+
+    # Quantization noise floor (step/sqrt(6)) as a fraction of resting RMSSD.
+    # Quantization mostly ATTENUATES relative drops rather than fabricating
+    # them: at a floor of 0.3x the true RMSSD, a genuine -20% drop still reads
+    # about -18%; beyond that the rule's moderate threshold starts to blur.
+    # HW9: floor 2.8 ms on resting RMSSD 35-62 ms = 0.04-0.08, comfortably in.
+    max_quantization_ratio: float = 0.30
+
+
+# ===========================================================================
 # BASELINE QUALITY GATE
 # ===========================================================================
 @dataclass(frozen=True)
@@ -663,6 +696,7 @@ class Settings:
     frequency: FrequencyConfig = field(default_factory=FrequencyConfig)
     dynamics: DynamicsConfig = field(default_factory=DynamicsConfig)
     baseline_gate: BaselineGateConfig = field(default_factory=BaselineGateConfig)
+    signal_fitness: SignalFitnessConfig = field(default_factory=SignalFitnessConfig)
     stress_rule: StressRuleConfig = field(default_factory=StressRuleConfig)
     rag: RAGConfig = field(default_factory=RAGConfig)
     llm: LLMConfig = field(default_factory=LLMConfig)

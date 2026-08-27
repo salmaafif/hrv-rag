@@ -96,6 +96,8 @@ export interface SessionState {
    * and uploaded once the interview is over.
    */
   isReady: boolean
+  storeConsented: boolean
+  setStoreConsented: (agreed: boolean) => void
 
   /**
    * When each question was actually asked, recorded by V3 as it ran.
@@ -150,6 +152,11 @@ export function useSessionState(device: DeviceConnection): SessionState {
     const buffered = device.rrIntervals.reduce((total, ms) => total + ms, 0)
     setSessionOffsetSec(buffered / 1000)
   }, [device.rrIntervals])
+
+  // Consent to keep the recording for research. False until the person ticks
+  // the box themselves — a session that never saw the checkbox sends false,
+  // which is the correct statement about it.
+  const [storeConsented, setStoreConsented] = useState(false)
 
   const [status, setStatus] = useState<AnalysisStatus>('idle')
   const [result, setResult] = useState<TimelineResponse | SessionResponse | null>(
@@ -216,6 +223,7 @@ export function useSessionState(device: DeviceConnection): SessionState {
           // up with the interview because the same clock produced both.
           const beats = device.rrIntervals
           const base: AnalyzeRequest = {
+            store_consented: storeConsented,
             baseline_minutes: baselineMinutes,
             offset_sec: beats.length ? sessionOffsetSec : 0,
             modality,
@@ -250,6 +258,7 @@ export function useSessionState(device: DeviceConnection): SessionState {
       void send()
     },
     [baselineMinutes, device.rrIntervals, file, modality, questionTimeline,
+     storeConsented,
      sessionOffsetSec],
   )
 
@@ -264,6 +273,8 @@ export function useSessionState(device: DeviceConnection): SessionState {
     setFileWornAt,
     modality,
     isReady,
+    storeConsented,
+    setStoreConsented,
     questionTimeline,
     setQuestionTimeline,
     status,

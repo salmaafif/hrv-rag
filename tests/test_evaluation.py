@@ -18,7 +18,8 @@ from hrv_rag.evaluation.labels import (EvaluationRecord, TrueLabel,
 from hrv_rag.evaluation.metrics import (evaluate_classification,
                                         paired_difference_ci)
 from hrv_rag.evaluation.rag_metrics import FaithfulnessReport
-from hrv_rag.evaluation.rule_baseline import rule_rmssd_and_hr, rule_rmssd_only
+from hrv_rag.evaluation.rule_baseline import (RuleConfig, rule_hr_only,
+                                              rule_rmssd_and_hr, rule_rmssd_only)
 
 
 def record(truth: TrueLabel, predicted: TrueLabel | None,
@@ -366,6 +367,24 @@ def test_rule_reports_low_when_nothing_moved():
                               "delta_pct_mean_hr": 0.0}) is TrueLabel.LOW
 
 
+def test_hr_only_rule_ignores_rmssd():
+    """
+    Ablation #9's whole point: this rule must not see the feature a PPG armband
+    cannot deliver reliably. A steep RMSSD drop alone must not flip it to HIGH.
+    """
+    assert rule_hr_only({"delta_pct_rmssd": -35.0,
+                         "delta_pct_mean_hr": +1.0}) is TrueLabel.LOW
+
+
+def test_hr_only_rule_fires_on_heart_rate_alone():
+    assert rule_hr_only({"delta_pct_rmssd": +5.0,
+                         "delta_pct_mean_hr": +25.0}) is TrueLabel.HIGH
+
+
+def test_hr_only_rule_abstains_low_when_hr_missing():
+    assert rule_hr_only({"delta_pct_rmssd": -35.0}) is TrueLabel.LOW
+
+
 # ---------------------------------------------------------- faithfulness
 def test_clean_rate_counts_assessments_not_violations():
     """
@@ -413,3 +432,33 @@ def test_cache_key_changes_with_every_setting_that_changes_the_answer():
                          ("model", "other"), ("temperature", 0.7),
                          ("pinned", "KB-INTERP-01")]:
         assert cache_key(**base) != cache_key(**{**base, field: other}), field
+
+
+# ------------------------------------------------- the HR-only comparator
+def test_hr_only_rule_ignores_rmssd_entirely():
+    """
+    The comparator that decides whether an optical armband is enough hardware.
+    It must reach its verdict from heart rate alone — a version that peeked at
+    RMSSD would answer the wrong question and look identical doing it.
+    """
+    rmssd_screams_stress = {"delta_pct_rmssd": -80.0, "delta_pct_mean_hr": 0.0}
+    hr_alone_says_stress = {"delta_pct_rmssd": +50.0, "delta_pct_mean_hr": 25.0}
+
+    assert rule_hr_only(rmssd_screams_stress) is TrueLabel.LOW
+    assert rule_hr_only(hr_alone_says_stress) is TrueLabel.HIGH
+
+
+def test_hr_only_rule_sits_on_its_threshold():
+    cfg = RuleConfig()
+    assert rule_hr_only({"delta_pct_mean_hr": cfg.hr_rise_pct}) is TrueLabel.HIGH
+    assert rule_hr_only({"delta_pct_mean_hr": cfg.hr_rise_pct - 0.1}) is TrueLabel.LOW
+
+
+def test_hr_only_rule_claims_nothing_when_heart_rate_is_missing():
+    """
+    A missing measurement is not evidence of calm. Returning LOW is the
+    conservative reading — the same one the other comparators take — and it is
+    recorded here so a later change to guess instead would fail loudly.
+    """
+    assert rule_hr_only({}) is TrueLabel.LOW
+    assert rule_hr_only({"delta_pct_mean_hr": float("nan")}) is TrueLabel.LOW

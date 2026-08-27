@@ -13,8 +13,8 @@
  * looking for one.
  */
 
-import { render, screen } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { cleanup, render, screen } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SessionResult } from './SessionResult'
 import { mockSession } from '../mocks/session'
 
@@ -26,6 +26,12 @@ vi.mock('react-chartjs-2', () => ({
   Line: () => <div data-testid="line" />,
 }))
 
+// This project runs vitest without `globals: true`, so React Testing
+// Library's automatic per-test cleanup never registers itself. Without this,
+// each `it` below leaves its render mounted, and a later `getByText` matches
+// one heading per accumulated render instead of one.
+afterEach(cleanup)
+
 describe('the result dashboard', () => {
   it('mounts both charts and the panels around them', () => {
     render(<SessionResult result={mockSession} />)
@@ -34,7 +40,17 @@ describe('the result dashboard', () => {
     expect(screen.getByTestId('line')).toBeDefined()
     expect(screen.getByText('Gambaran sesi kamu')).toBeDefined()
     expect(screen.getByText('Naik-turun sepanjang sesi')).toBeDefined()
-    expect(screen.getByText('Balik tenang setelah tiap pertanyaan')).toBeDefined()
+    expect(screen.getByText('Rincian per pertanyaan')).toBeDefined()
+  })
+
+  it('shows the per-question detail as a slider, one question at a time', () => {
+    render(<SessionResult result={mockSession} />)
+
+    expect(screen.getByText(mockSession.questions[0]!.text)).toBeDefined()
+    expect(
+      screen.queryByText(mockSession.questions[1]!.text),
+    ).toBeNull()
+    expect(screen.getByLabelText('Pertanyaan berikutnya')).toBeDefined()
   })
 
   it('shows no feature name, raw value or score anywhere on screen', () => {

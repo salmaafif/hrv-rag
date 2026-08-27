@@ -27,6 +27,7 @@
  * the developer panel.
  */
 
+import { formatResilience } from './format'
 import type { QuestionResult, SessionResponse, StressLevel } from '../types/api'
 
 /**
@@ -112,45 +113,47 @@ function recovery(questions: QuestionResult[]): Dimension {
 }
 
 /**
- * Whether the later half of the interview ran calmer than the earlier half.
+ * Where the session landed on reaction size and recovery speed, as one value.
  *
- * Fifty is "no change", not "average" — this axis measures a DIRECTION, and a
- * session that held steady genuinely sits in the middle of it. Reading it as a
- * mediocre score would be a misreading, which is why `meaning` says which way
- * it went in words rather than leaving the number to speak.
+ * READ FROM THE BACKEND'S LABEL, NOT RECOMPUTED. `summary.resilience` is
+ * decided by the rule in `features/dynamics.py` from its own calibrated
+ * thresholds; deriving a second answer here from the per-question numbers
+ * would let the chart and the words disagree. The frontend only translates
+ * the quadrant onto the 0-100 scale the radar needs.
  *
- * An odd number of questions puts the middle one in neither half. Splitting it
- * across both would let one question pull both ends at once.
+ * The mapping is additive, not ranked: the quadrant has two independent
+ * favourable halves — a small reaction and a fast recovery — and each one
+ * contributes 50. That is why two mixed quadrants share the middle: "big
+ * reaction but fast recovery" and "small reaction but slow recovery" each got
+ * one half right, and pretending one of them outranks the other would be a
+ * claim the rule never made. The `meaning` sentence tells them apart.
+ *
+ * Null when the quadrant is null: recovery was never measurable, one axis of
+ * the definition is missing, and inventing a value would state a conclusion
+ * about a measurement nobody took.
  */
-function endurance(questions: QuestionResult[]): Dimension {
-  const half = Math.floor(questions.length / 2)
-  if (half === 0) {
+function resilience(quadrant: SessionResponse['summary']['resilience']): Dimension {
+  if (quadrant === null) {
     return {
-      key: 'endurance',
-      label: 'Endurance',
+      key: 'resilience',
+      label: 'Resilience',
       value: null,
       meaning: 'Belum terukur',
       unmeasured:
-        'Butuh minimal dua pertanyaan.',
+        'Pemulihanmu belum terukur, jadi bagian ini belum bisa disimpulkan.',
     }
   }
 
-  const mean = (part: QuestionResult[]) =>
-    part.reduce((total, q) => total + PRESSURE[q.level], 0) / part.length
-  const early = mean(questions.slice(0, half))
-  const late = mean(questions.slice(-half))
-  const shift = early - late
+  const smallReaction =
+    quadrant === 'high resilience' || quadrant === 'held-in tension'
+  const fastRecovery =
+    quadrant === 'high resilience' || quadrant === 'responsive but flexible'
 
   return {
-    key: 'endurance',
-    label: 'Endurance',
-    value: clamp(50 + shift / 2),
-    meaning:
-      shift > 5
-        ? 'Kamu makin santai menjelang akhir'
-        : shift < -5
-          ? 'Tekanannya menumpuk di akhir'
-          : 'Segitu-gitu saja dari awal sampai akhir',
+    key: 'resilience',
+    label: 'Resilience',
+    value: (smallReaction ? 50 : 0) + (fastRecovery ? 50 : 0),
+    meaning: formatResilience(quadrant),
   }
 }
 
@@ -172,7 +175,7 @@ export function responseDimensions(result: SessionResponse): Dimension[] {
   return [
     calmness(questions),
     recovery(questions),
-    endurance(questions),
+    resilience(result.summary.resilience),
   ]
 }
 

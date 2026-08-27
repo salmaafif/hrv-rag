@@ -204,6 +204,7 @@ function summarise(results: QuestionResult[]): SessionSummary {
 export const mockSession: SessionResponse = {
   session_id: 'demo-session-001',
   modality: 'ECG',
+  tier: 'T2',
   baseline: {
     rmssd_ms: 32,
     mean_hr_bpm: 73,
@@ -227,6 +228,8 @@ export const mockSession: SessionResponse = {
     kb_version: 'kb_v2.0',
     model: 'gemini-2.5-flash',
     trustworthy: true,
+    prompt_version: 'HRV_session_narrative',
+    rule_version: 'K16-2026-08-03',
   },
 }
 

@@ -124,3 +124,47 @@ describe('developer mode serves the fixture', () => {
     expect(usesMockData(true)).toBe(true)     // dev mode, banner back on
   })
 })
+
+
+describe('the server detail travels with a 422', () => {
+  /**
+   * The backend writes its 422 reasons to be actionable; for one whole testing
+   * afternoon they were discarded in favour of a canned sentence, so a
+   * too-short recording, a stalled sensor and a mistimed question all looked
+   * identical on screen. The canned sentence stays as the headline; the detail
+   * must arrive beside it.
+   */
+  it('exposes the backend reason on the thrown error', async () => {
+    vi.stubEnv('VITE_USE_MOCK_API', 'false')
+    vi.stubEnv('VITE_API_BASE_URL', 'http://localhost:8000')
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({ detail: 'no question had a usable window' }),
+        { status: 422 },
+      ),
+    )
+
+    const attempt = analyzeSession(
+      { baseline_minutes: 2, modality: 'ECG', questions: [] } as never,
+    )
+    await expect(attempt).rejects.toMatchObject({
+      serverDetail: 'no question had a usable window',
+      retryable: false,
+    })
+    vi.restoreAllMocks()
+  })
+
+  it('copes with an error body that is not JSON', async () => {
+    vi.stubEnv('VITE_USE_MOCK_API', 'false')
+    vi.stubEnv('VITE_API_BASE_URL', 'http://localhost:8000')
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response('<html>gateway timeout</html>', { status: 422 }),
+    )
+
+    await expect(
+      analyzeSession({ baseline_minutes: 2, modality: 'ECG',
+                       questions: [] } as never),
+    ).rejects.toMatchObject({ serverDetail: null })
+    vi.restoreAllMocks()
+  })
+})

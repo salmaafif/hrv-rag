@@ -1,5 +1,5 @@
 /**
- * ResponseRadar.tsx — the four-axis chart of how this session went.
+ * ResponseRadar.tsx — the three-axis chart of how this session went.
  *
  * THE CAPTION IS PART OF THE COMPONENT, not decoration. A radar chart is read
  * as a personality profile whatever its axes are called — that is what the
@@ -11,7 +11,7 @@
  *
  * An axis this session could not measure is drawn at zero and NAMED as
  * unmeasured underneath. Leaving it out would silently reshape the polygon, and
- * a four-sided figure missing a side reads as a low score rather than as a gap
+ * a three-sided figure missing a side reads as a low score rather than as a gap
  * in the recording.
  */
 
@@ -96,7 +96,7 @@ export function ResponseRadar({ dimensions }: { dimensions: Dimension[] }) {
 
       {/*
         The axis meanings sit under the chart they belong to, not in the panel
-        beside it. Four one-word labels on a radar are a quiz otherwise — the
+        beside it. Three one-word labels on a radar are a quiz otherwise — the
         first person to see this one asked what an axis meant, which is the only
         review a label ever really gets.
       */}

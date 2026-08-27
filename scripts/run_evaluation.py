@@ -51,7 +51,8 @@ from hrv_rag.evaluation.metrics import (evaluate_classification,  # noqa: E402
                                         evaluate_per_subject)
 from hrv_rag.evaluation.rag_metrics import (measure_calibration,  # noqa: E402
                                             measure_faithfulness)
-from hrv_rag.evaluation.rule_baseline import (rule_rmssd_and_hr,  # noqa: E402
+from hrv_rag.evaluation.rule_baseline import (rule_hr_only,       # noqa: E402
+                                              rule_rmssd_and_hr,
                                               rule_rmssd_only)
 from hrv_rag.features.extractor import load_features            # noqa: E402
 
@@ -111,6 +112,7 @@ def report_rule_baselines(data: pd.DataFrame) -> None:
         ("always low", lambda _: TrueLabel.LOW),
         ("RMSSD only", rule_rmssd_only),
         ("RMSSD or heart rate", rule_rmssd_and_hr),
+        ("heart rate only (ablation #9, tier T1)", rule_hr_only),
     ]
     for name, rule in variants:
         records = []

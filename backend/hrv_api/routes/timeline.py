@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from hrv_rag.core.types import Modality
 from ..deps import require_api_key
 from ..responses import build_response
+from ..services.archive import archive_session
 from ..schemas import TimelineRequest
 from ..services.analysis import AnalysisError, build_timeline, prepare
 from ..services.narrative import write_timeline_narrative
@@ -21,8 +22,9 @@ from ..services.narrative import write_timeline_narrative
 router = APIRouter()
 
 
-@router.post("/api/v1/analyze/timeline", dependencies=[Depends(require_api_key)])
-def analyze_timeline(request: TimelineRequest) -> dict:
+@router.post("/api/v1/analyze/timeline")
+def analyze_timeline(request: TimelineRequest,
+                     debug_scope: bool = Depends(require_api_key)) -> dict:
     """V1: score every 60-second window after the resting period."""
     modality = Modality(request.modality)
     try:
@@ -31,10 +33,17 @@ def analyze_timeline(request: TimelineRequest) -> dict:
                            request.offset_sec)
         body = build_timeline(prepared)
     except AnalysisError as exc:
-        # 422, not 500: the recording is the problem, and the message says how.
+        # A consented recording that FAILS analysis is still a recording — often
+        # the more valuable kind, because failures are what the field metrics
+        # count. One real session was lost exactly here before this line existed.
+        archive_session(request.model_dump(), {"error": str(exc)})
         raise HTTPException(422, str(exc)) from None
 
     narrative, meta = write_timeline_narrative(prepared, body, modality,
                                                request.session_id)
-    return build_response(request, prepared, body, narrative, meta, modality,
-                          include_duration=True)
+    response = build_response(request, prepared, body, narrative, meta, modality,
+                          include_duration=True, debug_scope=debug_scope)
+    # After the response is fully built, never before: the archive keeps what
+    # the person was actually shown. Failure to archive never fails the call.
+    archive_session(request.model_dump(), response)
+    return response

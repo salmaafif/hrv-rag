@@ -23,7 +23,9 @@ from __future__ import annotations
 import logging
 
 from .analysis import Prepared
+from hrv_rag.config.settings import settings
 from hrv_rag.core.types import Modality
+from hrv_rag.features.stress_level import RULE_VERSION
 
 log = logging.getLogger(__name__)
 
@@ -37,7 +39,15 @@ UNAVAILABLE = (
 
 def _fallback_meta(reason: str) -> dict:
     return {"kb_version": "", "model": "", "trustworthy": False,
-            "narrative_error": reason}
+            "narrative_error": reason,
+            # The rule already ran and produced every number in the response
+            # before the narrative was even attempted (see module docstring),
+            # so its version is known regardless of what happened here.
+            # `prompt_version` names the template that WOULD have been used —
+            # deterministic from config, not from a result object that does
+            # not exist in this branch.
+            "rule_version": RULE_VERSION,
+            "prompt_version": settings.llm.narrative_prompt}
 
 
 def _meta(result) -> dict:
@@ -47,6 +57,11 @@ def _meta(result) -> dict:
         # False when a guard caught an invented number or a citation for a chunk
         # that was never retrieved.
         "trustworthy": result.is_trustworthy,
+        # A6/§3.3, docs/ARSITEKTUR_KARIRLINK_HRV.md: reproducing a past result
+        # needs the exact rule thresholds (K16, frozen — see StressRuleConfig)
+        # and the exact prompt template, not just the KB and model name.
+        "rule_version": RULE_VERSION,
+        "prompt_version": result.prompt_name,
     }
 
 

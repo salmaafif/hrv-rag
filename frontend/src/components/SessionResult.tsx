@@ -6,7 +6,10 @@
  * any chart, the three figures they can act on come next, and the picture of
  * the shape follows. The per-question detail sits last, because it is the
  * working behind the answer rather than the answer — and because scrolling
- * straight into six verdicts is a bad way to be told anything.
+ * straight into six verdicts is a bad way to be told anything. That detail is
+ * a slider rather than six stacked cards for the same reason: somebody who
+ * already has the headline figures should be able to check one question at a
+ * time, at their own pace, instead of scrolling past every verdict at once.
  *
  * WHAT IS DELIBERATELY ABSENT. No RMSSD, no percentage change against baseline,
  * no score out of four, no feature name anywhere (decision K4). Those all exist
@@ -16,8 +19,7 @@
  */
 
 import { Card } from './Card'
-import { QuestionResultCard } from './QuestionResultCard'
-import { RecoveryBars } from './RecoveryBars'
+import { QuestionSlider } from './QuestionSlider'
 import { ResponseRadar } from './ResponseRadar'
 import { StressTimeline } from './StressTimeline'
 import { formatResilience } from '../lib/format'
@@ -28,7 +30,10 @@ import {
 } from '../lib/sessionInsights'
 import type { SessionResponse } from '../types/api'
 
-export function SessionResult({ result }: { result: SessionResponse }) {
+export function SessionResult({ result, heartRate = null }: {
+  result: SessionResponse
+  heartRate?: import('../lib/questionHeartRate').HeartRateByQuestion | null
+}) {
   const triggering = result.questions.find(
     (question) => question.number === result.summary.most_triggering_question,
   )
@@ -71,16 +76,8 @@ export function SessionResult({ result }: { result: SessionResponse }) {
         </Card>
       </div>
 
-      <Card title="Balik tenang setelah tiap pertanyaan">
-        <RecoveryBars questions={result.questions} />
-      </Card>
-
       <Card title="Rincian per pertanyaan">
-        <ul className="space-y-3">
-          {result.questions.map((question) => (
-            <QuestionResultCard key={question.number} result={question} />
-          ))}
-        </ul>
+        <QuestionSlider questions={result.questions} heartRate={heartRate} />
       </Card>
 
       <Card title="Pola keseluruhan">

@@ -132,15 +132,18 @@ eksplisit.**
 | Keyakinan dinyatakan | — | **diturunkan** | penuh |
 | Latihan wawancara | penuh | penuh | penuh |
 
-Yang membuat tabel ini bisa dipertanggungjawabkan bukan tabelnya, melainkan
-percobaan yang belum dijalankan: **#9 ablasi HR-saja** (`handover.md` §4). Murah,
-tidak butuh LLM, dan hasilnya menentukan apakah baris T1 di atas jujur. Kalau
-aturan skor dengan fitur HR saja tetap di atas macro-F1 yang layak, T1 punya
-dasar. Kalau jatuh, T1 harus dipangkas lagi atau dihapus.
+**Ablasi #9 sudah dijalankan (25 Agt 2026), dan baris T1 di atas TERBUKTI —
+lebih dari itu.** Pada 10 subjek tersegel, aturan skor dengan HR saja mencapai
+macro-F1 **0,871** / kappa **0,742**, sedikit DI ATAS versi lengkap RMSSD+HR
+(0,839 / 0,678). Per subjek: membuang RMSSD menolong 5, netral 5, merugikan 0
+(selisih berpasangan +0,031, selang 95% [+0,008, +0,056]). Sebabnya adalah L9:
+RMSSD bergerak terbalik pada sebagian orang saat bicara, HR tidak. Perangkat
+Rp 850 ribu yang sudah dibeli cukup untuk fungsi inti produk.
 
-**Naikkan prioritas #9.** Sekarang dia nomor sembilan dari dua belas; padahal
-dialah satu-satunya yang menentukan apakah perangkat yang sudah dibeli bisa jadi
-produk.
+Dua batasan yang tetap berlaku: ini simulasi armband (rekaman ECG dengan RMSSD
+disembunyikan), jadi uji RR hari pertama HW9 (G1) tetap wajib; dan kuadran
+ketahanan tetap butuh RMSSD, jadi baris "Ketahanan: tidak" untuk T1 tidak
+berubah.
 
 **A5 — Modalitas ikut di setiap keluaran, sampai ke layar.**
 Aturan Wajib #5 sudah memasukkan modalitas ke prompt. `formatModality()` di
@@ -413,7 +416,7 @@ Urut berdasarkan biaya kalau ditunda, bukan berdasarkan besar pekerjaannya.
 |---|---|---|---|
 | 1 | Uji RR HW9 | G1 | tenggat pihak lain, tidak bisa digeser |
 | 2 | Putuskan durasi baseline | G2 | data subjek tidak bisa diulang |
-| 3 | Ablasi HR-saja (#9) | — | menentukan apakah tingkat T1 jujur |
+| 3 | ~~Ablasi HR-saja (#9)~~ **SELESAI** — T1 terbukti (lihat A4) | — | — |
 | 4 | Pisahkan lapisan di kontrak API (A6) | G4 | murah sekarang, mahal setelah tim web mulai |
 | 5 | Pintu masuk interval RR | G3 | prasyarat seluruh jalur Bluetooth |
 | 6 | Perbaiki layar hasil (A8–A16) | G5 | sedang dikerjakan, tinggal dikunci |

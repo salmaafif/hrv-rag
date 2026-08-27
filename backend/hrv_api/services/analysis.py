@@ -32,6 +32,7 @@ from hrv_rag.features.question import (arousal_index, cognitive_load_hint,
                                  measure_question)
 from hrv_rag.features.dynamics import resilience_quadrant
 from hrv_rag.features.stress_level import classify
+from hrv_rag.features.signal_fitness import SignalFitness, assess_signal
 from hrv_rag.preprocessing.intervals import (IntervalFormatError, parse_rr_csv,
                                        rr_series_from_intervals,
                                        split_baseline_and_task)
@@ -59,6 +60,26 @@ class Prepared:
     #: The full judgement, kept so the response can report how much evidence the
     #: baseline stands on and not only whether it looked steady.
     baseline_verdict: BaselineVerdict = None  # type: ignore[assignment]
+
+    #: Whether this recording's RMSSD deserves a voice in the label, decided
+    #: from the signal itself (`features/signal_fitness.py`). Never from the
+    #: device class: the project's own armband passed checks the WESAD wrist
+    #: device failed, and sentencing it by class would have wasted it.
+    signal_fitness: SignalFitness = None  # type: ignore[assignment]
+
+    def scoring_reactivity(self, reactivity: dict) -> dict:
+        """
+        The reactivity the RULE is allowed to see.
+
+        When the signal checks withheld trust in RMSSD, its delta becomes NaN
+        here — the rule already reads NaN as "nothing measured" and scores
+        from heart rate alone. Masked at the single point of scoring rather
+        than deleted at the source, because the technical layer must keep
+        REPORTING the measured value; only its vote is withdrawn.
+        """
+        if self.signal_fitness is None or self.signal_fitness.rmssd_trusted:
+            return reactivity
+        return {**reactivity, "delta_pct_rmssd": float("nan")}
 
     #: Where the resting period ended, measured from the first beat of the
     #: RECORDING. Not `baseline_minutes * 60`: the cut lands on a beat boundary.
@@ -157,9 +178,12 @@ def prepare(rr_ms: list[float] | None, csv: str | None,
     # range would break the rule that a user never sees feature names (K4).
     verdict = check_baseline(baseline)
 
+    fitness = assess_signal(rest.rr_ms, task.rr_ms, task.outlier_ratio)
+
     return Prepared(
         baseline=baseline, baseline_unstable=not verdict.is_acceptable,
         baseline_note=verdict.note_for_user(), baseline_verdict=verdict,
+        signal_fitness=fitness,
         task_table=task_table,
         duration_sec=float(np.sum(intervals) / 1000.0),
         rest_end_sec=rest_end_sec, offset_sec=offset_sec,
@@ -213,7 +237,7 @@ def build_timeline(prepared: Prepared) -> dict:
         reactivity = prepared.baseline.reactivity(
             {c: row[c] for c in prepared.baseline.values if c in row}
         )
-        verdict = classify(reactivity)
+        verdict = classify(prepared.scoring_reactivity(reactivity))
         d_rmssd = reactivity.get("delta_pct_rmssd", float("nan"))
         d_hr = reactivity.get("delta_pct_mean_hr", float("nan"))
 
@@ -299,7 +323,7 @@ def build_session(prepared: Prepared, questions: list[dict]) -> tuple[dict, list
         if not measurement.has_data:
             continue
 
-        verdict = classify(measurement.reactivity)
+        verdict = classify(prepared.scoring_reactivity(measurement.reactivity))
         d_rmssd = measurement.reactivity.get("delta_pct_rmssd", float("nan"))
         d_hr = measurement.reactivity.get("delta_pct_mean_hr", float("nan"))
         _, hint = cognitive_load_hint(question.qtype, measurement.reactivity)

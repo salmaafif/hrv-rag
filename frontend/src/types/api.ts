@@ -16,6 +16,18 @@
 export type Modality = 'ECG' | 'PPG'
 
 /**
+ * The product surface a response is allowed to render, per the T0/T1/T2 table
+ * in `docs/ARSITEKTUR_KARIRLINK_HRV.md` A4 (decision A5).
+ *
+ * 'T0' (no sensor) never appears here — both endpoints require a `modality`,
+ * so a response reaching this file always carries 'T1' (PPG) or 'T2' (ECG).
+ * It is typed as the full three-way union anyway, so a client checking
+ * `tier === 'T0'` is validated against the contract rather than against
+ * what this backend happens to send today.
+ */
+export type ProductTier = 'T0' | 'T1' | 'T2'
+
+/**
  * The stress label.
  *
  * Note the absence of 'uncertain'. The backend's `StressLevel` enum does have
@@ -72,6 +84,21 @@ export interface Baseline {
   warning: string | null
 }
 
+/**
+ * Whether this recording earned the right to use RMSSD, judged from the signal
+ * itself — quantization, missed beats, detection reliability while answering.
+ * Instrument facts, not person facts; still technical, so never rendered to an
+ * end user (K4). When `rmssd_trusted` is false the label was scored from heart
+ * rate alone, and `reasons` says why in English.
+ */
+export interface SignalFitness {
+  rmssd_trusted: boolean
+  reasons: string[]
+  quantization_step_ms: number
+  missed_beat_ratio: number
+  task_outlier_ratio: number
+}
+
 /** Provenance, so a result can be traced back to the knowledge base and model. */
 export interface ResponseMeta {
   kb_version: string
@@ -82,6 +109,20 @@ export interface ResponseMeta {
    * is false.
    */
   trustworthy: boolean
+  /**
+   * Which prompt template wrote the narrative (§3.3,
+   * `docs/ARSITEKTUR_KARIRLINK_HRV.md`). `kb_version` and `model` alone are
+   * not enough to reproduce a past result — the exact prompt content matters
+   * too, and prompts change independently of both.
+   */
+  prompt_version: string
+  /**
+   * Which frozen calibration of the rule (K16) assigned `level`. Stays
+   * present even when `trustworthy` is false or the narrative failed
+   * entirely — the rule runs and labels every question before the narrative
+   * is even attempted, so its version is always known.
+   */
+  rule_version: string
 }
 
 // ---------------------------------------------------------------------------
@@ -132,8 +173,10 @@ export interface TimelineNarrative {
 }
 
 export interface TimelineResponse {
+  signal_fitness?: SignalFitness
   session_id: string
   modality: Modality
+  tier: ProductTier
   duration_sec: number
   baseline: Baseline
   timeline: TimelinePoint[]
@@ -189,6 +232,7 @@ export interface SessionNarrative {
 }
 
 export interface SessionResponse {
+  signal_fitness?: SignalFitness
   session_id: string
   /**
    * Not shown in the example in `docs/frontend_plan.md`, but included here on
@@ -197,6 +241,7 @@ export interface SessionResponse {
    * watch. Flagged as a proposed addition to the contract.
    */
   modality: Modality
+  tier: ProductTier
   baseline: Baseline
   questions: QuestionResult[]
   summary: SessionSummary
@@ -231,6 +276,14 @@ export interface AnalyzeRequest {
    * something anyone will upload to a hosted demo.
    */
   csv?: string
+  /**
+   * The person agreed to their recording being kept for research.
+   *
+   * Set ONLY from an explicit checkbox the person ticked themselves — never
+   * defaulted on, never inferred. The flag alone stores nothing: the server
+   * must also be configured with an archive directory (two locks).
+   */
+  store_consented?: boolean
   /** How many minutes at the start of the recording form the baseline. */
   baseline_minutes: number
   modality: Modality

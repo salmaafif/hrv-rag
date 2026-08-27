@@ -15,9 +15,11 @@ import { Card } from '../components/Card'
 import { SessionResult } from '../components/SessionResult'
 import { NavigateKeepingSearch } from '../app/NavigateKeepingSearch'
 import { useNavigateKeepingSearch } from '../app/useNavigateKeepingSearch'
+import { questionHeartRates } from '../lib/questionHeartRate'
+import { mockQuestionTimeline } from '../mocks/questionTimeline'
 import type { StageContext } from '../app/stageContext'
 
-export function ResultPage({ mode, session }: StageContext) {
+export function ResultPage({ mode, device, session }: StageContext) {
   const navigate = useNavigateKeepingSearch()
   const result = session.result
 
@@ -27,17 +29,6 @@ export function ResultPage({ mode, session }: StageContext) {
 
   return (
     <div className="space-y-6">
-      {!result.baseline.is_stable && (
-        <Card className="border-level-moderate/40 bg-level-moderate-bg">
-          <p className="text-sm font-semibold text-level-moderate">
-            Periode tenang di awal rekaman kurang stabil
-          </p>
-          <p className="mt-1 text-sm text-level-moderate">
-            {result.baseline.warning}
-          </p>
-        </Card>
-      )}
-
       {!result.meta.trustworthy && (
         <Card className="border-level-high/40 bg-level-high-bg">
           <p className="text-sm font-semibold text-level-high">
@@ -51,7 +42,14 @@ export function ResultPage({ mode, session }: StageContext) {
       )}
 
       {'questions' in result ? (
-        <SessionResult result={result} />
+        <SessionResult
+          result={result}
+          heartRate={questionHeartRates(
+            device.rrIntervals,
+            session.sessionOffsetSec,
+            session.questionTimeline ?? mockQuestionTimeline,
+          )}
+        />
       ) : (
         <Card title="Tekanan per menit">
           <p className="rounded-lg border border-dashed border-hairline p-6 text-center text-sm text-ink-muted">

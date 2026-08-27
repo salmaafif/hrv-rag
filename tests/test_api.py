@@ -26,6 +26,7 @@ from hrv_api.routes import session as session_route
 from hrv_api.routes import timeline as timeline_route
 
 KEY = "test-key"
+DEBUG_KEY = "test-debug-key"
 
 
 @pytest.fixture(autouse=True)
@@ -193,8 +194,8 @@ def test_session_response_matches_the_contract(client):
     assert response.status_code == 200
     body = response.json()
 
-    assert set(body) >= {"session_id", "modality", "baseline", "questions",
-                         "summary", "narrative", "meta"}
+    assert set(body) >= {"session_id", "modality", "tier", "baseline",
+                         "questions", "summary", "narrative", "meta"}
     assert body["modality"] == "ECG"
     question = body["questions"][0]
     assert set(question) >= {"number", "text", "type", "level", "recovery_pct",
@@ -225,12 +226,45 @@ def test_technical_numbers_are_withheld_by_default(client):
         assert field not in question
 
 
-def test_technical_numbers_appear_when_explicitly_requested(client):
+def test_technical_numbers_appear_for_a_debug_scoped_key(client, monkeypatch):
+    # A debug key must also be an accepted key — HRV_API_KEYS_DEBUG narrows
+    # who gets the technical layer, it does not replace HRV_API_KEYS as the
+    # check for whether the caller may call the service at all.
+    monkeypatch.setenv("HRV_API_KEYS", f"{KEY},{DEBUG_KEY}")
+    monkeypatch.setenv("HRV_API_KEYS_DEBUG", DEBUG_KEY)
+    response = client.post("/api/v1/analyze/session",
+                           json=session_body(include_technical=True),
+                           headers={"X-API-Key": DEBUG_KEY})
+    question = response.json()["questions"][0]
+    assert "score" in question and "evidence" in question
+
+
+def test_a_debug_scoped_key_still_needs_include_technical_asked_for(client, monkeypatch):
+    # Scope alone is not enough either — both `debug_scope` and
+    # `request.include_technical` must be true. A debug key should not change
+    # the default response shape for a caller who never asked for more.
+    monkeypatch.setenv("HRV_API_KEYS", f"{KEY},{DEBUG_KEY}")
+    monkeypatch.setenv("HRV_API_KEYS_DEBUG", DEBUG_KEY)
+    response = client.post("/api/v1/analyze/session", json=session_body(),
+                           headers={"X-API-Key": DEBUG_KEY})
+    question = response.json()["questions"][0]
+    assert "score" not in question
+
+
+def test_an_ordinary_key_cannot_grant_itself_the_technical_layer(client):
+    """
+    The finding A6 exists to close: `include_technical` used to be the whole
+    gate, and it lives in the request body — a field the caller writes. A key
+    that never appears in `HRV_API_KEYS_DEBUG` must not be able to unlock the
+    technical layer just by asking for it, no matter what the body says.
+    """
     response = client.post("/api/v1/analyze/session",
                            json=session_body(include_technical=True),
                            headers={"X-API-Key": KEY})
+    assert response.status_code == 200
     question = response.json()["questions"][0]
-    assert "score" in question and "evidence" in question
+    for field in ("score", "delta_rmssd_pct", "delta_hr_pct", "evidence"):
+        assert field not in question
 
 
 def test_the_disagreement_flag_survives_stripping(client):
@@ -302,6 +336,20 @@ def test_modality_travels_with_the_result(client):
     assert payload["modality"] == "PPG"
 
 
+def test_tier_matches_the_modality(client):
+    """
+    Decision A5: a client must be able to tell which product surface it may
+    render (docs/ARSITEKTUR_KARIRLINK_HRV.md A4's T0/T1/T2 table) without
+    inferring it from which fields happen to be present.
+    """
+    ecg = client.post("/api/v1/analyze/session", json=session_body(modality="ECG"),
+                      headers={"X-API-Key": KEY}).json()
+    ppg = client.post("/api/v1/analyze/session", json=session_body(modality="PPG"),
+                      headers={"X-API-Key": KEY}).json()
+    assert ecg["tier"] == "T2"
+    assert ppg["tier"] == "T1"
+
+
 # ----------------------------------------------------- degrading gracefully
 def test_an_unavailable_model_costs_the_prose_but_not_the_numbers(client):
     """
@@ -335,3 +383,182 @@ def test_a_narrative_that_raises_does_not_take_the_response_with_it(
                            headers={"X-API-Key": KEY})
     assert response.status_code == 200
     assert response.json()["meta"]["trustworthy"] is False
+
+
+# ------------------------------------------------------- the session archive
+def test_a_consented_session_is_kept_whole(client, tmp_path, monkeypatch):
+    """
+    The archive is the answer to K17: no real session had ever been kept, so
+    nothing could be re-analysed, cited, or later labelled. What it stores must
+    be the EXACT recording — the response can always be recomputed from it, the
+    recording can never be produced again.
+    """
+    monkeypatch.setenv("HRV_ARCHIVE_DIR", str(tmp_path))
+    body = session_body(store_consented=True, session_id="pilot-01")
+
+    reply = client.post("/api/v1/analyze/session", json=body,
+                        headers={"X-API-Key": KEY})
+    assert reply.status_code == 200
+
+    files = list(tmp_path.glob("*.json"))
+    assert len(files) == 1
+    import json as jsonlib
+    kept = jsonlib.loads(files[0].read_text(encoding="utf-8"))
+    assert kept["format"] == "hrv-session-archive-v1"
+    assert kept["request"]["rr_ms"] == body["rr_ms"]          # verbatim, whole
+    assert kept["response"]["questions"], "the shown result travels with it"
+
+
+def test_no_consent_means_nothing_is_stored(client, tmp_path, monkeypatch):
+    """
+    The unticked checkbox is a complete answer. A configured server must not
+    'helpfully' keep the recording anyway — that would turn an infrastructure
+    setting into a consent override.
+    """
+    monkeypatch.setenv("HRV_ARCHIVE_DIR", str(tmp_path))
+
+    reply = client.post("/api/v1/analyze/session", json=session_body(),
+                        headers={"X-API-Key": KEY})
+    assert reply.status_code == 200
+    assert list(tmp_path.glob("*.json")) == []
+
+
+def test_an_unconfigured_server_stores_nothing_even_with_consent(
+        client, tmp_path, monkeypatch):
+    """
+    The second lock. The module will run on somebody else's infrastructure one
+    day; a caller's flag alone must not be able to start collection on a server
+    whose operator never chose a destination for it.
+    """
+    monkeypatch.delenv("HRV_ARCHIVE_DIR", raising=False)
+
+    reply = client.post("/api/v1/analyze/session",
+                        json=session_body(store_consented=True),
+                        headers={"X-API-Key": KEY})
+    assert reply.status_code == 200
+    assert list(tmp_path.glob("*.json")) == []
+
+    # Asked DIRECTLY, because "nothing appeared in tmp_path" cannot see a write
+    # that went somewhere else. A fallback directory smuggled in as a default
+    # would make this return a path — and that is precisely the mutation this
+    # line exists to catch.
+    from hrv_api.services.archive import archive_session
+    assert archive_session({"store_consented": True, "session_id": "x"},
+                           {}) is None
+
+
+def test_a_hostile_session_id_cannot_escape_the_archive_directory(
+        client, tmp_path, monkeypatch):
+    """
+    `session_id` comes from the caller and ends up in a filename. Dots and
+    separators are stripped, so `../../etc/passwd` can only ever name a file
+    INSIDE the archive directory.
+    """
+    monkeypatch.setenv("HRV_ARCHIVE_DIR", str(tmp_path))
+    body = session_body(store_consented=True, session_id="../../etc/passwd")
+
+    reply = client.post("/api/v1/analyze/session", json=body,
+                        headers={"X-API-Key": KEY})
+    assert reply.status_code == 200
+
+    files = list(tmp_path.glob("*.json"))
+    assert len(files) == 1
+    assert ".." not in files[0].name and "/" not in files[0].name
+
+
+def test_a_failed_archive_never_fails_the_analysis(client, monkeypatch):
+    """
+    The person answered questions and is owed their result. Losing the archive
+    copy is an operational regret, not a reason to throw their session away —
+    so a directory that cannot be written costs a log line, never a 500.
+    """
+    monkeypatch.setenv("HRV_ARCHIVE_DIR", "Z:/tidak-ada/dan-tidak-bisa-dibuat")
+
+    reply = client.post("/api/v1/analyze/session",
+                        json=session_body(store_consented=True),
+                        headers={"X-API-Key": KEY})
+    assert reply.status_code == 200
+    assert reply.json()["questions"]
+
+
+# ---------------------------------------------------- signal fitness masking
+def test_untrusted_rmssd_loses_its_vote_but_keeps_being_reported(client):
+    """
+    The whole point of the fitness check, proven through the HTTP surface.
+
+    The recording is built so the two features DISAGREE on purpose: RMSSD
+    collapses to zero after the rest (a -100% drop, worth two points), while
+    heart rate barely moves. And the recording's clock is 100 ms coarse against
+    a resting RMSSD of ~100 ms — a signal whose jitter figures are mostly its
+    own quantization. Without the mask the label would be `moderate` on the
+    say-so of a number the instrument cannot resolve; with it, the rule hears
+    only heart rate and says `low`.
+    """
+    rest = [900.0, 1000.0] * 65            # ~123 s, RMSSD 100 ms, 100 ms grid
+    task = [1000.0] * 200                  # RMSSD 0 -> -100%; HR -5% (calm)
+    body = {"rr_ms": rest + task, "baseline_minutes": 2, "modality": "PPG"}
+
+    reply = client.post("/api/v1/analyze/timeline", json=body,
+                        headers={"X-API-Key": KEY})
+    assert reply.status_code == 200
+    data = reply.json()
+
+    fitness = data["signal_fitness"]
+    assert fitness["rmssd_trusted"] is False
+    assert any("clock" in r for r in fitness["reasons"])
+
+    # The mask decided the label: every window scored from heart rate alone.
+    assert {p["level"] for p in data["timeline"]} == {"low"}
+
+
+def test_a_trusted_recording_still_scores_with_rmssd(client):
+    """
+    The control. Same shape of disagreement, but on a millisecond-fine clock —
+    the drop is now a measurement, not quantization, and the rule must hear it.
+    A mask that silenced RMSSD everywhere would pass the test above and fail
+    this one.
+    """
+    rest = [900.0 + (i * 37) % 23 + 60 * (i % 2) for i in range(130)]
+    task = [1000.0 + (i * 41) % 7 for i in range(200)]     # near-flat jitter
+    body = {"rr_ms": rest + task, "baseline_minutes": 2, "modality": "PPG"}
+
+    reply = client.post("/api/v1/analyze/timeline", json=body,
+                        headers={"X-API-Key": KEY})
+    assert reply.status_code == 200
+    data = reply.json()
+
+    assert data["signal_fitness"]["rmssd_trusted"] is True
+    assert "moderate" in {p["level"] for p in data["timeline"]} or \
+           "high" in {p["level"] for p in data["timeline"]}
+
+
+def test_a_consented_failure_keeps_the_recording_too(client, tmp_path, monkeypatch):
+    """
+    The third real pilot session failed with a 422 and its recording evaporated,
+    because archiving only ran after success. A failed consented session is
+    still a recording — often the MORE valuable kind, since failures are what
+    the field metrics count and re-analysis needs the bytes that failed.
+    """
+    monkeypatch.setenv("HRV_ARCHIVE_DIR", str(tmp_path))
+    body = session_body(store_consented=True, rr_ms=[850.0] * 40)  # far too short
+
+    reply = client.post("/api/v1/analyze/session", json=body,
+                        headers={"X-API-Key": KEY})
+    assert reply.status_code == 422
+
+    files = list(tmp_path.glob("*.json"))
+    assert len(files) == 1
+    import json as jsonlib
+    kept = jsonlib.loads(files[0].read_text(encoding="utf-8"))
+    assert kept["request"]["rr_ms"] == body["rr_ms"]
+    assert "error" in kept["response"]
+
+
+def test_an_unconsented_failure_still_stores_nothing(client, tmp_path, monkeypatch):
+    monkeypatch.setenv("HRV_ARCHIVE_DIR", str(tmp_path))
+
+    reply = client.post("/api/v1/analyze/session",
+                        json=session_body(rr_ms=[850.0] * 40),
+                        headers={"X-API-Key": KEY})
+    assert reply.status_code == 422
+    assert list(tmp_path.glob("*.json")) == []
