@@ -84,6 +84,21 @@ export interface Baseline {
   warning: string | null
 }
 
+/**
+ * Whether this recording earned the right to use RMSSD, judged from the signal
+ * itself — quantization, missed beats, detection reliability while answering.
+ * Instrument facts, not person facts; still technical, so never rendered to an
+ * end user (K4). When `rmssd_trusted` is false the label was scored from heart
+ * rate alone, and `reasons` says why in English.
+ */
+export interface SignalFitness {
+  rmssd_trusted: boolean
+  reasons: string[]
+  quantization_step_ms: number
+  missed_beat_ratio: number
+  task_outlier_ratio: number
+}
+
 /** Provenance, so a result can be traced back to the knowledge base and model. */
 export interface ResponseMeta {
   kb_version: string
@@ -158,6 +173,7 @@ export interface TimelineNarrative {
 }
 
 export interface TimelineResponse {
+  signal_fitness?: SignalFitness
   session_id: string
   modality: Modality
   tier: ProductTier
@@ -216,6 +232,7 @@ export interface SessionNarrative {
 }
 
 export interface SessionResponse {
+  signal_fitness?: SignalFitness
   session_id: string
   /**
    * Not shown in the example in `docs/frontend_plan.md`, but included here on

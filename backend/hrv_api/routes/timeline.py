@@ -33,7 +33,10 @@ def analyze_timeline(request: TimelineRequest,
                            request.offset_sec)
         body = build_timeline(prepared)
     except AnalysisError as exc:
-        # 422, not 500: the recording is the problem, and the message says how.
+        # A consented recording that FAILS analysis is still a recording — often
+        # the more valuable kind, because failures are what the field metrics
+        # count. One real session was lost exactly here before this line existed.
+        archive_session(request.model_dump(), {"error": str(exc)})
         raise HTTPException(422, str(exc)) from None
 
     narrative, meta = write_timeline_narrative(prepared, body, modality,

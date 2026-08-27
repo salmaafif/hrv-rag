@@ -479,3 +479,86 @@ def test_a_failed_archive_never_fails_the_analysis(client, monkeypatch):
                         headers={"X-API-Key": KEY})
     assert reply.status_code == 200
     assert reply.json()["questions"]
+
+
+# ---------------------------------------------------- signal fitness masking
+def test_untrusted_rmssd_loses_its_vote_but_keeps_being_reported(client):
+    """
+    The whole point of the fitness check, proven through the HTTP surface.
+
+    The recording is built so the two features DISAGREE on purpose: RMSSD
+    collapses to zero after the rest (a -100% drop, worth two points), while
+    heart rate barely moves. And the recording's clock is 100 ms coarse against
+    a resting RMSSD of ~100 ms — a signal whose jitter figures are mostly its
+    own quantization. Without the mask the label would be `moderate` on the
+    say-so of a number the instrument cannot resolve; with it, the rule hears
+    only heart rate and says `low`.
+    """
+    rest = [900.0, 1000.0] * 65            # ~123 s, RMSSD 100 ms, 100 ms grid
+    task = [1000.0] * 200                  # RMSSD 0 -> -100%; HR -5% (calm)
+    body = {"rr_ms": rest + task, "baseline_minutes": 2, "modality": "PPG"}
+
+    reply = client.post("/api/v1/analyze/timeline", json=body,
+                        headers={"X-API-Key": KEY})
+    assert reply.status_code == 200
+    data = reply.json()
+
+    fitness = data["signal_fitness"]
+    assert fitness["rmssd_trusted"] is False
+    assert any("clock" in r for r in fitness["reasons"])
+
+    # The mask decided the label: every window scored from heart rate alone.
+    assert {p["level"] for p in data["timeline"]} == {"low"}
+
+
+def test_a_trusted_recording_still_scores_with_rmssd(client):
+    """
+    The control. Same shape of disagreement, but on a millisecond-fine clock —
+    the drop is now a measurement, not quantization, and the rule must hear it.
+    A mask that silenced RMSSD everywhere would pass the test above and fail
+    this one.
+    """
+    rest = [900.0 + (i * 37) % 23 + 60 * (i % 2) for i in range(130)]
+    task = [1000.0 + (i * 41) % 7 for i in range(200)]     # near-flat jitter
+    body = {"rr_ms": rest + task, "baseline_minutes": 2, "modality": "PPG"}
+
+    reply = client.post("/api/v1/analyze/timeline", json=body,
+                        headers={"X-API-Key": KEY})
+    assert reply.status_code == 200
+    data = reply.json()
+
+    assert data["signal_fitness"]["rmssd_trusted"] is True
+    assert "moderate" in {p["level"] for p in data["timeline"]} or \
+           "high" in {p["level"] for p in data["timeline"]}
+
+
+def test_a_consented_failure_keeps_the_recording_too(client, tmp_path, monkeypatch):
+    """
+    The third real pilot session failed with a 422 and its recording evaporated,
+    because archiving only ran after success. A failed consented session is
+    still a recording — often the MORE valuable kind, since failures are what
+    the field metrics count and re-analysis needs the bytes that failed.
+    """
+    monkeypatch.setenv("HRV_ARCHIVE_DIR", str(tmp_path))
+    body = session_body(store_consented=True, rr_ms=[850.0] * 40)  # far too short
+
+    reply = client.post("/api/v1/analyze/session", json=body,
+                        headers={"X-API-Key": KEY})
+    assert reply.status_code == 422
+
+    files = list(tmp_path.glob("*.json"))
+    assert len(files) == 1
+    import json as jsonlib
+    kept = jsonlib.loads(files[0].read_text(encoding="utf-8"))
+    assert kept["request"]["rr_ms"] == body["rr_ms"]
+    assert "error" in kept["response"]
+
+
+def test_an_unconsented_failure_still_stores_nothing(client, tmp_path, monkeypatch):
+    monkeypatch.setenv("HRV_ARCHIVE_DIR", str(tmp_path))
+
+    reply = client.post("/api/v1/analyze/session",
+                        json=session_body(rr_ms=[850.0] * 40),
+                        headers={"X-API-Key": KEY})
+    assert reply.status_code == 422
+    assert list(tmp_path.glob("*.json")) == []

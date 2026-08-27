@@ -58,6 +58,11 @@ export function ProcessingPage({ mode, session }: StageContext) {
     return (
       <Card title="Analisis gagal">
         <p className="text-sm text-ink-muted">{session.error.message}</p>
+        {session.error.serverDetail && (
+          <p className="mt-2 rounded-lg bg-canvas px-3 py-2 font-mono text-xs text-ink-muted">
+            {session.error.serverDetail}
+          </p>
+        )}
         <div className="mt-5 flex flex-wrap gap-3">
           {session.error.retryable && (
             <Button

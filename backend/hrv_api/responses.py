@@ -50,6 +50,10 @@ def build_response(request, prepared: Prepared, body: dict, narrative: dict,
         "session_id": request.session_id,
         "modality": modality.value,
         "tier": TIER_FOR_MODALITY[modality],
+        # Instrument facts, not person facts: which features this recording
+        # earned a vote for, and why. Integrators render tiers from `tier`;
+        # this block is the measured justification behind it.
+        "signal_fitness": prepared.signal_fitness.block(),
         "baseline": baseline_block(prepared),
         **body,
         "narrative": narrative,

@@ -14,8 +14,10 @@
  */
 
 import { useState } from 'react'
+import { QuestionHeartRateChart } from './QuestionHeartRateChart'
 import { QuestionResultCard } from './QuestionResultCard'
 import type { QuestionResult } from '../types/api'
+import type { HeartRateByQuestion } from '../lib/questionHeartRate'
 
 function NavButton({
   direction,
@@ -47,15 +49,26 @@ function NavButton({
 
 export function QuestionSlider({
   questions,
+  heartRate = null,
 }: {
   questions: QuestionResult[]
+  /**
+   * The recording sliced per question, when the browser still holds it. Null
+   * after a reload or in mock mode — the card simply renders without a curve,
+   * which is the honest state: no recording, no line.
+   */
+  heartRate?: HeartRateByQuestion | null
 }) {
   const [index, setIndex] = useState(0)
   const current = questions[index]!
+  const series = heartRate?.byNumber.get(current.number)
 
   return (
     <div>
       <QuestionResultCard result={current} />
+      {series && heartRate && (
+        <QuestionHeartRateChart series={series} domain={heartRate.domain} />
+      )}
 
       <div className="mt-4 flex items-center justify-center gap-4">
         <NavButton

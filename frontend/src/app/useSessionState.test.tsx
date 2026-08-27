@@ -33,6 +33,7 @@ function noDevice(): DeviceConnection {
     connected: null,
     wornAt: null,
     signalQuality: null,
+    streamStalled: false,
     bpm: null,
     sendsRrIntervals: null,
     rrIntervals: [],

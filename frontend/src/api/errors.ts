@@ -17,10 +17,23 @@ export class ApiError extends Error {
    */
   readonly retryable: boolean
 
-  constructor(message: string, retryable: boolean) {
+  /**
+   * The server's own explanation, verbatim, when it gave one.
+   *
+   * The backend writes its 422 reasons to be actionable — "only 3 intervals
+   * found", "no question had a usable window" — and for a whole afternoon of
+   * failed test sessions this string was thrown away in favour of one canned
+   * sentence, leaving every failure looking identical. The canned sentence
+   * stays as the headline; this travels with it so the screen can show WHY.
+   */
+  readonly serverDetail: string | null
+
+  constructor(message: string, retryable: boolean,
+              serverDetail: string | null = null) {
     super(message)
     this.name = 'ApiError'
     this.retryable = retryable
+    this.serverDetail = serverDetail
   }
 }
 

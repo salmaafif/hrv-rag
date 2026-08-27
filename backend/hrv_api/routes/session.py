@@ -34,6 +34,10 @@ def analyze_session(request: SessionRequest,
             prepared, [q.model_dump() for q in request.questions]
         )
     except AnalysisError as exc:
+        # A consented recording that FAILS analysis is still a recording — often
+        # the more valuable kind, because failures are what the field metrics
+        # count. One real session was lost exactly here before this line existed.
+        archive_session(request.model_dump(), {"error": str(exc)})
         raise HTTPException(422, str(exc)) from None
 
     narrative, meta = write_session_narrative(prepared, body, measurements,

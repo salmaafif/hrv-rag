@@ -1,0 +1,389 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "KARIRLINK — HRV stress indication",
+    "description": "Interprets heart-rate variability during interview practice. Returns an indication of physiological pressure, NOT a diagnosis of anxiety.",
+    "version": "1.0"
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "summary": "Health",
+        "description": "Liveness only. Says nothing about Gemini, which may be down separately.",
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Health Health Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/analyze/timeline": {
+      "post": {
+        "summary": "Analyze Timeline",
+        "description": "V1: score every 60-second window after the resting period.",
+        "operationId": "analyze_timeline_api_v1_analyze_timeline_post",
+        "parameters": [
+          {
+            "name": "x-api-key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TimelineRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Analyze Timeline Api V1 Analyze Timeline Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/analyze/session": {
+      "post": {
+        "summary": "Analyze Session",
+        "description": "V2 and V3: score each interview question against the person's baseline.",
+        "operationId": "analyze_session_api_v1_analyze_session_post",
+        "parameters": [
+          {
+            "name": "x-api-key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SessionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Analyze Session Api V1 Analyze Session Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "QuestionTimelineEntry": {
+        "properties": {
+          "number": {
+            "type": "integer",
+            "title": "Number"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          },
+          "type": {
+            "type": "string",
+            "pattern": "^(introduction|behavioural|technical|numerical|situational)$",
+            "title": "Type"
+          },
+          "answer_start_sec": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Answer Start Sec"
+          },
+          "answer_end_sec": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Answer End Sec"
+          },
+          "gap_end_sec": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Gap End Sec"
+          },
+          "is_difficult": {
+            "type": "boolean",
+            "title": "Is Difficult",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "number",
+          "text",
+          "type",
+          "answer_start_sec",
+          "answer_end_sec",
+          "gap_end_sec"
+        ],
+        "title": "QuestionTimelineEntry",
+        "description": "When one question was asked, in seconds from the start of the recording."
+      },
+      "SessionRequest": {
+        "properties": {
+          "rr_ms": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rr Ms"
+          },
+          "csv": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Csv"
+          },
+          "baseline_minutes": {
+            "type": "number",
+            "maximum": 8.0,
+            "minimum": 2.0,
+            "title": "Baseline Minutes"
+          },
+          "modality": {
+            "type": "string",
+            "pattern": "^(ECG|PPG)$",
+            "title": "Modality"
+          },
+          "session_id": {
+            "type": "string",
+            "title": "Session Id",
+            "default": "session"
+          },
+          "offset_sec": {
+            "type": "number",
+            "maximum": 1800.0,
+            "minimum": 0.0,
+            "title": "Offset Sec",
+            "default": 0.0
+          },
+          "include_technical": {
+            "type": "boolean",
+            "title": "Include Technical",
+            "default": false
+          },
+          "store_consented": {
+            "type": "boolean",
+            "title": "Store Consented",
+            "default": false
+          },
+          "questions": {
+            "items": {
+              "$ref": "#/components/schemas/QuestionTimelineEntry"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Questions"
+          }
+        },
+        "type": "object",
+        "required": [
+          "baseline_minutes",
+          "modality",
+          "questions"
+        ],
+        "title": "SessionRequest",
+        "description": "V2 and V3: the caller supplies when each question was asked."
+      },
+      "TimelineRequest": {
+        "properties": {
+          "rr_ms": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rr Ms"
+          },
+          "csv": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Csv"
+          },
+          "baseline_minutes": {
+            "type": "number",
+            "maximum": 8.0,
+            "minimum": 2.0,
+            "title": "Baseline Minutes"
+          },
+          "modality": {
+            "type": "string",
+            "pattern": "^(ECG|PPG)$",
+            "title": "Modality"
+          },
+          "session_id": {
+            "type": "string",
+            "title": "Session Id",
+            "default": "session"
+          },
+          "offset_sec": {
+            "type": "number",
+            "maximum": 1800.0,
+            "minimum": 0.0,
+            "title": "Offset Sec",
+            "default": 0.0
+          },
+          "include_technical": {
+            "type": "boolean",
+            "title": "Include Technical",
+            "default": false
+          },
+          "store_consented": {
+            "type": "boolean",
+            "title": "Store Consented",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "baseline_minutes",
+          "modality"
+        ],
+        "title": "TimelineRequest",
+        "description": "V1: no question timings, so every window is scored on its own."
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    }
+  }
+}

@@ -30,7 +30,10 @@ import {
 } from '../lib/sessionInsights'
 import type { SessionResponse } from '../types/api'
 
-export function SessionResult({ result }: { result: SessionResponse }) {
+export function SessionResult({ result, heartRate = null }: {
+  result: SessionResponse
+  heartRate?: import('../lib/questionHeartRate').HeartRateByQuestion | null
+}) {
   const triggering = result.questions.find(
     (question) => question.number === result.summary.most_triggering_question,
   )
@@ -74,7 +77,7 @@ export function SessionResult({ result }: { result: SessionResponse }) {
       </div>
 
       <Card title="Rincian per pertanyaan">
-        <QuestionSlider questions={result.questions} />
+        <QuestionSlider questions={result.questions} heartRate={heartRate} />
       </Card>
 
       <Card title="Pola keseluruhan">

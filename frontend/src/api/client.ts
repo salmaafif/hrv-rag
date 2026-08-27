@@ -139,7 +139,17 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
   if (!response.ok) {
     const retryable =
       response.status >= 500 || RETRYABLE_CLIENT_STATUSES.has(response.status)
-    throw new ApiError(messageForStatus(response.status), retryable)
+    // The body's `detail` is the backend explaining itself; losing it cost an
+    // afternoon of indistinguishable failures. Read it best-effort — an error
+    // page that is not JSON simply yields no detail, never a second error.
+    let detail: string | null = null
+    try {
+      const body = (await response.json()) as { detail?: unknown }
+      if (typeof body.detail === 'string') detail = body.detail
+    } catch {
+      detail = null
+    }
+    throw new ApiError(messageForStatus(response.status), retryable, detail)
   }
 
   try {

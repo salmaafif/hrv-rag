@@ -383,3 +383,68 @@ describe('the simulated sensor', () => {
     expect(unique.size).toBeGreaterThan(10)
   })
 })
+
+describe('the beat-stream watchdog', () => {
+  /**
+   * The failure it exists for: another app takes the sensor mid-session. No
+   * `gattserverdisconnected` fires — the connection stays "up" and the
+   * notifications simply stop. The third real pilot session died this way,
+   * silently, and cost fifteen minutes before anything said so.
+   */
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  const connectReal = async () => {
+    const view = renderHook(() => useDeviceConnection(false))
+    await act(async () => {
+      view.result.current.scan()
+      await vi.advanceTimersByTimeAsync(0)
+    })
+    return view
+  }
+
+  it('raises the alarm when beats stop arriving on a live connection', async () => {
+    const view = await connectReal()
+
+    // Beats flow: no alarm.
+    await act(async () => {
+      strap.notify(0x10, 60, ...rr(850))
+      await vi.advanceTimersByTimeAsync(3000)
+    })
+    expect(view.result.current.streamStalled).toBe(false)
+
+    // Another app takes the sensor: silence, connection still "up".
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(7000)
+    })
+    expect(view.result.current.streamStalled).toBe(true)
+  })
+
+  it('clears the alarm the moment beats return', async () => {
+    const view = await connectReal()
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(7000)
+    })
+    expect(view.result.current.streamStalled).toBe(true)
+
+    await act(async () => {
+      strap.notify(0x10, 60, ...rr(850))
+    })
+    expect(view.result.current.streamStalled).toBe(false)
+  })
+
+  it('does not cry wolf while merely connecting', async () => {
+    const view = await connectReal()
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3000)     // under the threshold
+    })
+    expect(view.result.current.streamStalled).toBe(false)
+  })
+})

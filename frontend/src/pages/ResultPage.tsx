@@ -15,9 +15,11 @@ import { Card } from '../components/Card'
 import { SessionResult } from '../components/SessionResult'
 import { NavigateKeepingSearch } from '../app/NavigateKeepingSearch'
 import { useNavigateKeepingSearch } from '../app/useNavigateKeepingSearch'
+import { questionHeartRates } from '../lib/questionHeartRate'
+import { mockQuestionTimeline } from '../mocks/questionTimeline'
 import type { StageContext } from '../app/stageContext'
 
-export function ResultPage({ mode, session }: StageContext) {
+export function ResultPage({ mode, device, session }: StageContext) {
   const navigate = useNavigateKeepingSearch()
   const result = session.result
 
@@ -40,7 +42,14 @@ export function ResultPage({ mode, session }: StageContext) {
       )}
 
       {'questions' in result ? (
-        <SessionResult result={result} />
+        <SessionResult
+          result={result}
+          heartRate={questionHeartRates(
+            device.rrIntervals,
+            session.sessionOffsetSec,
+            session.questionTimeline ?? mockQuestionTimeline,
+          )}
+        />
       ) : (
         <Card title="Tekanan per menit">
           <p className="rounded-lg border border-dashed border-hairline p-6 text-center text-sm text-ink-muted">

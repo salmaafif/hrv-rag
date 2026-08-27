@@ -34,10 +34,15 @@
  *   thing with a clock attached. A quiet bar fills instead: it says the same
  *   thing about progress and says nothing about the person.
  *
- *   NO LIVE BPM outside developer mode. The sensor still has to prove it is
- *   reading — a silent dropout is worse than any of this — but proving THAT it
- *   reads does not require showing WHAT it reads. Watching your own pulse climb
- *   during an interview is feedback on the very thing being measured.
+ *   LIVE PULSE TRACE, UNDER GUARDRAILS (owner's decision, 26 Aug 2026 —
+ *   revisits the earlier "no live bpm" rule). The trace exists because a
+ *   person mid-interview needs evidence the sensor is alive, and after the
+ *   first real pilot the owner judged a visible stream worth having. What made
+ *   the original rule right is kept as constraints on HOW it draws, in
+ *   `lib/heartStream.ts`: one neutral colour, no zones, no thresholds, no
+ *   words about stress, and a FIXED y-scale — auto-fit would magnify a calm
+ *   trace into drama, and the feedback loop the old rule feared comes from the
+ *   interpretation, not from the number.
  *
  *   NO SEGMENT LENGTH ON SCREEN. The 60-second window is real and the button
  *   still waits for it, but the wait is now phrased as interview advice — take
@@ -53,6 +58,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Button } from '../components/Button'
 import { Card } from '../components/Card'
+import { HeartRateStream } from '../components/HeartRateStream'
 import { NavigateKeepingSearch } from '../app/NavigateKeepingSearch'
 import { useNavigateKeepingSearch } from '../app/useNavigateKeepingSearch'
 import { buildQuestionTimeline, sessionElapsedSec,
@@ -241,8 +247,28 @@ export function SessionPage({ mode, device, session }: StageContext) {
     </Card>
   )
 
+  // The one warning allowed to be loud mid-session. Every other rule on this
+  // screen keeps feedback about the PERSON off it; this is feedback about the
+  // INSTRUMENT, and staying quiet is what turned the third pilot session into
+  // fifteen wasted minutes: another app took the sensor, the badge stayed
+  // green, and nothing said so until analysis failed.
+  const stalled = device.connected !== null && device.streamStalled
+
   return (
     <div className="grid gap-6 xl:grid-cols-[1fr_22rem]">
+      {stalled && (
+        <div className="rounded-xl border border-level-high/40 bg-level-high-bg p-4 xl:col-span-2"
+             role="alert">
+          <p className="text-sm font-semibold text-level-high">
+            Denyut berhenti masuk
+          </p>
+          <p className="mt-1 text-sm text-level-high">
+            Sensormu masih terdaftar, tapi datanya tidak mengalir. Biasanya ada
+            aplikasi lain yang mengambil sambungannya — tutup aplikasi itu, atau
+            lepas-pasang sensornya. Menit-menit tanpa denyut tidak bisa dinilai.
+          </p>
+        </div>
+      )}
       {restRemaining > 0 ? restingPanel : (
       <Card>
         <h2 className="text-3xl font-bold tracking-tight text-navy">
@@ -366,6 +392,8 @@ export function SessionPage({ mode, device, session }: StageContext) {
           ) : (
             <p className="text-sm text-unknown">Menunggu denyut…</p>
           )}
+
+          <HeartRateStream rrIntervals={device.rrIntervals} bpm={device.bpm} />
         </Card>
 
         {/*
