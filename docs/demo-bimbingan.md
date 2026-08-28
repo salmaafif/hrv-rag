@@ -88,9 +88,12 @@ radar Calm/Recovery/Resilience, grafik detak per pertanyaan.
 
 ## Babak 2 — Integrasi KARIRLINK sudah tersambung di kode (±5 menit)
 
-Checkout karirlink di laptop ini belum punya `.env` (kredensial di mesin
-Tegar), jadi backend NestJS tidak dijalankan live — yang ditunjukkan adalah
-**kode + tes yang membuktikannya**. Itu cukup dan jujur.
+> **Pembaruan 28 Agustus 2026:** ketiga `.env` karirlink kini TERPASANG di
+> laptop ini (dari salinan Tegar; semuanya gitignored), venv AI Gateway sudah
+> dibuat, dan **kedua servis terbukti menyala**: AI Gateway `/health` sehat
+> (model terkonfigurasi), backend NestJS "successfully started" dan menjawab
+> 401 tanpa token. Jadi Babak 2 kini BISA live penuh — lihat "Stack penuh"
+> di bawah. Cadangan paling aman tetap tes + walkthrough di bawah ini.
 
 ### Jalankan tesnya live
 
@@ -120,6 +123,34 @@ browser kandidat ──POST /interview-sessions/:id/heart-rate──► NestJS
 Tiga aturan produk yang tertanam (siap dijawab kalau ditanya):
 label dari **aturan**, bukan LLM; `heart_rate` **tidak** masuk jalur evaluasi
 KSAO dan tidak tampil ke perekrut; angka teknis tidak pernah sampai kandidat.
+
+### Stack penuh (opsional — kalau mau demo alur login sungguhan)
+
+Empat terminal, urut dari yang paling dalam. **AWAS PORT: AI Gateway di 8000,
+modul HRV di 8010** — jangan tertukar; `HRV_API_URL` di backend `.env` sudah
+menunjuk 8010.
+
+```bash
+# 1 — AI Gateway (dari apps/ai-gateway):     .venv\Scripts\python.exe main.py
+# 2 — Backend    (dari apps/backend):        npm start        (TANPA --watch untuk demo)
+# 3 — Modul HRV  (dari akar hrv-rag):
+HRV_API_KEYS=kunci-lokal python -m uvicorn hrv_api.app:app --app-dir backend --port 8010
+# 4 — Web        (dari apps/web):            npm run dev
+```
+
+Lalu buka `http://localhost:3000`, login sebagai kandidat
+(`kandidat@karirlink.dev`; kata sandinya di `apps/backend/.env`,
+`SEED_CANDIDATE_PASSWORD` — ketik sendiri, jangan disalin ke dokumen mana pun),
+jalani satu sesi. Catatan jujur untuk sesi live:
+
+- Tiap pertanyaan + penilaian memakai kuota Gemini tim (via kunci di
+  `.env` gateway); `EVALUATION_SYNC_FALLBACK=true` sedang menyala, jadi
+  penilaian berjalan sinkron tanpa Redis — kandidat menunggu Gemini selesai.
+- Alur sensor HR end-to-end (gerbang → sesi → baris `external_signals`)
+  butuh frontend yang sedang DI-HOLD menunggu merge branch `dev` teman —
+  jangan demokan bagian itu live dulu; pakai Babak 1 + tes untuk cerita HR.
+- Nest start pertama butuh ±2 menit compile. Nyalakan SEMUA servis sebelum
+  bimbingan mulai, jangan di depan dosbim.
 
 ### Artefak pendukung yang bisa dibuka
 
