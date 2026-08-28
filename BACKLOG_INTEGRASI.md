@@ -34,6 +34,17 @@ Urut, sesuai `handover.md` §4. Detail tiap langkah di bawah.
 Prasyarat dari sisi TA yang **menghalangi** integrasi (bukan seluruh sisa TA)
 ada di blok F.
 
+**Keputusan 28 Agt — layanan di-vendor ke monorepo (`apps/hrv-service`).**
+Sebelumnya modul hanya hidup di laptop Salma, jadi rekan tim yang meng-clone
+karirlink selamanya kena degradasi anggun. Mengikuti preseden `fer-service`:
+salinan layanan (subset: `hrv_api`, `hrv_rag`, KB+prompts+indeks, pyproject)
+kini ikut monorepo — dibuat HANYA lewat `scripts/export_service.py` di repo
+ini, dengan `PROVENANCE.md` mencap commit sumber. Aturannya keras: sunting di
+hrv-rag, ekspor ulang — salinan tidak pernah disunting, supaya produk tidak
+lepas dari kode yang angka validasinya diukur. Terverifikasi: venv segar dari
+salinan mem-boot dan memutar ulang sesi arsip dengan label identik; tanpa
+kunci Gemini label tetap keluar dan `trustworthy=false` menandai narasinya.
+
 ---
 
 ## Blok A — Commit perubahan hrv-rag  ✅ SELESAI
