@@ -134,6 +134,14 @@ HRV mandiri (endpoint sendiri, `X-API-Key`, panggil Gemini sendiri) — proxy ha
 menambah hop Python→Python tanpa manfaat. Koreksi bertanggal ada di
 `rancangan-rag-hrv.md` §4.1.
 
+**Susulan 1–2 Sep — jawaban singkat & standar tim (semua selesai):**
+
+| ID | Tugas | Status |
+|---|---|---|
+| E5 | **Port pulang perubahan 1 Sep** — rekan kerja menyunting salinan `apps/hrv-service` langsung (jendela reaksi `reaction_window()`, jaring pengaman `session_level()`, `unmeasured`/`coverage`, strip `session_level`, LLM dilewati tanpa pengukuran per pertanyaan; sebab: sesi uji 31 Agt gagal 422 karena semua jawaban < 31 dtk). Kelima perubahan disalin utuh ke hrv-rag (commit `2e62223`), 13 tes baru (412 total hijau, mutasi terbukti menggigit), diekspor ulang — hasil ekspor byte-identik dengan suntingannya, catatan penyimpangan PROVENANCE dihapus (commit karirlink `f0b9ec32`) | selesai 2 Sep |
+| E6 | **Standar tim ketua (1 Sep)** — `npm run start:dev` menyalakan hrv-service otomatis: blok HRV di `apps/backend/scripts/dev.mjs` meniru pola FER (venv otomatis via uv/python, sentinel sha256, `HRV_AUTO_SETUP=0` untuk melewati, `.env` disalin dari contoh karena layanan menolak semua tanpa `HRV_API_KEYS`), + seksi HRV di `.env.example` backend. Diverifikasi hidup: `/health` ok di 8010, `.env` terbuat otomatis. Commit `9e9fc017`. Syarat 1 (kode di repo) & 3 (opsional) sudah terpenuhi sebelumnya; mekanisme kita skrip ekspor, bukan subtree — sampaikan ke ketua tim | selesai 2 Sep |
+| E7 | **Tampilan jaring pengaman di web** — `parseHasilDetak` menerima `questions: []` bila `session_level` ada; panel merender kartu "Sesi secara keseluruhan" (kalimat tetap per level, bukan LLM), daftar pertanyaan tak terukur disebut satu per satu, catatan narasi-tertahan disyaratkan pada adanya tingkat per pertanyaan. 8 tes baru (76 web hijau). Commit `bf4951e2` | selesai 2 Sep |
+
 ---
 
 ## Blok F — Prasyarat dari sisi TA yang menghalangi integrasi  ⬜ BELUM
