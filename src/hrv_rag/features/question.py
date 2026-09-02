@@ -76,12 +76,24 @@ def segments_for_window(segments: pd.DataFrame, start_sec: float,
     Requiring a strict majority also restores what `SessionConfig` claims: a
     60-second gap yields exactly one recovery segment, not two.
 
-    A consequence worth stating rather than hiding: no segment can ever satisfy a
-    window shorter than the segment itself, so windows under 60 seconds return
-    nothing and the caller reports "not computable". That is the honest answer. A
-    60-second measurement cannot describe a 30-second stretch, and this is the same
-    reasoning that already sets `short_gap_sec` deliberately too short to produce a
-    recovery figure for ordinary questions.
+    A consequence worth stating rather than hiding: a window shorter than HALF a
+    segment can never be satisfied, so it returns nothing and the caller reports
+    "not computable". A 60-second measurement cannot describe a 25-second stretch,
+    and this is the same reasoning that already sets `short_gap_sec` deliberately
+    too short to produce a recovery figure for ordinary questions.
+
+    CORRECTION, 1 September 2026. This paragraph used to claim the floor was 60
+    seconds — "no segment can ever satisfy a window shorter than the segment
+    itself". That is wrong, and wrong in the direction that matters: the test is a
+    strict majority of the SEGMENT, so the real floor is 30 seconds, and a window
+    of 31 seconds passes. Measured by sweeping answer lengths through the live
+    pipeline: 30 s yields nothing, 31 s yields every question. The number in a
+    docstring this long gets believed without being re-measured, which is exactly
+    what happened.
+
+    THE FLOOR IS NO LONGER REACHED THROUGH THIS FUNCTION for a question's
+    reaction; see `reaction_window()` below. It still governs recovery, which is
+    what the strict-majority rule was written for.
     """
     if segments.empty:
         return segments
@@ -94,11 +106,68 @@ def segments_for_window(segments: pd.DataFrame, start_sec: float,
     return segments[overlap > (seg_end - seg_start) / 2.0]
 
 
+def reaction_window(question: Question,
+                    length_sec: int | None = None) -> tuple[float, float]:
+    """
+    The stretch of recording a question's REACTION is read from.
+
+    NOT the same window as the answer, and that is the whole point. Anchoring
+    the measurement to when somebody stopped talking assumes their heart stopped
+    with them. It does not: the cardiac response to an evaluative question peaks
+    and decays over tens of seconds, so the moments just after an answer ends are
+    often where the reaction is largest. Meanwhile the person is still sitting
+    there and the sensor is still recording, so that stretch costs nothing to
+    read.
+
+    WHAT THIS FIXES. Measured against the live pipeline on 1 September 2026, an
+    answer of 30 seconds or less produced no usable segment, and a session where
+    every answer was that short produced no result at all — a 422 the interface
+    then reported as the module being unavailable. Real users are far below the
+    90 seconds `SessionConfig.answer_sec` assumes; the first person to run the
+    integrated app finished every question inside a minute.
+
+    THE WINDOW IS CAPPED AT THE NEXT QUESTION, never allowed to run past it. So
+    it borrows the quiet gap that follows an answer, and nothing else. A short
+    answer with a short gap is therefore still limited by the cycle it lives in:
+    when answer plus gap is under 30 seconds there genuinely is not half a
+    segment belonging to that question, and "not measurable" is the true answer
+    rather than a shortfall of this code.
+
+    RECOVERY THEN STARTS WHERE THIS ENDS, not where the answer ended — see
+    `measure_question`. That is not tidiness, it is the only thing keeping the
+    old contamination bug shut. Widening the reaction window into the gap means
+    both windows now cover the same quiet seconds, and a single 60-second segment
+    CAN hold a strict majority of each: an answer of 5 seconds followed by a
+    45-second gap put segment 1 in both, measured. Handing the two windows a
+    shared boundary makes them disjoint, and a 60-second segment cannot spend
+    more than 30 seconds inside each of two disjoint windows, so no segment is
+    ever counted twice.
+
+    The price is stated plainly: when the answer was so short that the reaction
+    had to borrow the gap, there is no gap left to measure recovery from, and
+    recovery is reported as not computable. That is the truth about a
+    twenty-second answer, not a shortfall.
+    """
+    length = length_sec or settings.segmentation.length_sec
+    # Never shorter than one segment, so a brief answer still has something to
+    # sit in; never longer than the answer itself when the answer was generous.
+    wanted = max(question.answer_end_sec, question.answer_start_sec + length)
+    horizon = (question.gap_end_sec if question.gap_end_sec is not None
+               else float("inf"))
+    return question.answer_start_sec, min(wanted, horizon)
+
+
 def measure_question(question: Question, segments: pd.DataFrame,
                      baseline: BaselineProfile,
                      cfg: DynamicsConfig | None = None) -> QuestionMeasurement:
     """
     Compute one question's measurements from the session's segment table.
+
+    TWO WINDOWS, TWO RULES. The reaction is read from `reaction_window()`, which
+    starts when the question appeared and runs a full segment length unless the
+    next question arrives first. Recovery is read from the gap after the answer,
+    selected by the strict-majority rule. They cannot overlap by construction —
+    see the invariant in `reaction_window()`.
 
     Recovery compares the answer window against the gap that follows it. When the
     gap was too short to produce a segment, recovery is reported as not computable
@@ -108,8 +177,8 @@ def measure_question(question: Question, segments: pd.DataFrame,
     cfg = cfg or settings.dynamics
     feature_names = list(baseline.values.keys())
 
-    answer_rows = segments_for_window(segments, question.answer_start_sec,
-                                      question.answer_end_sec)
+    window_start, window_end = reaction_window(question)
+    answer_rows = segments_for_window(segments, window_start, window_end)
     notes: list[str] = []
 
     if answer_rows.empty:
@@ -124,7 +193,11 @@ def measure_question(question: Question, segments: pd.DataFrame,
     # --- recovery, only when a quiet window followed ---
     recovery = RecoveryResult(None, "no quiet gap followed this question")
     if question.has_recovery_window:
-        gap_rows = segments_for_window(segments, question.answer_end_sec,
+        # Starts at the END OF THE REACTION WINDOW, not at the end of the
+        # answer. The two windows would otherwise overlap and one segment could
+        # satisfy both — reintroducing exactly the contamination this file's
+        # strict-majority rule was written to remove.
+        gap_rows = segments_for_window(segments, window_end,
                                        question.gap_end_sec)
         if gap_rows.empty:
             recovery = RecoveryResult(None, "gap produced no usable segment")

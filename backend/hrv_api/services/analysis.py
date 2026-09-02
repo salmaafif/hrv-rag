@@ -29,7 +29,8 @@ from hrv_rag.features.baseline import (BaselineProfile, BaselineVerdict,
                                        check_baseline)
 from hrv_rag.features.extractor import extract_features
 from hrv_rag.features.question import (arousal_index, cognitive_load_hint,
-                                 measure_question)
+                                 measure_question, reaction_window,
+                                 segments_for_window)
 from hrv_rag.features.dynamics import resilience_quadrant
 from hrv_rag.features.stress_level import classify
 from hrv_rag.features.signal_fitness import SignalFitness, assess_signal
@@ -277,6 +278,63 @@ def build_timeline(prepared: Prepared) -> dict:
     }
 
 
+def session_level(prepared: Prepared, timeline: SessionTimeline) -> dict | None:
+    """
+    One reading for the WHOLE answering phase, against the same baseline.
+
+    THE SAFETY NET, and the reason it exists. Until 1 September 2026 a session in
+    which no single question held a usable window produced no result at all: the
+    caller got a 422, KARIRLINK's backend translated it into "the HRV module is
+    unavailable", and the person was told the feature was broken when nothing was
+    broken — they had simply answered quickly. Measured on the live pipeline,
+    every answer under 31 seconds did that.
+
+    Yet the recording is still there. A five-question session is minutes of
+    continuous signal, and comparing all of it against the person's own baseline
+    is the same arithmetic the per-question path runs, on a longer window. It
+    cannot say WHICH question was hardest, and it must never be presented as if it
+    could — but "your body ran tenser than your calm baseline during the
+    interview" is a true statement, and it is worth more than an empty screen.
+
+    Computed for every session, not only failing ones. It costs one median, and
+    reporting it always means the number is the same number whether or not the
+    per-question path happened to succeed — a figure that appears only on failure
+    is a figure nobody has ever checked.
+    """
+    if not timeline.questions or prepared.task_table.empty:
+        return None
+
+    start = min(reaction_window(q)[0] for q in timeline.questions)
+    end = max(max(reaction_window(q)[1], q.gap_end_sec or 0.0)
+              for q in timeline.questions)
+
+    rows = prepared.task_table[
+        (prepared.task_table["end_sec"] > start)
+        & (prepared.task_table["start_sec"] < end)
+    ]
+    if rows.empty:
+        return None
+
+    feature_names = list(prepared.baseline.values.keys())
+    features = {c: float(rows[c].dropna().median())
+                for c in feature_names
+                if c in rows.columns and not rows[c].dropna().empty}
+    if not features:
+        return None
+
+    reactivity = prepared.baseline.reactivity(features)
+    verdict = classify(prepared.scoring_reactivity(reactivity))
+    return {
+        "level": verdict.level.value,
+        "score": verdict.points,
+        "n_segments": int(len(rows)),
+        "delta_rmssd_pct": _clean(reactivity.get("delta_pct_rmssd", float("nan"))),
+        "delta_hr_pct": _clean(reactivity.get("delta_pct_mean_hr", float("nan"))),
+        "evidence": list(verdict.evidence),
+        "features_disagree": _disagree(verdict),
+    }
+
+
 # ==================================================================== V3
 def build_session(prepared: Prepared, questions: list[dict]) -> tuple[dict, list]:
     """
@@ -314,13 +372,26 @@ def build_session(prepared: Prepared, questions: list[dict]) -> tuple[dict, list
             is_difficult=bool(entry.get("is_difficult", False)),
         ))
 
-    results, measurements = [], []
+    results, measurements, unmeasured = [], [], []
     reactivities, recoveries = [], []
 
     for question in timeline.questions:
         measurement = measure_question(question, prepared.task_table,
                                        prepared.baseline)
         if not measurement.has_data:
+            # REPORTED, NOT DROPPED. This used to `continue`, so a question that
+            # could not be measured simply vanished from the response and the
+            # screen showed four questions where five were asked, with nothing
+            # saying so. That contradicts the binding principle the acquisition
+            # document already states: a segment that fails the gates is
+            # FLAGGED, not silently removed, and coverage is reported at the end.
+            unmeasured.append({
+                "number": question.number,
+                "text": question.text,
+                "type": question.qtype.value,
+                "reason": (measurement.notes[0] if measurement.notes
+                           else "no usable window"),
+            })
             continue
 
         verdict = classify(prepared.scoring_reactivity(measurement.reactivity))
@@ -353,10 +424,17 @@ def build_session(prepared: Prepared, questions: list[dict]) -> tuple[dict, list
         if measurement.recovery.is_computable:
             recoveries.append(measurement.recovery.percent)
 
-    if not results:
+    whole_session = session_level(prepared, timeline)
+
+    if not results and whole_session is None:
+        # Only now is there genuinely nothing to say: not one question could be
+        # placed AND the answering phase as a whole yielded no window either.
+        # The old message blamed clock alignment, which was the 28 August cause
+        # and has since been fixed in the web app; leaving it in place sent
+        # everyone debugging the wrong thing.
         raise AnalysisError(
-            "no question had a usable window — the recording and the question "
-            "timings may not line up"
+            "the answering phase produced no measurable window at all — the "
+            "recording may end early, or those minutes were too noisy"
         )
 
     median_reactivity = float(np.median([d for _, d in reactivities])) if reactivities else float("nan")
@@ -368,6 +446,13 @@ def build_session(prepared: Prepared, questions: list[dict]) -> tuple[dict, list
 
     body = {
         "questions": results,
+        # Additive, so every existing consumer of `questions` keeps working: the
+        # contract said nothing about these keys and nothing about them changes
+        # the meaning of the ones it did define.
+        "unmeasured": unmeasured,
+        "coverage": {"measured": len(results),
+                     "total": len(timeline.questions)},
+        "session_level": whole_session,
         "summary": {
             "most_triggering_question": most_triggering,
             "resilience": quadrant.value if quadrant else None,

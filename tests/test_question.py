@@ -13,7 +13,8 @@ import pytest
 from hrv_rag.core.session import Question, QuestionType
 from hrv_rag.features.baseline import BaselineProfile
 from hrv_rag.features.question import (arousal_index, cognitive_load_hint,
-                                       measure_question, segments_for_window)
+                                       measure_question, reaction_window,
+                                       segments_for_window)
 
 
 @pytest.fixture
@@ -171,6 +172,104 @@ def test_question_without_usable_segments(segments, baseline):
     m = measure_question(q, segments, baseline)
     assert not m.has_data
     assert m.n_segments == 0
+
+
+# ------------------------------------------------- the reaction window
+# `reaction_window()` exists because real KARIRLINK candidates answer in well
+# under the 90 seconds `SessionConfig.answer_sec` assumes — the first person to
+# run the integrated app finished every question inside a minute, and the
+# module answered 422. These tests pin the window arithmetic the fix rests on.
+
+def test_reaction_window_extends_a_short_answer_to_one_segment():
+    """
+    A 15-second answer is read from a full segment length of recording. The
+    heart does not stop reacting when the person stops talking, and the sensor
+    is still recording — so the window borrows the quiet stretch that follows.
+    """
+    q = Question(number=1, text="?", qtype=QuestionType.BEHAVIOURAL,
+                 answer_start_sec=10.0, answer_end_sec=25.0)
+    assert reaction_window(q) == (10.0, 70.0)
+
+
+def test_reaction_window_is_capped_at_the_next_question():
+    """The borrowed stretch is the gap and NOTHING past it — the next question's
+    reaction must never leak into this one's window."""
+    q = Question(number=1, text="?", qtype=QuestionType.BEHAVIOURAL,
+                 answer_start_sec=10.0, answer_end_sec=25.0, gap_end_sec=50.0)
+    assert reaction_window(q) == (10.0, 50.0)
+
+
+def test_reaction_window_of_a_generous_answer_is_the_answer_itself():
+    """
+    Answers of a segment length or more keep their old window exactly, which is
+    why every pre-existing test in this file still passes unchanged: the fix
+    widens short windows and touches nothing else.
+    """
+    q = Question(number=1, text="?", qtype=QuestionType.BEHAVIOURAL,
+                 answer_start_sec=10.0, answer_end_sec=100.0, gap_end_sec=160.0)
+    assert reaction_window(q) == (10.0, 100.0)
+
+
+def test_a_short_answer_is_now_measurable(segments, baseline):
+    """
+    THE FIX ITSELF. A 15-second answer used to select no segment at all (window
+    shorter than half a segment), so a session of quick answers produced a 422
+    the interface reported as "module unavailable". With the reaction window it
+    selects the segment the answer sits in.
+    """
+    q = Question(number=1, text="?", qtype=QuestionType.BEHAVIOURAL,
+                 answer_start_sec=60.0, answer_end_sec=75.0, gap_end_sec=180.0)
+
+    # The old window, answer-only, still selects nothing — this line is what
+    # keeps the test honest about which behaviour changed.
+    assert segments_for_window(segments, 60.0, 75.0).empty
+
+    m = measure_question(q, segments, baseline)
+    assert m.has_data
+    # Window [60,120) holds exactly segment [60,120): RMSSD 30 vs baseline 50.
+    assert m.n_segments == 1
+    assert m.reactivity["delta_pct_rmssd"] == pytest.approx(-40.0)
+
+
+def test_reaction_and_recovery_windows_never_share_a_segment(segments, baseline):
+    """
+    The invariant that keeps the old contamination bug shut. Widening the
+    reaction into the gap means both windows cover the same quiet seconds, and
+    a single segment CAN hold a strict majority of each — an answer of 5 s
+    followed by a 45-s gap put segment one in both, measured, before recovery
+    was re-anchored. Handing the two windows a shared boundary makes them
+    disjoint, and a 60-s segment cannot spend more than 30 s inside each of two
+    disjoint windows.
+    """
+    q = Question(number=1, text="?", qtype=QuestionType.BEHAVIOURAL,
+                 answer_start_sec=60.0, answer_end_sec=65.0, gap_end_sec=110.0)
+    start, end = reaction_window(q)
+
+    reaction_rows = segments_for_window(segments, start, end)
+    recovery_rows = segments_for_window(segments, end, q.gap_end_sec)
+    shared = set(reaction_rows["start_sec"]) & set(recovery_rows["start_sec"])
+    assert shared == set()
+
+    # The OLD recovery anchor (the answer's end) would have double-counted:
+    # segment [60,120) spends 45 s in [65,110) — a strict majority — while
+    # already carrying the reaction. The line above is not vacuous.
+    old_rows = segments_for_window(segments, q.answer_end_sec, q.gap_end_sec)
+    assert set(reaction_rows["start_sec"]) & set(old_rows["start_sec"])
+
+
+def test_a_short_answer_that_borrowed_its_gap_reports_no_recovery(segments,
+                                                                  baseline):
+    """
+    The price of the fix, stated plainly: when the reaction had to borrow the
+    whole gap, there is nothing left to measure recovery from — and "not
+    computable" is the truth about a five-second answer, not a shortfall.
+    """
+    q = Question(number=1, text="?", qtype=QuestionType.BEHAVIOURAL,
+                 answer_start_sec=60.0, answer_end_sec=65.0, gap_end_sec=110.0)
+    m = measure_question(q, segments, baseline)
+    assert m.has_data
+    assert not m.recovery.is_computable
+    assert m.recovery.percent is None
 
 
 # ------------------------------------------------------- derived indices

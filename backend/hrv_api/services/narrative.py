@@ -76,6 +76,15 @@ def write_session_narrative(prepared: Prepared, body: dict, measurements: list,
     would lose the comparison that makes the feedback useful — "you settled faster
     after the second one than the first" cannot be written one question at a time.
     """
+    if not measurements:
+        # Nothing per-question survived, so there is nothing for the model to
+        # describe question by question. The session-level reading in
+        # `body["session_level"]` still stands — it is arithmetic, not prose —
+        # and the interface renders a fixed honest sentence for it. Calling the
+        # model with an empty list would spend a request to be told nothing, and
+        # invite it to fill the silence with something nobody measured.
+        return _empty_session(body), _fallback_meta("no per-question window")
+
     try:
         from hrv_rag.rag.narrative import NarrativeInput, NarrativeWriter
     except Exception as exc:                      # pragma: no cover - import guard

@@ -79,4 +79,13 @@ def strip_technical(payload: dict) -> dict:
         for entry in payload.get(key, []):
             for field in TECHNICAL_FIELDS:
                 entry.pop(field, None)
+
+    # The session-level reading carries the same developer numbers as a question
+    # and must be stripped by the same rule. It is a dict rather than a list, so
+    # the loop above would have walked its KEYS and silently stripped nothing —
+    # a new field leaking the exact values K4 exists to withhold.
+    whole = payload.get("session_level")
+    if isinstance(whole, dict):
+        for field in TECHNICAL_FIELDS:
+            whole.pop(field, None)
     return payload

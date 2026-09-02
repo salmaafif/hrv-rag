@@ -84,9 +84,14 @@ HRV_API_KEYS=kunci-lokal
 # meta.trustworthy menandainya. Jangan pernah commit nilai aslinya.
 # GEMINI_API_KEY=
 
-# Arsip sesi berizin — OPSIONAL, dua kunci: pengguna mencentang persetujuan
-# DAN operator mengisi folder ini. Kosongkan bila tidak mengarsip.
-# HRV_ARCHIVE_DIR=outputs/session_archive
+# Arsip sesi berizin — dua kunci: pengguna mencentang persetujuan DAN operator
+# mengisi folder ini. Kunci operator ini SENGAJA dinyalakan di contoh sejak
+# 1 Sep 2026: sesi yang GAGAL dianalisis pun ikut tersimpan (routes/session.py
+# mengarsip di cabang except), dan tiga sesi uji nyata sudah hilang justru
+# karena baris ini masih dikomentari. Menyalakannya sendirian tidak menyimpan
+# apa pun — tanpa persetujuan pemanggil, archive_session() tetap mengembalikan
+# None. Kosongkan bila memang tidak ingin mengarsip.
+HRV_ARCHIVE_DIR=outputs/session_archive
 """
 
 GITIGNORE = """\
