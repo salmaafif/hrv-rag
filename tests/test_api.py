@@ -14,6 +14,8 @@ What matters most below, in order:
   - a failed model call costs the prose and nothing else.
 """
 
+from pathlib import Path
+
 import numpy as np
 import pytest
 from fastapi.testclient import TestClient
@@ -74,6 +76,36 @@ def session_body(**overrides) -> dict:
 
 
 # ------------------------------------------------------------------ access
+def test_the_env_file_is_loaded_when_the_app_is_assembled(monkeypatch):
+    """
+    `deps.require_api_key` reads HRV_API_KEYS on the very FIRST request — long
+    before any RAG module lazily loads .env for its Gemini key. So the app
+    itself must load the repo-root .env at assembly. Without that, a service
+    started plainly (as KARIRLINK's dev.mjs does) refused every caller with
+    503 "HRV_API_KEYS is unset" while a healthy 266-interval submission came
+    home "module unavailable" — measured live, 4 September 2026.
+    """
+    import importlib
+
+    import hrv_api.app as app_module
+
+    loaded_paths: list[Path] = []
+    monkeypatch.setattr(
+        "dotenv.load_dotenv",
+        lambda path=None, **kwargs: loaded_paths.append(Path(path)),
+    )
+    importlib.reload(app_module)
+
+    assert loaded_paths, "app assembly never called load_dotenv"
+    assert loaded_paths[0].name == ".env"
+    # Anchored to the app's own file, not the caller's working directory —
+    # dev.mjs starts uvicorn from a cwd this module cannot predict.
+    assert (
+        loaded_paths[0].parent
+        == Path(app_module.__file__).resolve().parents[2]
+    )
+
+
 def test_health_needs_no_key(client):
     assert client.get("/health").status_code == 200
 

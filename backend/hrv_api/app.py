@@ -44,11 +44,26 @@ from __future__ import annotations
 
 import logging
 import os
+from pathlib import Path
 
+from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .routes import health, session, timeline
+# The repo-root .env is loaded HERE, at assembly, not lazily. Every earlier
+# `load_dotenv` in this codebase lives inside the RAG modules and runs only
+# when a narrative is first written — but `deps.require_api_key` reads
+# HRV_API_KEYS on the very first request, long before any of that. Started
+# plainly (as KARIRLINK's dev.mjs does), the service therefore saw no keys,
+# refused every caller with 503, and a healthy sensor submission of 266
+# intervals came home "module unavailable" (measured live, 4 Sep 2026). It
+# never surfaced before because the runbook happened to pass the key inline.
+# The path is explicit for the same reason kb_index.py's is: the automatic
+# search walks up from the CALLER's directory, not this file's.
+# `override=False` (the default): a key set in the real environment wins.
+load_dotenv(Path(__file__).resolve().parents[2] / ".env")
+
+from .routes import health, session, timeline  # noqa: E402
 
 log = logging.getLogger(__name__)
 
