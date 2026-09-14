@@ -112,6 +112,19 @@ export function DevicePanel({ device }: { device: DeviceConnection }) {
             </p>
           )}
 
+          {/*
+            Said as soon as the first packet arrives, not after the interview:
+            the session still works, but the person should know before
+            starting that recovery will not be measured.
+          */}
+          {device.sendsRrIntervals === false && (
+            <p className="mt-3 rounded-lg bg-canvas px-4 py-3 text-sm text-ink-muted">
+              Perangkat ini hanya mengirim detak jantung. Sesimu tetap dinilai
+              dari detak jantung, tetapi pemulihan dan ketahanan belum bisa
+              diukur.
+            </p>
+          )}
+
           {device.signalQuality && (
             <p className="mt-3 flex items-center justify-between rounded-lg bg-canvas px-4 py-3 text-sm">
               <span className="text-ink-muted">Kualitas sinyal</span>

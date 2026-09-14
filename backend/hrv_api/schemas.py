@@ -87,6 +87,16 @@ class AnalyzeRequest(BaseModel):
     #: `rr_ms` and `bpm_samples` are sent, because without it the choice is a guess.
     rr_coverage: float | None = Field(default=None, ge=0.0, le=1.0)
 
+    #: `offset_sec`, measured on the heart-rate report clock instead.
+    #:
+    #: A live device sending both streams has two clocks: the beat intervals add
+    #: up to one, the reports' own timestamps make the other, and the two drift
+    #: apart whenever beats go missing — which is exactly when a session falls to
+    #: heart rate. `offset_sec` belongs to the interval clock. When the session is
+    #: scored from heart rate, this one places the questions; when it is omitted,
+    #: `offset_sec` serves both.
+    bpm_offset_sec: float | None = Field(default=None, ge=0.0, le=1800.0)
+
     baseline_minutes: float = Field(ge=MIN_BASELINE_MINUTES, le=8)
     modality: str = Field(pattern="^(ECG|PPG)$")
 

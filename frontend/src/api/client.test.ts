@@ -57,6 +57,24 @@ describe('analyzeSession', () => {
     const result = await analyzeSession(baseRequest, FAST)
     expect(result.baseline.is_stable).toBe(true)
   })
+
+  const reports = Array.from({ length: 10 }, (_, i) => ({ at_sec: i, bpm: 72 }))
+
+  it('answers a watch that sent heart rate only with that path', async () => {
+    const result = await analyzeSession({ ...baseRequest, bpm_samples: reports }, FAST)
+    expect(result.source).toBe('bpm')
+    expect(result.baseline.rmssd_ms).toBeNull()
+  })
+
+  it('keeps the interval answer when intervals came too', async () => {
+    // Which path a mixed request really takes is the backend's threshold to
+    // apply; the dummy does not guess it.
+    const result = await analyzeSession(
+      { ...baseRequest, rr_ms: [850, 860], bpm_samples: reports, rr_coverage: 0.95 },
+      FAST,
+    )
+    expect(result.source).toBe('beat_intervals')
+  })
 })
 
 describe('failures', () => {

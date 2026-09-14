@@ -458,6 +458,31 @@ def test_a_watch_connected_early_does_not_move_the_questions(client):
         assert b["delta_hr_pct"] == pytest.approx(a["delta_hr_pct"], abs=3)
 
 
+def test_a_heart_rate_session_places_questions_on_the_report_clock(client):
+    """
+    A device sending both streams has two clocks. When the session falls to
+    heart rate, the offset measured on the report clock must place the
+    questions — the interval-clock offset describes a series that was set aside.
+    """
+    plain = post(client, bpm_body(), debug=True)
+    both = dict(bpm_samples=heart_rate_samples(prelude_sec=60),
+                rr_ms=interval_recording(1200.0, 600.0),
+                rr_coverage=settings.tier.min_rr_coverage - 0.2)
+
+    honest = post(client, bpm_body(**both, offset_sec=5, bpm_offset_sec=60),
+                  debug=True)
+    assert honest["source"] == "bpm"
+    assert honest["summary"]["most_triggering_question"] == 2
+    for a, b in zip(plain["questions"], honest["questions"]):
+        assert b["delta_hr_pct"] == pytest.approx(a["delta_hr_pct"], abs=3)
+
+    # The control: the interval-clock offset alone lands on the wrong minutes.
+    wrong = post(client, bpm_body(**both, offset_sec=5), debug=True)
+    q2 = [q for q in honest["questions"] if q["number"] == 2][0]
+    q2_wrong = [q for q in wrong["questions"] if q["number"] == 2][0]
+    assert abs(q2["delta_hr_pct"] - q2_wrong["delta_hr_pct"]) > 10
+
+
 def test_ignoring_the_early_minute_is_what_would_move_them(client):
     # The control: the same recording, told nothing about its prelude.
     honest = post(client, bpm_body(bpm_samples=heart_rate_samples(prelude_sec=60),

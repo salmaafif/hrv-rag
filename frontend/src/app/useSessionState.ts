@@ -15,6 +15,7 @@ import { useCallback, useState } from 'react'
 import { analyzeSession } from '../api/client'
 import type { AnalyzeOptions } from '../api/dummy'
 import { ApiError, toApiError } from '../api/errors'
+import { rrCoverage, streamElapsedSec, toBpmSamples } from '../lib/bpmReadings'
 import type {
   AnalyzeRequest,
   Modality,
@@ -130,6 +131,7 @@ export interface SessionState {
 
 export function useSessionState(device: DeviceConnection): SessionState {
   const [sessionOffsetSec, setSessionOffsetSec] = useState(0)
+  const [sessionBpmOffsetSec, setSessionBpmOffsetSec] = useState(0)
   const [file, setFileRaw] = useState<File | null>(null)
   const [fileWornAt, setFileWornAtState] = useState<WearLocation | null>(null)
   const [questionTimeline, setQuestionTimelineState] = useState<
@@ -147,7 +149,12 @@ export function useSessionState(device: DeviceConnection): SessionState {
   const markSessionStart = useCallback(() => {
     const buffered = device.rrIntervals.reduce((total, ms) => total + ms, 0)
     setSessionOffsetSec(buffered / 1000)
-  }, [device.rrIntervals])
+    // The same instant on the heart-rate report clock. A watch that sends no
+    // intervals leaves the buffer above empty, so without this its offset would
+    // read zero however long it had already been streaming — and every
+    // question would land that many minutes early.
+    setSessionBpmOffsetSec(streamElapsedSec(device.bpmReadings))
+  }, [device.rrIntervals, device.bpmReadings])
 
   // Consent to keep the recording for research. False until the person ticks
   // the box themselves — a session that never saw the checkbox sends false,
@@ -212,13 +219,36 @@ export function useSessionState(device: DeviceConnection): SessionState {
           // it is the more deliberate, more recent choice, and its timing lines
           // up with the interview because the same clock produced both.
           const beats = device.rrIntervals
+          const readings = device.bpmReadings
+          // Two reports are the least that spans any time at all.
+          const reportsHeartRate = readings.length >= 2
+          const live = beats.length > 0 || reportsHeartRate
+
+          // Both streams travel together, with the coverage that decides between
+          // them. The browser does not choose: a threshold that decides how a
+          // person is scored belongs in the frozen, tested backend.
+          const liveRecording = {
+            ...(beats.length ? { rr_ms: beats } : {}),
+            ...(reportsHeartRate
+              ? {
+                  bpm_samples: toBpmSamples(readings),
+                  rr_coverage: rrCoverage(beats, readings),
+                  bpm_offset_sec: sessionBpmOffsetSec,
+                }
+              : {}),
+          }
+
           const base: AnalyzeRequest = {
             store_consented: storeConsented,
             baseline_minutes: INTERVIEW_REST_MINUTES,
-            offset_sec: beats.length ? sessionOffsetSec : 0,
+            offset_sec: beats.length
+              ? sessionOffsetSec
+              : reportsHeartRate
+                ? sessionBpmOffsetSec
+                : 0,
             modality,
-            ...(beats.length
-              ? { rr_ms: beats }
+            ...(live
+              ? liveRecording
               : file
                 ? { csv: await file.text() }
                 : {}),
@@ -239,8 +269,8 @@ export function useSessionState(device: DeviceConnection): SessionState {
 
       void send()
     },
-    [device.rrIntervals, file, modality, questionTimeline, storeConsented,
-     sessionOffsetSec],
+    [device.rrIntervals, device.bpmReadings, file, modality, questionTimeline,
+     storeConsented, sessionOffsetSec, sessionBpmOffsetSec],
   )
 
   return {

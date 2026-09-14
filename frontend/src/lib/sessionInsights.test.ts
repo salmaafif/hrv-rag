@@ -34,12 +34,15 @@ function question(
   }
 }
 
-function session(questions: QuestionResult[]): SessionResponse {
+function session(
+  questions: QuestionResult[],
+  source: SessionResponse['source'] = 'beat_intervals',
+): SessionResponse {
   return {
     session_id: 'test',
     modality: 'ECG',
-    tier: 'T2',
-    source: 'beat_intervals',
+    tier: source === 'bpm' ? 'T1-BPM' : 'T2',
+    source,
     baseline: {
       rmssd_ms: 32,
       mean_hr_bpm: 73,
@@ -190,6 +193,63 @@ describe('the headline figures', () => {
     const settled = headlines(result)[2]!
     expect(settled.value).toBe('Belum terukur')
     expect(settled.value).not.toContain('0')
+  })
+})
+
+// ------------------------------------------- a watch that sends heart rate only
+describe('a session scored from heart rate alone', () => {
+  /**
+   * Recovery is missing for a different reason here: not a short pause, but a
+   * device that never delivered what recovery is read from. Blaming the pause
+   * would be false, and would send the person to change something that was
+   * never the problem.
+   */
+  // Shaped like the backend's answer on this path: no quadrant, no recovery,
+  // ranked by heart rate.
+  const heartRateOnly = (): SessionResponse => {
+    const result = session(
+      [question(1, 'high', null), question(2, 'low', null)],
+      'bpm',
+    )
+    return {
+      ...result,
+      summary: {
+        ...result.summary,
+        resilience: null,
+        median_recovery_pct: null,
+        reactivity_basis: 'mean_hr',
+      },
+    }
+  }
+
+  it('names the device, not the pause, as the reason recovery is missing', () => {
+    const result = heartRateOnly()
+    const recovery = axis(result, 'recovery')
+    expect(recovery.value).toBeNull()
+    expect(recovery.unmeasured).toContain('hanya mengirim detak jantung')
+    expect(recovery.unmeasured).not.toContain('Jeda')
+
+    expect(axis(result, 'resilience').unmeasured)
+      .toContain('hanya mengirim detak jantung')
+    expect(headlines(result)[2]!.hint).toContain('hanya mengirim detak jantung')
+  })
+
+  it('still blames the pause in a beat-interval session', () => {
+    // The control: the device wording must not leak into every null.
+    const result = session([question(1, 'high', null)])
+    expect(axis(result, 'recovery').unmeasured).toContain('Jedanya')
+    expect(headlines(result)[2]!.hint).toContain('Jeda')
+  })
+
+  it('keeps technical words out of the device wording too', () => {
+    const result = heartRateOnly()
+    const shown = [
+      ...responseDimensions(result).flatMap((d) => [d.meaning, d.unmeasured ?? '']),
+      ...headlines(result).flatMap((h) => [h.value, h.hint]),
+    ].join(' ')
+    for (const forbidden of ['RMSSD', 'HRV', 'bpm', 'interval', 'variabilitas']) {
+      expect(shown).not.toContain(forbidden)
+    }
   })
 })
 

@@ -250,6 +250,12 @@ export interface AnalyzeRequest {
    */
   rr_coverage?: number
   /**
+   * `offset_sec` measured on the heart-rate report clock. Used by the backend
+   * when the session is scored from heart rate; the interval clock and the
+   * report clock drift apart exactly when beats go missing.
+   */
+  bpm_offset_sec?: number
+  /**
    * Raw CSV text, when the source is an uploaded file.
    *
    * Exactly one of `rr_ms` and `csv` is sent. The recording never travels as a

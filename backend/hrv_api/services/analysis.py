@@ -183,7 +183,8 @@ def prepare(rr_ms: list[float] | None, csv: str | None,
             baseline_minutes: float, modality: Modality,
             session_id: str, offset_sec: float = 0.0,
             bpm_samples: list[dict] | None = None,
-            rr_coverage: float | None = None) -> Prepared:
+            rr_coverage: float | None = None,
+            bpm_offset_sec: float | None = None) -> Prepared:
     """
     Turn a raw recording into a personal baseline plus a feature table.
 
@@ -198,6 +199,10 @@ def prepare(rr_ms: list[float] | None, csv: str | None,
     baseline, and the signal checks are not run on beats that never existed.
     """
     source = choose_source(rr_ms, csv, bpm_samples, rr_coverage)
+    if source == BPM and bpm_offset_sec is not None:
+        # The report clock places the questions on this path, not the interval
+        # clock `offset_sec` was measured on (see `AnalyzeRequest.bpm_offset_sec`).
+        offset_sec = bpm_offset_sec
     bridged, gaps = None, []
     if source == BPM:
         try:

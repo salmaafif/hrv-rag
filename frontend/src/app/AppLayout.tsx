@@ -12,7 +12,7 @@
  * connected, and not before.
  */
 
-import { Outlet, useParams } from 'react-router'
+import { Outlet, useParams, useSearchParams } from 'react-router'
 import { isStage, STEP_OF_STAGE } from './stages'
 import { useDevMode } from './useDevMode'
 import { usesMockData } from '../api/client'
@@ -90,7 +90,14 @@ export function AppLayout() {
   // demonstrated without physically wearing a strap. Off by default, because a
   // silent fallback to invented beats would produce a confident report about
   // somebody who was never measured.
-  const device = useDeviceConnection(devMode)
+  // `&sensor=bpm` makes that simulated sensor a watch reporting heart rate
+  // only, so the heart-rate path can be shown without owning one. Honoured
+  // only in developer mode, for the same reason as the simulation itself.
+  const [search] = useSearchParams()
+  const device = useDeviceConnection(
+    devMode,
+    devMode && search.get('sensor') === 'bpm',
+  )
   const session = useSessionState(device)
 
   const activeStep = isStage(params.stage) ? STEP_OF_STAGE[params.stage] : null

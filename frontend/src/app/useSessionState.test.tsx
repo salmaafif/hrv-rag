@@ -43,6 +43,7 @@ function noDevice(): DeviceConnection {
     bpm: null,
     sendsRrIntervals: null,
     rrIntervals: [],
+    bpmReadings: [],
     clearIntervals: () => {},
     scan: () => {},
     connect: () => {},
@@ -260,6 +261,90 @@ describe('choosing what to send', () => {
 
     expect(session).not.toHaveBeenCalled()
     expect(result.current.status).toBe('idle')
+  })
+})
+
+describe('a watch that reports heart rate only', () => {
+  /** One report a second, from the second the watch connected. */
+  const reports = (count: number, bpm = 72) =>
+    Array.from({ length: count }, (_, i) => ({ atSec: i, bpm }))
+
+  it('sends its heart-rate reports, and no intervals it never had', async () => {
+    const { session } = spyOnApi()
+    const { useSessionState: hook } = await import('./useSessionState')
+
+    const watch = connectedDevice({
+      sendsRrIntervals: false, rrIntervals: [], bpmReadings: reports(200),
+    })
+    const { result } = renderHook(() => hook(watch))
+    act(() => { result.current.setQuestionTimeline(TIMELINE) })
+    act(() => { result.current.run() })
+
+    await waitFor(() => expect(session).toHaveBeenCalled())
+    const sent = session.mock.calls[0]![0]
+    expect(sent.bpm_samples).toHaveLength(200)
+    expect(sent.bpm_samples[0]).toEqual({ at_sec: 0, bpm: 72 })
+    expect(sent.rr_ms).toBeUndefined()
+    expect(sent.csv).toBeUndefined()
+    expect(sent.rr_coverage).toBe(0)
+  })
+
+  it('measures how long it streamed before the session on its own clock', async () => {
+    // THE BUG THIS PREVENTS. The interval buffer of a watch is empty, so an
+    // offset read from it is zero however long the watch had been streaming —
+    // and every question would land that many seconds early.
+    const { session } = spyOnApi()
+    const { useSessionState: hook } = await import('./useSessionState')
+
+    // 181 reports, one a second: 180 s of sitting still before pressing start.
+    const watch = connectedDevice({
+      sendsRrIntervals: false, rrIntervals: [], bpmReadings: reports(181),
+    })
+    const { result } = renderHook(() => hook(watch))
+    act(() => { result.current.markSessionStart() })
+    act(() => { result.current.setQuestionTimeline(TIMELINE) })
+    act(() => { result.current.run() })
+
+    await waitFor(() => expect(session).toHaveBeenCalled())
+    const sent = session.mock.calls[0]![0]
+    expect(sent.offset_sec).toBe(180)
+    expect(sent.bpm_offset_sec).toBe(180)
+  })
+
+  it('sends both streams from a strap, with the coverage that decides', async () => {
+    // The backend chooses the path. It can only choose with both in hand.
+    const { session } = spyOnApi()
+    const { useSessionState: hook } = await import('./useSessionState')
+
+    const strap = connectedDevice({
+      rrIntervals: Array.from({ length: 200 }, () => 900),   // 180 s
+      bpmReadings: reports(181),                             // 180 s span
+    })
+    const { result } = renderHook(() => hook(strap))
+    act(() => { result.current.setQuestionTimeline(TIMELINE) })
+    act(() => { result.current.run() })
+
+    await waitFor(() => expect(session).toHaveBeenCalled())
+    const sent = session.mock.calls[0]![0]
+    expect(sent.rr_ms).toHaveLength(200)
+    expect(sent.bpm_samples).toHaveLength(181)
+    expect(sent.rr_coverage).toBeCloseTo(1, 5)
+  })
+
+  it('does not send a single report as if it were a stream', async () => {
+    const { session } = spyOnApi()
+    const { useSessionState: hook } = await import('./useSessionState')
+
+    const strap = connectedDevice({ rrIntervals: [850, 860], bpmReadings: reports(1) })
+    const { result } = renderHook(() => hook(strap))
+    act(() => { result.current.setQuestionTimeline(TIMELINE) })
+    act(() => { result.current.run() })
+
+    await waitFor(() => expect(session).toHaveBeenCalled())
+    const sent = session.mock.calls[0]![0]
+    expect(sent.bpm_samples).toBeUndefined()
+    expect(sent.rr_coverage).toBeUndefined()
+    expect(sent.rr_ms).toEqual([850, 860])
   })
 })
 

@@ -258,6 +258,85 @@ export const mockSessionNoRecovery: SessionResponse = (() => {
 })()
 
 /**
+ * A session from a watch that reports heart rate only (`source: 'bpm'`).
+ *
+ * The same six questions and heart-rate changes, with everything the backend
+ * does not measure on that path ABSENT rather than zero: no RMSSD anywhere, no
+ * recovery, no resilience quadrant, and a summary ranked by heart rate. The
+ * dummy serves it whenever a request carries heart-rate reports and no
+ * intervals, so `?dev=1&sensor=bpm` shows the screen that path really gets.
+ */
+export const mockSessionHeartRateOnly: SessionResponse = (() => {
+  // Written per level rather than copied from the seeds: those sentences talk
+  // about settling afterwards, which this path never measures.
+  const PENJELASAN: Record<QuestionResult['level'], string> = {
+    low: 'Detak jantungmu tetap dekat dengan saat kamu tenang di awal.',
+    moderate: 'Detak jantungmu naik sedang saat menjawab pertanyaan ini.',
+    high: 'Detak jantungmu naik cukup tinggi saat menjawab pertanyaan ini.',
+  }
+
+  const measured: QuestionResult[] = SEEDS.map((seed) => {
+    const verdict = mockVerdict(null, seed.deltaHrPct)
+    return {
+      number: seed.number,
+      text: seed.text,
+      type: seed.type,
+      level: verdict.level,
+      score: verdict.score,
+      delta_rmssd_pct: null,
+      delta_hr_pct: seed.deltaHrPct,
+      recovery_pct: null,
+      recovery_note:
+        'perangkat ini hanya mengirim detak jantung, jadi pemulihan tidak diukur',
+      evidence: verdict.evidence,
+      features_disagree: verdict.features_disagree,
+      penjelasan: PENJELASAN[verdict.level],
+      saran: seed.saran,
+    }
+  })
+
+  const largest = measured.reduce((a, b) =>
+    Math.abs(b.delta_hr_pct) > Math.abs(a.delta_hr_pct) ? b : a,
+  )
+
+  return {
+    ...mockSession,
+    session_id: 'demo-session-004',
+    tier: 'T1-BPM',
+    source: 'bpm',
+    baseline: { ...mockSession.baseline, rmssd_ms: null },
+    signal_fitness: {
+      rmssd_trusted: false,
+      reasons: [
+        'device reports heart rate (bpm) only, not beat-to-beat intervals, ' +
+          'so variability was not measured',
+      ],
+      quantization_step_ms: null,
+      missed_beat_ratio: null,
+      task_outlier_ratio: null,
+    },
+    questions: measured,
+    summary: {
+      most_triggering_question: largest.number,
+      resilience: null,
+      median_reactivity_pct: median(measured.map((q) => q.delta_hr_pct)),
+      median_recovery_pct: null,
+      reactivity_basis: 'mean_hr',
+    },
+    narrative: {
+      ringkasan_sesi:
+        'Secara umum detak jantungmu cukup terjaga. Ada dua pertanyaan yang ' +
+        'membuatnya naik jauh lebih tinggi daripada yang lain.',
+      penyemangat: mockSession.narrative.penyemangat,
+    },
+    meta: {
+      ...mockSession.meta,
+      prompt_version: 'HRV_session_narrative_heart_rate_only',
+    },
+  }
+})()
+
+/**
  * A session whose resting period came back too unsteady to trust.
  *
  * The unstable-baseline warning is the single most important thing the result

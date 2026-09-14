@@ -51,25 +51,32 @@ export interface MockVerdict {
   features_disagree: boolean
 }
 
-/** Reproduces `classify()` for one pair of reactivity percentages. */
+/**
+ * Reproduces `classify()` for one pair of reactivity percentages.
+ *
+ * `deltaRmssdPct` null is a session scored from heart rate alone: like the NaN
+ * the backend reads, it scores nothing and leaves no evidence line behind.
+ */
 export function mockVerdict(
-  deltaRmssdPct: number,
+  deltaRmssdPct: number | null,
   deltaHrPct: number,
 ): MockVerdict {
-  const rmssdPoints = scoreFeature(
-    deltaRmssdPct,
-    RMSSD_MODERATE_PCT,
-    RMSSD_HIGH_PCT,
-    false,
-  )
+  const rmssdPoints =
+    deltaRmssdPct === null
+      ? 0
+      : scoreFeature(deltaRmssdPct, RMSSD_MODERATE_PCT, RMSSD_HIGH_PCT, false)
   const hrPoints = scoreFeature(deltaHrPct, HR_MODERATE_PCT, HR_HIGH_PCT, true)
   const score = rmssdPoints + hrPoints
 
   // Wording copied from stress_level.py so the developer panel shows the same
   // strings the backend would send.
   const evidence = [
-    `RMSSD ${Math.abs(deltaRmssdPct).toFixed(0)}% ` +
-      `${deltaRmssdPct < 0 ? 'below' : 'above'} baseline (${rmssdPoints} pt)`,
+    ...(deltaRmssdPct === null
+      ? []
+      : [
+          `RMSSD ${Math.abs(deltaRmssdPct).toFixed(0)}% ` +
+            `${deltaRmssdPct < 0 ? 'below' : 'above'} baseline (${rmssdPoints} pt)`,
+        ]),
     `heart rate ${Math.abs(deltaHrPct).toFixed(0)}% ` +
       `${deltaHrPct > 0 ? 'above' : 'below'} baseline (${hrPoints} pt)`,
   ]
@@ -77,7 +84,7 @@ export function mockVerdict(
   // The vagal marker says calm while the heart says otherwise. Speaking aloud
   // can produce this, which is exactly why an interview needs it flagged.
   const featuresDisagree =
-    deltaRmssdPct > 10 && deltaHrPct > HR_MODERATE_PCT
+    deltaRmssdPct !== null && deltaRmssdPct > 10 && deltaHrPct > HR_MODERATE_PCT
   if (featuresDisagree) {
     evidence.push(
       'features disagree: RMSSD rose while heart rate also rose, ' +

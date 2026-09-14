@@ -17,6 +17,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   mockSession,
+  mockSessionHeartRateOnly,
   mockSessionNoRecovery,
   mockSessionUnstableBaseline,
 } from './session'
@@ -78,6 +79,54 @@ describe('session fixture without any measurable recovery', () => {
     // One of the two axes is missing, so the quadrant is undefined. Returning
     // a quadrant anyway would present a guess as a finding.
     expect(mockSessionNoRecovery.summary.resilience).toBeNull()
+  })
+})
+
+describe('session fixture from a watch that reports heart rate only', () => {
+  /** Every number filed under a variability name, anywhere in the payload. */
+  function variabilityNumbers(node: unknown, path = ''): string[] {
+    if (Array.isArray(node)) {
+      return node.flatMap((item, i) => variabilityNumbers(item, `${path}[${i}]`))
+    }
+    if (node === null || typeof node !== 'object') return []
+    return Object.entries(node).flatMap(([key, value]) => {
+      const named = key.split('_').some((part) =>
+        ['rmssd', 'sdnn', 'pnn50', 'lf', 'hf'].includes(part))
+      const here = named && typeof value === 'number' ? [`${path}.${key}`] : []
+      return [...here, ...variabilityNumbers(value, `${path}.${key}`)]
+    })
+  }
+
+  it('carries no variability number anywhere', () => {
+    // A screen built against this fixture must never meet an RMSSD it could
+    // quote. The same rule the backend test enforces on the real payload.
+    expect(variabilityNumbers(mockSessionHeartRateOnly)).toEqual([])
+    expect(JSON.stringify(mockSessionHeartRateOnly)).not.toContain('RMSSD')
+    // The control: the interval fixture does carry them.
+    expect(variabilityNumbers(mockSession)).not.toEqual([])
+  })
+
+  it('names its path and tier', () => {
+    expect(mockSessionHeartRateOnly.source).toBe('bpm')
+    expect(mockSessionHeartRateOnly.tier).toBe('T1-BPM')
+    expect(mockSessionHeartRateOnly.summary.reactivity_basis).toBe('mean_hr')
+  })
+
+  it('reports recovery and resilience as unmeasured, never as zero', () => {
+    for (const q of mockSessionHeartRateOnly.questions) {
+      expect(q.recovery_pct).toBeNull()
+      expect(q.recovery_note).not.toBe('')
+    }
+    expect(mockSessionHeartRateOnly.summary.median_recovery_pct).toBeNull()
+    expect(mockSessionHeartRateOnly.summary.resilience).toBeNull()
+  })
+
+  it('names the question with the largest heart-rate rise', () => {
+    const largest = mockSessionHeartRateOnly.questions.reduce((a, b) =>
+      b.delta_hr_pct > a.delta_hr_pct ? b : a,
+    )
+    expect(mockSessionHeartRateOnly.summary.most_triggering_question)
+      .toBe(largest.number)
   })
 })
 

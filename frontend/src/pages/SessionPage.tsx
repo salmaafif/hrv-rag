@@ -378,7 +378,19 @@ export function SessionPage({ device, session }: StageContext) {
             <p className="text-sm text-unknown">Menunggu denyut…</p>
           )}
 
-          <HeartRateStream rrIntervals={device.rrIntervals} bpm={device.bpm} />
+          {/*
+            A watch that sends no intervals still needs to show it is alive.
+            Its reports are turned into periods FOR DRAWING ONLY — this array
+            never leaves the screen, and nothing is analysed from it.
+          */}
+          <HeartRateStream
+            rrIntervals={
+              device.rrIntervals.length
+                ? device.rrIntervals
+                : device.bpmReadings.map((reading) => 60000 / reading.bpm)
+            }
+            bpm={device.bpm}
+          />
         </Card>
 
         {/*

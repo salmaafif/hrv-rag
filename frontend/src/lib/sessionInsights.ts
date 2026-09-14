@@ -91,7 +91,7 @@ function calmness(questions: QuestionResult[]): Dimension {
  * from the Python side. Showing zero here would tell somebody they never calmed
  * down, on the strength of a measurement nobody took.
  */
-function recovery(questions: QuestionResult[]): Dimension {
+function recovery(questions: QuestionResult[], heartRateOnly: boolean): Dimension {
   const measured = questions
     .map((q) => q.recovery_pct)
     .filter((value): value is number => value !== null)
@@ -107,10 +107,23 @@ function recovery(questions: QuestionResult[]): Dimension {
         : `Tekanan turun sekitar ${Math.round(clamp(middle))}% sebelum lanjut`,
     unmeasured:
       middle === null
-        ? 'Jedanya kependekan buat diukur. Bukan berarti kamu tidak pulih.'
+        ? heartRateOnly
+          ? HEART_RATE_ONLY_RECOVERY
+          : 'Jedanya kependekan buat diukur. Bukan berarti kamu tidak pulih.'
         : undefined,
   }
 }
+
+/**
+ * Why recovery is missing from a session scored from heart rate alone.
+ *
+ * NOT the pause. Blaming a short gap would be false for these sessions — the
+ * gaps may have been long — and would send the person to change how they pace
+ * answers over something their watch simply cannot report.
+ */
+const HEART_RATE_ONLY_RECOVERY =
+  'Perangkatmu hanya mengirim detak jantung, jadi pemulihan tidak bisa ' +
+  'diukur. Bukan berarti kamu tidak pulih.'
 
 /**
  * Where the session landed on reaction size and recovery speed, as one value.
@@ -132,15 +145,20 @@ function recovery(questions: QuestionResult[]): Dimension {
  * the definition is missing, and inventing a value would state a conclusion
  * about a measurement nobody took.
  */
-function resilience(quadrant: SessionResponse['summary']['resilience']): Dimension {
+function resilience(
+  quadrant: SessionResponse['summary']['resilience'],
+  heartRateOnly: boolean,
+): Dimension {
   if (quadrant === null) {
     return {
       key: 'resilience',
       label: 'Resilience',
       value: null,
       meaning: 'Belum terukur',
-      unmeasured:
-        'Pemulihanmu belum terukur, jadi bagian ini belum bisa disimpulkan.',
+      unmeasured: heartRateOnly
+        ? 'Perangkatmu hanya mengirim detak jantung, jadi bagian ini belum ' +
+          'bisa disimpulkan.'
+        : 'Pemulihanmu belum terukur, jadi bagian ini belum bisa disimpulkan.',
     }
   }
 
@@ -172,10 +190,11 @@ function resilience(quadrant: SessionResponse['summary']['resilience']): Dimensi
  */
 export function responseDimensions(result: SessionResponse): Dimension[] {
   const questions = result.questions
+  const heartRateOnly = result.source === 'bpm'
   return [
     calmness(questions),
-    recovery(questions),
-    resilience(result.summary.resilience),
+    recovery(questions, heartRateOnly),
+    resilience(result.summary.resilience, heartRateOnly),
   ]
 }
 
@@ -222,9 +241,11 @@ export function headlines(result: SessionResponse): Headline[] {
       label: 'Sempat mereda',
       value: settled === null ? 'Belum terukur' : `${Math.round(clamp(settled))}%`,
       hint:
-        settled === null
-          ? 'Jeda antar pertanyaan kependekan'
-          : 'Sebelum pertanyaan berikutnya mulai',
+        settled !== null
+          ? 'Sebelum pertanyaan berikutnya mulai'
+          : result.source === 'bpm'
+            ? 'Perangkatmu hanya mengirim detak jantung'
+            : 'Jeda antar pertanyaan kependekan',
     },
   ]
 }

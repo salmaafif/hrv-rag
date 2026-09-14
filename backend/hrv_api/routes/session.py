@@ -32,6 +32,7 @@ def analyze_session(request: SessionRequest,
             bpm_samples=([s.model_dump() for s in request.bpm_samples]
                          if request.bpm_samples else None),
             rr_coverage=request.rr_coverage,
+            bpm_offset_sec=request.bpm_offset_sec,
         )
         body, measurements = build_session(
             prepared, [q.model_dump() for q in request.questions]

@@ -384,6 +384,119 @@ describe('the simulated sensor', () => {
   })
 })
 
+describe('collecting heart-rate reports', () => {
+  /**
+   * Most watches send bpm and nothing finer. These reports are what the backend
+   * scores such a session from, so their times have to be right: they place
+   * every question.
+   */
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  const connectReal = async () => {
+    const view = renderHook(() => useDeviceConnection(false))
+    await act(async () => {
+      view.result.current.scan()
+      await vi.advanceTimersByTimeAsync(0)
+    })
+    return view
+  }
+
+  it('keeps each report with the seconds since the first one arrived', async () => {
+    const view = await connectReal()
+
+    await act(async () => { strap.notify(0x00, 70) })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000)
+      strap.notify(0x00, 72)
+    })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000)
+      strap.notify(0x00, 74)
+    })
+
+    expect(view.result.current.bpmReadings).toEqual([
+      { atSec: 0, bpm: 70 },
+      { atSec: 1, bpm: 72 },
+      { atSec: 2, bpm: 74 },
+    ])
+    expect(view.result.current.rrIntervals).toEqual([])
+  })
+
+  it('treats the zero a watch sends without skin contact as a missing report', async () => {
+    const view = await connectReal()
+
+    await act(async () => { strap.notify(0x00, 70) })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000)
+      strap.notify(0x00, 0)
+    })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000)
+      strap.notify(0x00, 71)
+    })
+
+    expect(view.result.current.bpmReadings).toEqual([
+      { atSec: 0, bpm: 70 },
+      { atSec: 2, bpm: 71 },
+    ])
+  })
+
+  it('keeps the reports of a strap that also sends intervals', async () => {
+    const view = await connectReal()
+    await act(async () => { strap.notify(0x10, 70, ...rr(850)) })
+
+    expect(view.result.current.bpmReadings).toEqual([{ atSec: 0, bpm: 70 }])
+    expect(view.result.current.rrIntervals.map(Math.round)).toEqual([850])
+  })
+
+  it('forgets the reports together with the intervals', async () => {
+    const view = await connectReal()
+    await act(async () => { strap.notify(0x10, 70, ...rr(850)) })
+    await act(async () => { view.result.current.clearIntervals() })
+
+    expect(view.result.current.bpmReadings).toEqual([])
+    expect(view.result.current.rrIntervals).toEqual([])
+  })
+})
+
+describe('the simulated smartwatch', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('reports heart rate and never an interval', async () => {
+    const view = renderHook(() => useDeviceConnection(true, true))
+    // Connect first, in its own step: the playback starts from an effect that
+    // only exists once the connected state has rendered.
+    await act(async () => {
+      view.result.current.scan()
+      await vi.advanceTimersByTimeAsync(0)
+    })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000)
+    })
+
+    const readings = view.result.current.bpmReadings
+    expect(view.result.current.sendsRrIntervals).toBe(false)
+    expect(view.result.current.rrIntervals).toEqual([])
+    expect(readings.length).toBeGreaterThan(5)
+    // Stamped on the recording clock, strictly forward, like a real stream.
+    for (let i = 1; i < readings.length; i++) {
+      expect(readings[i]!.atSec).toBeGreaterThan(readings[i - 1]!.atSec)
+    }
+  })
+})
+
 describe('the beat-stream watchdog', () => {
   /**
    * The failure it exists for: another app takes the sensor mid-session. No
