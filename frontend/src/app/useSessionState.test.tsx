@@ -309,6 +309,8 @@ describe('a watch that reports heart rate only', () => {
     const sent = session.mock.calls[0]![0]
     expect(sent.offset_sec).toBe(180)
     expect(sent.bpm_offset_sec).toBe(180)
+    // Exposed too: the result screen places the watch's chart with it.
+    expect(result.current.sessionBpmOffsetSec).toBe(180)
   })
 
   it('sends both streams from a strap, with the coverage that decides', async () => {

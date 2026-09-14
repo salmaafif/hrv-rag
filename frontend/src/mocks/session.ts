@@ -75,7 +75,9 @@ const SEEDS: QuestionSeed[] = [
     deltaRmssdPct: -41,
     deltaHrPct: 24,
     recoveryPct: null,
-    recoveryNote: 'jeda sebelum pertanyaan berikutnya kurang dari 30 detik',
+    // The backend's own wording, English as it arrives — so the screen's
+    // translation is exercised by the fixture instead of bypassed by it.
+    recoveryNote: 'no quiet gap followed this question',
     penjelasan:
       'Ini pertanyaan dengan tekanan paling besar sepanjang sesi. Jeda ' +
       'sesudahnya terlalu pendek, jadi belum kelihatan seberapa cepat kamu ' +
@@ -247,7 +249,7 @@ export const mockSessionNoRecovery: SessionResponse = (() => {
   const stripped = questions.map((q) => ({
     ...q,
     recovery_pct: null,
-    recovery_note: 'jeda sebelum pertanyaan berikutnya kurang dari 30 detik',
+    recovery_note: 'no quiet gap followed this question',
   }))
   return {
     ...mockSession,
@@ -287,7 +289,8 @@ export const mockSessionHeartRateOnly: SessionResponse = (() => {
       delta_hr_pct: seed.deltaHrPct,
       recovery_pct: null,
       recovery_note:
-        'perangkat ini hanya mengirim detak jantung, jadi pemulihan tidak diukur',
+        'this device reports heart rate only, and recovery is read from ' +
+        'beat-to-beat variability, so it was not measured',
       evidence: verdict.evidence,
       features_disagree: verdict.features_disagree,
       penjelasan: PENJELASAN[verdict.level],

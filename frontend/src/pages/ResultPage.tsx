@@ -11,7 +11,10 @@ import { Card } from '../components/Card'
 import { SessionResult } from '../components/SessionResult'
 import { NavigateKeepingSearch } from '../app/NavigateKeepingSearch'
 import { useNavigateKeepingSearch } from '../app/useNavigateKeepingSearch'
-import { questionHeartRates } from '../lib/questionHeartRate'
+import {
+  questionHeartRates,
+  questionHeartRatesFromReadings,
+} from '../lib/questionHeartRate'
 import type { StageContext } from '../app/stageContext'
 
 export function ResultPage({ device, session }: StageContext) {
@@ -22,14 +25,19 @@ export function ResultPage({ device, session }: StageContext) {
     return <NavigateKeepingSearch to="/mulai" />
   }
 
+  // Beat intervals when the device sent them; otherwise the watch's own
+  // heart-rate reports, each placed with the offset from its own clock.
+  const timeline = session.questionTimeline
   const heartRate =
-    session.questionTimeline === null
+    timeline === null
       ? null
-      : questionHeartRates(
-          device.rrIntervals,
-          session.sessionOffsetSec,
-          session.questionTimeline,
-        )
+      : device.rrIntervals.length
+        ? questionHeartRates(device.rrIntervals, session.sessionOffsetSec, timeline)
+        : questionHeartRatesFromReadings(
+            device.bpmReadings,
+            session.sessionBpmOffsetSec,
+            timeline,
+          )
 
   return (
     <div className="space-y-6">

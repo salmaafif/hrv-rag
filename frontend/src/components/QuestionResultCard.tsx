@@ -20,16 +20,8 @@
  */
 
 import { LevelBadge } from './LevelBadge'
-import { formatQuestionType } from '../lib/format'
+import { formatQuestionType, formatRecoveryNote } from '../lib/format'
 import type { QuestionResult } from '../types/api'
-
-/**
- * The backend's `recovery_note` is a sentence fragment written to follow a
- * colon, so it starts lowercase. Here it follows a full stop instead.
- */
-function asSentence(text: string): string {
-  return text.charAt(0).toUpperCase() + text.slice(1)
-}
 
 export function QuestionResultCard({ result }: { result: QuestionResult }) {
   const recoveryUnmeasured = result.recovery_pct === null
@@ -66,9 +58,8 @@ export function QuestionResultCard({ result }: { result: QuestionResult }) {
           {recoveryUnmeasured && (
             <li className="rounded-lg bg-unknown-bg px-3 py-2 text-xs text-unknown">
               <span className="font-semibold">Pemulihan tidak diukur.</span>{' '}
-              {result.recovery_note
-                ? asSentence(result.recovery_note)
-                : 'Tidak ada jeda yang cukup panjang setelah pertanyaan ini.'}
+              {/* The backend's reason is English; see formatRecoveryNote. */}
+              {formatRecoveryNote(result.recovery_note)}
             </li>
           )}
           {result.features_disagree && (

@@ -65,6 +65,11 @@ export interface SessionState {
    * the sensor on, which is exactly what a two-minute baseline is short of.
    */
   sessionOffsetSec: number
+  /**
+   * The same instant on the heart-rate report clock, counted from the first
+   * report. What places a watch's reports, which have no interval buffer.
+   */
+  sessionBpmOffsetSec: number
   markSessionStart: () => void
 
   fileName: string | null
@@ -275,6 +280,7 @@ export function useSessionState(device: DeviceConnection): SessionState {
 
   return {
     sessionOffsetSec,
+    sessionBpmOffsetSec,
     markSessionStart,
     fileName: file?.name ?? null,
     setFile,

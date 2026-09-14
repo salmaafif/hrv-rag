@@ -8,7 +8,10 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { questionHeartRates } from './questionHeartRate'
+import {
+  questionHeartRates,
+  questionHeartRatesFromReadings,
+} from './questionHeartRate'
 import type { QuestionTimelineEntry } from '../types/api'
 
 function entry(number: number, start: number, end: number): QuestionTimelineEntry {
@@ -82,5 +85,43 @@ describe('slicing the recording by question', () => {
   it('returns null when the browser holds no recording at all', () => {
     expect(questionHeartRates([], 0, [entry(1, 0, 30)])).toBeNull()
     expect(questionHeartRates(oneHz(100), 0, [entry(1, 500, 530)])).toBeNull()
+  })
+})
+
+describe('slicing a watch that reports heart rate only', () => {
+  /** One report a second, starting wherever the device clock happened to be. */
+  const reports = (count: number, startSec = 0, bpm = 60) =>
+    Array.from({ length: count }, (_, i) => ({ atSec: startSec + i, bpm }))
+
+  it('draws the reports as sent, without turning them into beats', () => {
+    const result = questionHeartRatesFromReadings(
+      reports(100, 0, 72), 0, [entry(1, 10, 40)],
+    )!
+    const q1 = result.byNumber.get(1)!
+    expect(q1.points.every((p) => p.bpm === 72)).toBe(true)
+    expect(q1.points).toHaveLength(30)
+  })
+
+  it('honours the offset measured on the report clock', () => {
+    // 100 s of reports before start; a question at session 10-20 is report
+    // second 110-120. Only that stretch is fast, so any other window reads 60.
+    const readings = reports(200)
+    for (let i = 110; i < 120; i++) readings[i] = { atSec: i, bpm: 120 }
+
+    const result = questionHeartRatesFromReadings(readings, 100, [entry(1, 10, 20)])!
+    expect(result.byNumber.get(1)!.meanBpm).toBe(120)
+  })
+
+  it('counts from the first report, wherever the device clock started', () => {
+    // The same stream stamped from 37.5 s must slice exactly as from zero.
+    const fromZero = questionHeartRatesFromReadings(reports(100), 0, [entry(1, 10, 40)])!
+    const shifted = questionHeartRatesFromReadings(
+      reports(100, 37.5), 0, [entry(1, 10, 40)],
+    )!
+    expect(shifted.byNumber.get(1)!.points).toEqual(fromZero.byNumber.get(1)!.points)
+  })
+
+  it('returns null with too few reports to draw anything', () => {
+    expect(questionHeartRatesFromReadings(reports(4), 0, [entry(1, 0, 30)])).toBeNull()
   })
 })

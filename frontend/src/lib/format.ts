@@ -54,6 +54,49 @@ export function formatRecovery(pct: number | null): string {
   return `${Math.round(pct)}%`
 }
 
+const RECOVERY_REASON_FALLBACK =
+  'Pemulihan tidak bisa dihitung untuk pertanyaan ini.'
+
+/**
+ * The backend's recovery reasons, as prefixes, with the words a person reads.
+ *
+ * The backend writes these in English on purpose: they are code strings that
+ * also travel into the model's prompt. They used to reach the card as they
+ * arrived — an English sentence in the middle of an Indonesian screen.
+ *
+ * Keys are the exact opening of each reason in `features/question.py` and
+ * `features/dynamics.py`. `tests/test_recovery_wording.py` reads those files and
+ * fails when a reason there has no entry here, so a new one cannot slip onto a
+ * screen untranslated.
+ */
+const RECOVERY_REASONS: ReadonlyArray<readonly [string, string]> = [
+  ['this device reports heart rate only',
+    'Perangkatmu hanya mengirim detak jantung, jadi pemulihan tidak bisa diukur.'],
+  ['no quiet gap followed this question',
+    'Tidak ada jeda yang cukup panjang setelah pertanyaan ini.'],
+  ['gap produced no usable segment',
+    'Jeda setelah pertanyaan ini terlalu pendek atau sinyalnya kurang bersih untuk diukur.'],
+  ['reaction too small',
+    'Reaksi di pertanyaan ini terlalu kecil untuk dihitung pemulihannya.'],
+  ['one of the values is missing', RECOVERY_REASON_FALLBACK],
+  ['baseline is zero', RECOVERY_REASON_FALLBACK],
+  ['no answer data', RECOVERY_REASON_FALLBACK],
+]
+
+/**
+ * Why recovery could not be measured, as an Indonesian sentence.
+ *
+ * Anything unrecognised becomes a neutral sentence rather than the raw text:
+ * an untranslated reason is a smaller loss than English on a user's screen.
+ */
+export function formatRecoveryNote(note: string): string {
+  if (note.trim() === '') {
+    return 'Tidak ada jeda yang cukup panjang setelah pertanyaan ini.'
+  }
+  const match = RECOVERY_REASONS.find(([prefix]) => note.startsWith(prefix))
+  return match ? match[1] : RECOVERY_REASON_FALLBACK
+}
+
 /** Indonesian labels for the three levels. Shown next to every colour. */
 const LEVEL_LABEL: Record<StressLevel, string> = {
   low: 'Rendah',
