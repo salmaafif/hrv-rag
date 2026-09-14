@@ -1,13 +1,10 @@
 /**
- * SessionPage.tsx — stage 2 of V3: the interview itself, running here.
- *
- * Only V3 reaches this screen. In V2 the person supplies the question timeline
- * afterwards; in V1 there is no timeline at all.
+ * SessionPage.tsx — stage 2: the interview itself, running here.
  *
  * WHAT THIS SCREEN IS ACTUALLY FOR. It looks like a question display, but its
  * real job is recording when each answer started and ended. Those timings are
  * what let the backend judge each question against the right stretch of heart
- * data — and they are the one thing V3 knows that V2 can only be told.
+ * data.
  *
  * IT RUNS THE RESTING PERIOD TOO, before the first question. That is not a
  * courtesy countdown. Reactivity is defined against the person's own resting
@@ -59,7 +56,6 @@ import { useEffect, useRef, useState } from 'react'
 import { Button } from '../components/Button'
 import { Card } from '../components/Card'
 import { HeartRateStream } from '../components/HeartRateStream'
-import { NavigateKeepingSearch } from '../app/NavigateKeepingSearch'
 import { useNavigateKeepingSearch } from '../app/useNavigateKeepingSearch'
 import { buildQuestionTimeline, sessionElapsedSec,
          type AnsweredQuestion } from '../app/questionTiming'
@@ -90,7 +86,7 @@ const SEGMENT_SEC = 60
  */
 const RECORDER_REMINDER_SEC = 15
 
-export function SessionPage({ mode, device, session }: StageContext) {
+export function SessionPage({ device, session }: StageContext) {
   const navigate = useNavigateKeepingSearch()
   const [devMode] = useDevMode()
   const [current, setCurrent] = useState(0)
@@ -99,19 +95,12 @@ export function SessionPage({ mode, device, session }: StageContext) {
   const answeredRef = useRef<AnsweredQuestion[]>([])
   const finishedRef = useRef(false)
 
-  // V3's resting period is fixed, so this screen reads the constant rather than
-  // whatever `baselineMinutes` happens to hold. Setting it from the start screen's
-  // button looked equivalent and was not: opening /v3/sesi directly, or simply
-  // reloading it, skips the click and left the countdown on the V1/V2 default —
-  // four minutes of waiting while the backend was told two.
+  // The same constant the request sends as `baseline_minutes`, so the countdown
+  // on screen and the resting period the backend cuts cannot disagree.
   const restSec = INTERVIEW_REST_MINUTES * 60
-  const setBaselineMinutes = session.setBaselineMinutes
   const markSessionStart = session.markSessionStart
 
-  // The same number has to reach the backend, because it is what marks where the
-  // baseline ends in the recording. Written on mount so no entry path can miss it.
   useEffect(() => {
-    setBaselineMinutes(INTERVIEW_REST_MINUTES)
     // The sensor has been streaming since it paired; this is the moment the
     // session clock starts, so this is where the distance between them is fixed.
     markSessionStart()
@@ -144,10 +133,6 @@ export function SessionPage({ mode, device, session }: StageContext) {
     return () => window.clearInterval(timer)
   }, [devMode])
 
-  if (!mode.runsInterview) {
-    return <NavigateKeepingSearch to={`/${mode.id}/mulai`} />
-  }
-
   const elapsed = ticks + skippedSec
   const restRemaining = restSec - elapsed
   const question = questionBank[current]!
@@ -178,12 +163,12 @@ export function SessionPage({ mode, device, session }: StageContext) {
     // there is nothing analysable — even though a device is plugged in.
     //
     // Routing on `connected` alone sent those people to the processing screen,
-    // which bounced them straight back to the V3 start screen. That screen has no
+    // which bounced them straight back to the start screen. That screen has no
     // file upload, so their only way forward was to answer the wear-location
     // question and press "Mulai sesi latihan" — restarting the whole interview
     // from question 1 and discarding the timeline they had just recorded.
     const ready = device.connected !== null && device.wornAt !== null
-    navigate(`/${mode.id}/${ready ? 'proses' : 'unggah'}`)
+    navigate(ready ? '/proses' : '/unggah')
   }
 
   // The resting period. No question is shown, and none can be reached early —

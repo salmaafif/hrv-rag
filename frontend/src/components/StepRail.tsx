@@ -11,21 +11,20 @@
  */
 
 import { Card } from './Card'
-import type { ModeDefinition } from '../app/modes'
+import { SESSION_STEPS } from '../app/stages'
 
 interface StepRailProps {
-  mode: ModeDefinition
-  /** Index into `mode.steps`, or null on a stage that has no step of its own. */
+  /** Index into `SESSION_STEPS`, or null on an unknown stage. */
   activeStep: number | null
   /** Device name once one is connected. Null before that. */
   deviceName: string | null
 }
 
-export function StepRail({ mode, activeStep, deviceName }: StepRailProps) {
+export function StepRail({ activeStep, deviceName }: StepRailProps) {
   return (
     <Card eyebrow="Tahapan sesi">
       <ol className="space-y-1">
-        {mode.steps.map((label, index) => {
+        {SESSION_STEPS.map((label, index) => {
           const isActive = activeStep === index
           const isDone = activeStep !== null && index < activeStep
 

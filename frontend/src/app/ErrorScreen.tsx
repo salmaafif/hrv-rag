@@ -45,7 +45,7 @@ export function ErrorScreen() {
             Muat ulang
           </button>
           <a
-            href="/v1/mulai"
+            href="/mulai"
             className="rounded-xl border border-hairline px-5 py-3 text-sm font-semibold text-navy"
           >
             Kembali ke awal

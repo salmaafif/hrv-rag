@@ -13,14 +13,12 @@
  */
 
 import { Outlet, useParams } from 'react-router'
-import { MODES, toModeId, type StageSegment } from './modes'
-import { NavigateKeepingSearch } from './NavigateKeepingSearch'
+import { isStage, STEP_OF_STAGE } from './stages'
 import { useDevMode } from './useDevMode'
 import { usesMockData } from '../api/client'
 import { useDeviceConnection } from './useDeviceConnection'
 import { useSessionState } from './useSessionState'
 import type { StageContext } from './stageContext'
-import { ModeSelect } from '../components/ModeSelect'
 import { StepRail } from '../components/StepRail'
 
 function Logo() {
@@ -86,7 +84,7 @@ function ConnectionPill({ deviceName }: { deviceName: string | null }) {
 }
 
 export function AppLayout() {
-  const params = useParams<{ mode: string; stage: string }>()
+  const params = useParams<{ stage: string }>()
   const [devMode] = useDevMode()
   // With `?dev=1` the sensor is simulated, so screens can be worked on and
   // demonstrated without physically wearing a strap. Off by default, because a
@@ -94,15 +92,9 @@ export function AppLayout() {
   // somebody who was never measured.
   const device = useDeviceConnection(devMode)
   const session = useSessionState(device)
-  const modeId = toModeId(params.mode)
 
-  // An unrecognised mode in the URL is a dead end, not an error worth a screen.
-  if (modeId === null) return <NavigateKeepingSearch to="/v1/mulai" />
-
-  const mode = MODES[modeId]
-  const stage = (params.stage ?? 'mulai') as StageSegment
-  const activeStep = mode.stepOfSegment[stage] ?? null
-  const context: StageContext = { mode, device, session }
+  const activeStep = isStage(params.stage) ? STEP_OF_STAGE[params.stage] : null
+  const context: StageContext = { device, session }
 
   return (
     <div className="mx-auto max-w-[1400px] px-6 py-6">
@@ -110,7 +102,6 @@ export function AppLayout() {
         <Logo />
         <div className="flex flex-wrap items-center gap-5">
           <DevModeToggle />
-          <ModeSelect current={modeId} />
           <ConnectionPill deviceName={device.connected?.name ?? null} />
         </div>
       </header>
@@ -122,16 +113,18 @@ export function AppLayout() {
         </p>
       )}
 
-      <p className="mb-5 text-sm text-ink-muted">{mode.tagline}</p>
+      <p className="mb-5 text-sm text-ink-muted">
+        Latihan wawancara berjalan di sini, dan waktu tiap pertanyaan tercatat
+        otomatis.
+      </p>
 
       <div className="grid gap-6 lg:grid-cols-[17rem_1fr]">
         <StepRail
-          mode={mode}
           activeStep={activeStep}
           deviceName={device.connected?.name ?? null}
         />
-        {/* The mode and the connection travel down through the outlet so stage
-            screens never re-parse the URL or open a second connection. */}
+        {/* The connection and the session travel down through the outlet so
+            stage screens never open a second connection. */}
         <Outlet context={context} />
       </div>
     </div>

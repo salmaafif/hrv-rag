@@ -14,14 +14,8 @@
  * unusable, so the wait here is short but real.
  */
 
-import type {
-  AnalyzeRequest,
-  SessionRequest,
-  SessionResponse,
-  TimelineResponse,
-} from '../types/api'
-import { mockTimeline, mockTimelineUnstableBaseline } from '../mocks/timeline'
-import { mockSession } from '../mocks/session'
+import type { SessionRequest, SessionResponse } from '../types/api'
+import { mockSession, mockSessionUnstableBaseline } from '../mocks/session'
 import { ApiError } from './errors'
 
 /** Long enough to see a loading state, short enough to work with. */
@@ -74,19 +68,12 @@ async function respond<T>(payload: T, options: AnalyzeOptions): Promise<T> {
   return payload
 }
 
-export function dummyAnalyzeTimeline(
-  _request: AnalyzeRequest,
-  options: AnalyzeOptions = {},
-): Promise<TimelineResponse> {
-  return respond(
-    options.simulateUnstableBaseline ? mockTimelineUnstableBaseline : mockTimeline,
-    options,
-  )
-}
-
 export function dummyAnalyzeSession(
   _request: SessionRequest,
   options: AnalyzeOptions = {},
 ): Promise<SessionResponse> {
-  return respond(mockSession, options)
+  return respond(
+    options.simulateUnstableBaseline ? mockSessionUnstableBaseline : mockSession,
+    options,
+  )
 }

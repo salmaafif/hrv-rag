@@ -12,10 +12,10 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { analyzeTimeline } from './client'
+import { analyzeSession } from './client'
 import { ApiError } from './errors'
 
-const request = { baseline_minutes: 4, modality: 'ECG' as const }
+const request = { baseline_minutes: 2, modality: 'ECG' as const, questions: [] }
 
 function respondWith(init: { status?: number; body?: string }) {
   vi.stubGlobal(
@@ -28,12 +28,12 @@ function respondWith(init: { status?: number; body?: string }) {
 
 async function captureError(): Promise<ApiError> {
   try {
-    await analyzeTimeline(request)
+    await analyzeSession(request)
   } catch (error) {
     expect(error).toBeInstanceOf(ApiError)
     return error as ApiError
   }
-  throw new Error('expected analyzeTimeline to reject')
+  throw new Error('expected analyzeSession to reject')
 }
 
 beforeEach(() => {

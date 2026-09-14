@@ -16,10 +16,10 @@
 
 import { describe, expect, it } from 'vitest'
 import {
-  mockTimeline,
-  mockTimelineUnstableBaseline,
-} from './timeline'
-import { mockSession, mockSessionNoRecovery } from './session'
+  mockSession,
+  mockSessionNoRecovery,
+  mockSessionUnstableBaseline,
+} from './session'
 
 describe('session fixture', () => {
   it('keeps a question whose recovery could not be measured', () => {
@@ -81,35 +81,16 @@ describe('session fixture without any measurable recovery', () => {
   })
 })
 
-describe('timeline fixture', () => {
-  it('starts after the baseline period rather than at second zero', () => {
-    expect(mockTimeline.timeline[0]!.start_sec).toBe(240)
-  })
-
-  it('advances every 30 seconds with 60-second windows', () => {
-    // Adjacent points share half their data. The chart must not present them
-    // as two independent readings that corroborate each other.
-    const [first, second] = mockTimeline.timeline
-    expect(second!.start_sec - first!.start_sec).toBe(30)
-    expect(first!.end_sec - first!.start_sec).toBe(60)
-  })
-
-  it('counts every point exactly once in the summary', () => {
-    const { count_low, count_moderate, count_high } = mockTimeline.summary
-    expect(count_low + count_moderate + count_high).toBe(
-      mockTimeline.timeline.length,
-    )
-  })
-
-  it('keeps a window where the two markers disagree', () => {
-    expect(mockTimeline.timeline.some((p) => p.features_disagree)).toBe(true)
-  })
-})
-
-describe('timeline fixture with an unstable baseline', () => {
+describe('session fixture with an unstable baseline', () => {
   it('carries a warning the screen has to surface', () => {
-    expect(mockTimelineUnstableBaseline.baseline.is_stable).toBe(false)
-    expect(mockTimelineUnstableBaseline.baseline.warning).not.toBeNull()
+    expect(mockSessionUnstableBaseline.baseline.is_stable).toBe(false)
+    expect(mockSessionUnstableBaseline.baseline.warning).not.toBeNull()
+  })
+
+  it('changes nothing but the baseline', () => {
+    // Otherwise a screen reviewed against it would be judged on two
+    // differences at once and nobody could tell which one drew the warning.
+    expect(mockSessionUnstableBaseline.questions).toBe(mockSession.questions)
   })
 })
 

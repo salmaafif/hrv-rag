@@ -1,7 +1,7 @@
 /**
  * routes.tsx — the URL map.
  *
- * Every stage of every mode has its own address. That was the point of taking
+ * Every stage of the session has its own address. That was the point of taking
  * on a router at all: the back button works, and a result can be sent to a
  * supervisor as a link rather than as a description of which buttons to press.
  *
@@ -9,12 +9,8 @@
  * being corrected — a redirect that silently drops the query makes the
  * developer panel look broken.
  *
- * One consequence to know about while the data is still mocked: opening a
- * result URL directly works today because the fixtures are imported, but once
- * a real analysis is involved the result will live in memory and a cold load of
- * `/v2/hasil` will have nothing to show. That case gets handled when the API is
- * wired up — it redirects back to the start of the mode rather than rendering
- * an empty screen.
+ * Old links from the three-version demo (`/v3/hasil` and the like) fall through
+ * to the start screen rather than to an error.
  */
 
 import { createBrowserRouter } from 'react-router'
@@ -26,22 +22,17 @@ import { StageRouter } from './StageRouter'
 export const router = createBrowserRouter([
   {
     path: '/',
-    element: <NavigateKeepingSearch to="/v1/mulai" />,
-  },
-  {
-    path: '/:mode',
     element: <AppLayout />,
     // Without this, a crash inside any stage screen renders React Router's
     // bare fallback — which in a production build is close to a blank page.
     errorElement: <ErrorScreen />,
     children: [
-      { index: true, element: <NavigateKeepingSearch to="mulai" /> },
+      { index: true, element: <NavigateKeepingSearch to="/mulai" /> },
       { path: ':stage', element: <StageRouter /> },
     ],
   },
   {
-    // Anything else, including a mistyped mode, lands on the first screen.
     path: '*',
-    element: <NavigateKeepingSearch to="/v1/mulai" />,
+    element: <NavigateKeepingSearch to="/mulai" />,
   },
 ])

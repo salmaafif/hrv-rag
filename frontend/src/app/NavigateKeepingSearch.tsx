@@ -1,7 +1,7 @@
 /**
  * NavigateKeepingSearch.tsx — a redirect that does not throw the query away.
  *
- * Plain `<Navigate to="/v1/mulai" />` and plain `navigate('/v1/proses')` each
+ * Plain `<Navigate to="/mulai" />` and plain `navigate('/proses')` each
  * replace the whole location, search string included. That quietly defeats
  * `?dev=1`: turn the developer panel on, press the button that starts the
  * analysis, and the panel is off again on the next screen — which looks like

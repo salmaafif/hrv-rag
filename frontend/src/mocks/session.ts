@@ -1,5 +1,5 @@
 /**
- * session.ts — fixture for V2 and V3, `POST /api/v1/analyze/session`.
+ * session.ts — fixture for `POST /api/v1/analyze/session`.
  *
  * The six questions are the ones drawn in the KARIRLINK Figma frames, so the
  * mock and the design describe the same session.
@@ -256,3 +256,23 @@ export const mockSessionNoRecovery: SessionResponse = (() => {
     summary: summarise(stripped),
   }
 })()
+
+/**
+ * A session whose resting period came back too unsteady to trust.
+ *
+ * The unstable-baseline warning is the single most important thing the result
+ * screen can say — every number is a comparison against that period — so it
+ * must be possible to look at it on demand (`?baseline=goyah`). The warning is
+ * the backend's own wording from `BaselineVerdict.note_for_user`.
+ */
+export const mockSessionUnstableBaseline: SessionResponse = {
+  ...mockSession,
+  session_id: 'demo-session-003',
+  baseline: {
+    ...mockSession.baseline,
+    is_stable: false,
+    warning:
+      'periode tenang di awal belum benar-benar tenang, jadi angka di bawah ' +
+      'ini kurang pasti dari biasanya',
+  },
+}

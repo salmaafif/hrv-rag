@@ -19,8 +19,9 @@ export type Modality = 'ECG' | 'PPG'
  * The product surface a response is allowed to render, per the T0/T1/T2 table
  * in `docs/ARSITEKTUR_KARIRLINK_HRV.md` A4 (decision A5).
  *
- * 'T0' (no sensor) never appears here — both endpoints require a `modality`,
- * so a response reaching this file always carries 'T1' (PPG) or 'T2' (ECG).
+ * 'T0' (no sensor) never appears here — the endpoint requires a `modality`,
+ * so a response reaching this file carries 'T1' (PPG), 'T2' (ECG), or
+ * 'T1-BPM' (a device that reported heart rate only).
  * It is typed as the full three-way union anyway, so a client checking
  * `tier === 'T0'` is validated against the contract rather than against
  * what this backend happens to send today.
@@ -139,67 +140,7 @@ export interface ResponseMeta {
 }
 
 // ---------------------------------------------------------------------------
-// V1 — POST /api/v1/analyze/timeline
-// ---------------------------------------------------------------------------
-
-export interface TimelinePoint {
-  /**
-   * Which minute of the recording this window ends in.
-   *
-   * CAN BE FRACTIONAL. Windows are 60 seconds long but advance every 30
-   * seconds, so successive values run 5, 5.5, 6, 6.5 rather than 5, 6, 7.
-   * `start_sec` and `end_sec` are the authoritative fields; treat `minute` as a
-   * label for display only.
-   */
-  minute: number
-  start_sec: number
-  end_sec: number
-  level: StressLevel
-  /** 0–4, from the two-feature rule. Developer view only. */
-  score: number
-  /** Percent change against the person's own baseline. Developer view only. */
-  delta_rmssd_pct: number
-  delta_hr_pct: number
-  /** English, one line per feature that scored. Developer view only. */
-  evidence: string[]
-  /**
-   * True when RMSSD rose while heart rate also rose. The two markers point
-   * opposite ways, so the reading is less certain and the UI must flag it.
-   */
-  features_disagree: boolean
-}
-
-export interface TimelineSummary {
-  /** Null when no window could be measured. */
-  peak_minute: number | null
-  median_reactivity_pct: number | null
-  count_low: number
-  count_moderate: number
-  count_high: number
-}
-
-/** Indonesian prose from the LLM. The only part of the response it writes. */
-export interface TimelineNarrative {
-  ringkasan: string
-  rekomendasi: string
-  penyemangat: string
-}
-
-export interface TimelineResponse {
-  signal_fitness?: SignalFitness
-  session_id: string
-  modality: Modality
-  tier: ProductTier
-  duration_sec: number
-  baseline: Baseline
-  timeline: TimelinePoint[]
-  summary: TimelineSummary
-  narrative: TimelineNarrative
-  meta: ResponseMeta
-}
-
-// ---------------------------------------------------------------------------
-// V2 and V3 — POST /api/v1/analyze/session
+// POST /api/v1/analyze/session
 // ---------------------------------------------------------------------------
 
 export interface QuestionResult {
@@ -274,7 +215,7 @@ export interface SessionResponse {
 // Request payloads
 // ---------------------------------------------------------------------------
 
-/** One entry of the question timeline the caller supplies for V2 and V3. */
+/** One entry of the question timeline the interview records as it runs. */
 export interface QuestionTimelineEntry {
   number: number
   text: string
