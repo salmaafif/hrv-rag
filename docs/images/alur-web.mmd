@@ -1,0 +1,55 @@
+---
+title: "Jalur Web · smartwatch lewat Web Bluetooth"
+---
+flowchart TD
+
+    subgraph JAM["1 · JAM TANGAN"]
+        A1["Kandidat menyalakan mode siaran<br/><i>Garmin: Broadcast Heart Rate · Amazfit: Heart Rate Push</i>"]
+        A2{"Mengiklankan Heart Rate Service 0x180D?"}
+    end
+
+    X1["Tidak muncul di dialog Chrome.<br/>Lihat diagram Jalur Android."]
+
+    subgraph WEB["2 · PERAMBAN · halaman sesi KARIRLINK"]
+        B1["Klik Sambungkan perangkat, pilih di dialog,<br/>langganan notifikasi characteristic 0x2A37"]
+        B2{"protocol.ts membaca SETIAP paket masuk.<br/>Bendera bit 4 menyala?"}
+        B3["rrMs[] dan bpmSamples[] sama-sama terisi"]
+        B4["hanya bpmSamples[] yang terisi"]
+    B45["Berulang sampai sesi ditutup"]
+        B5["Sesi ditutup: hitung cakupan RR, lalu POST<br/>rrMs · bpmSamples · cakupan · baselineMinutes · offsetSec · questions"]
+    end
+
+    subgraph NEST["3 · BACKEND NestJS"]
+        C1["HrvModuleService menerjemahkan camelCase ke snake_case"]
+    end
+
+    subgraph HRV["4 · hrv-service · Python"]
+        D1{"Cakupan RR di atas ambang?<br/><i>diputuskan di sini, dari rekaman, bukan di peramban</i>"}
+        D2["assess_signal: rmssd_trusted = TRUE<br/><b>TIER PENUH</b> · RMSSD + detak jantung"]
+        D3["assess_signal: rmssd_trusted = FALSE<br/><b>TIER DETAK JANTUNG</b> · daftar putih mean_hr"]
+        D4["Aturan beku K16-2026-08-03 memberi skor dan level,<br/>RAG menulis narasinya"]
+    end
+
+    E1["Kartu Ulasan Ketenangan lengkap<br/>Ketenangan · Pemulihan · Ketahanan"]
+    E2["Kartu Ulasan Ketenangan<br/>Pemulihan dan Ketahanan: TIDAK TERUKUR"]
+
+    A1 --> A2
+    A2 -- "tidak" --> X1
+    A2 -- "ya" --> B1 --> B2
+    B2 -- "ya" --> B3
+    B2 -- "tidak" --> B4
+    B3 --> B45
+    B4 --> B45
+    B45 --> B5
+    B5 --> C1 --> D1
+    D1 -- "ya" --> D2 --> D4
+    D1 -- "tidak" --> D3 --> D4
+    D4 --> E1
+    D4 --> E2
+
+    classDef ok fill:#E3F0E6,stroke:#4E8259,color:#1E4A2A
+    classDef warn fill:#FDF3DC,stroke:#B8860B,color:#7A5A05
+    classDef stop fill:#FBE9E7,stroke:#B84A3A,color:#7A2A20
+    class D2,E1 ok
+    class D3,E2 warn
+    class X1 stop

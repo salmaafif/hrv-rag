@@ -1,0 +1,53 @@
+---
+title: "Jalur Android · smartwatch lewat aplikasi Wear OS"
+---
+flowchart TD
+
+    subgraph PRA["0 · SEKALI SAJA, SAAT PENGEMBANGAN"]
+        P1["Di jam: Settings, About, ketuk Build number 7x,<br/>nyalakan ADB debugging dan Debug over Wi-Fi"]
+        P2["Di laptop: adb connect ip-jam:5555, lalu adb install apk<br/><i>bukan lewat Play Store</i>"]
+    end
+
+    subgraph WEB["1 · PERAMBAN · halaman sesi KARIRLINK"]
+        B1["Tampilkan kode pemasangan 6 digit"]
+        B7["Sesi ditutup: kirim linimasa pertanyaan<br/>dan patokan jam sesi ke backend"]
+    end
+
+    subgraph JAM["2 · APLIKASI DI DALAM JAM TANGAN"]
+        A1["Kandidat buka aplikasi, ketik kode 6 digit"]
+        A2["Foreground service menyala, izin BODY_SENSORS,<br/>notifikasi berjalan supaya jam tidak tidur"]
+        A3{"Sumber sensornya?"}
+        A4["Sensor.TYPE_HEART_RATE<br/>jalan di Wear OS mana pun · <b>hanya bpm</b>"]
+        A5["Samsung Health Sensor SDK<br/>Galaxy Watch4 ke atas · bpm + sampai 4 IBI<br/><i>butuh developer mode / partnership</i>"]
+        A6["POST HTTPS tiap N detik<br/>kode · detik monotonik · nilai"]
+    end
+
+    subgraph NEST["3 · BACKEND NestJS"]
+        C1["Simpan ke penampungan, kunci = kode pemasangan.<br/>Waktu dinding paket pertama dicatat sebagai patokan jam"]
+        C3["Gabungkan aliran sensor dengan linimasa jadi satu kiriman"]
+        C4["Penampungan dihapus. Sesi yatim kena aturan retensi"]
+    end
+
+    D1["4 · hrv-service: jalur dan aturan yang SAMA<br/>dengan diagram Jalur Web"]
+
+    E1["Kartu Ulasan Ketenangan<br/>Pemulihan dan Ketahanan: TIDAK TERUKUR"]
+    E2["Kartu Ulasan Ketenangan lengkap,<br/>karena IBI adalah RR interval"]
+
+    P1 --> P2 --> A1
+    B1 --> A1
+    A1 --> A2 --> A3
+    A3 -- "tahap 4" --> A4 --> A6
+    A3 -. "opsi Samsung, menyusul" .-> A5 -.-> A6
+    A6 --> C1
+    B7 --> C3
+    C1 --> C3 --> D1
+    C3 --> C4
+    D1 --> E1
+    D1 -.-> E2
+
+    classDef ok fill:#E3F0E6,stroke:#4E8259,color:#1E4A2A
+    classDef warn fill:#FDF3DC,stroke:#B8860B,color:#7A5A05
+    classDef later fill:#EEEAF6,stroke:#6E5AA8,color:#3D2E66
+    class E2 ok
+    class A4,E1 warn
+    class A5 later
