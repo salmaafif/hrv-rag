@@ -132,6 +132,7 @@ def rr_series_from_intervals(
     subject: str,
     phase: Phase,
     quality_cfg: QualityConfig | None = None,
+    bridged: np.ndarray | None = None,
 ) -> RRSeries:
     """
     Turn a validated interval series into the same `RRSeries` a waveform produces.
@@ -139,6 +140,11 @@ def rr_series_from_intervals(
     Ectopic correction is the shared function from `base`, not a copy, so an
     uploaded recording is cleaned by exactly the criteria the WESAD results were
     validated with.
+
+    `bridged` marks beats that were never observed — rebuilt across a hole in a
+    heart-rate stream. They are counted as outliers, which is precisely what they
+    are to the segmentation gate: a window made mostly of them is discarded, the
+    same way a window made mostly of interpolated beats is.
 
     The `QualityReport` records that no waveform was inspected. Clipping and
     flat-line are properties of a raw signal, and this input has none — reporting
@@ -148,6 +154,8 @@ def rr_series_from_intervals(
     check_looks_like_milliseconds(rr_ms)
 
     corrected, is_outlier = correct_ectopic(rr_ms, quality_cfg)
+    if bridged is not None:
+        is_outlier = is_outlier | np.asarray(bridged, dtype=bool)
     outlier_ratio = float(is_outlier.mean())
 
     report = QualityReport(
@@ -208,6 +216,31 @@ def split_baseline_and_task(
     threshold of its own — it is stated entirely in terms of the rest that was
     requested.
     """
+    rest_mask, task_mask, actual_end = _rest_and_task_masks(
+        rr_ms, baseline_minutes, offset_sec
+    )
+    return rr_ms[rest_mask], rr_ms[task_mask], actual_end
+
+
+def split_flags(flags: np.ndarray, rr_ms: np.ndarray, baseline_minutes: float,
+                offset_sec: float = 0.0) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Cut a per-beat flag array exactly where `split_baseline_and_task` cuts the beats.
+
+    Exists so a flag computed before the split (a beat bridging a hole in a
+    heart-rate stream) lands on the same beat afterwards. Both functions share
+    `_rest_and_task_masks`, so the cut is stated once and cannot drift.
+    """
+    rest_mask, task_mask, _ = _rest_and_task_masks(
+        np.asarray(rr_ms, dtype=float), baseline_minutes, offset_sec
+    )
+    flags = np.asarray(flags, dtype=bool)
+    return flags[rest_mask], flags[task_mask]
+
+
+def _rest_and_task_masks(rr_ms: np.ndarray, baseline_minutes: float,
+                         offset_sec: float) -> tuple[np.ndarray, np.ndarray, float]:
+    """Which beats belong to the resting period, which come after it, and where it ended."""
     elapsed = np.cumsum(rr_ms) / 1000.0
     requested = baseline_minutes * 60.0
 
@@ -215,11 +248,12 @@ def split_baseline_and_task(
     # The prelude may match the observed rest in length, and no more.
     rest_start = max(0.0, offset_sec - requested)
 
-    resting = rr_ms[(elapsed > rest_start) & (elapsed <= rest_end)]
-    task = rr_ms[elapsed > rest_end]
+    rest_mask = (elapsed > rest_start) & (elapsed <= rest_end)
+    task_mask = elapsed > rest_end
 
     # Where the cut LANDED, not where it was aimed. Empty means the recording
     # ended before the resting period did; the caller reports that as its own
     # failure, so the honest value here is the whole recording.
-    actual_end = float(elapsed[elapsed <= rest_end].max()) if resting.size else 0.0
-    return resting, task, actual_end
+    actual_end = (float(elapsed[elapsed <= rest_end].max())
+                  if rest_mask.any() else 0.0)
+    return rest_mask, task_mask, actual_end

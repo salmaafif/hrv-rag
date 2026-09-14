@@ -25,7 +25,7 @@ Repo web: `C:\Users\Salma Afifa Azis\Documents\karirlink\karirlink`
 
 | Blok | Isi | Repo | Branch | Status |
 |---|---|---|---|---|
-| W | Jalur bpm + dua tier di modul HRV | hrv-rag | `feat/tier-bpm` | belum |
+| W | Jalur bpm + dua tier di modul HRV | hrv-rag | `feat/tier-bpm` | jalan |
 | X | Gerbang NestJS + pengumpulan di peramban | karirlink | `feat/tier-bpm` | belum |
 | Y | Penampungan aliran + kode pemasangan | karirlink | `feat/wear-pairing` | belum |
 | Z | Aplikasi Wear OS `apps/wear-app` | karirlink | `feat/wear-app` | belum |
@@ -65,18 +65,38 @@ hijau, 215 tes lewat.
 
 | ID | Tugas | Selesai bila | Status |
 |---|---|---|---|
-| W1 | `backend/hrv_api/schemas.py`: tambah `bpm_samples: list[BpmSample] \| None` dan `rr_coverage: float \| None` ke `AnalyzeRequest`. `BpmSample` = `at_sec >= 0`, `bpm` di 25–250. Perluas `_exactly_one_recording`. | Request tanpa `rr_ms` tapi berisi `bpm_samples` lolos validasi; request tanpa keduanya tetap ditolak | belum |
-| W2 | Modul baru `src/hrv_rag/preprocessing/bpm.py` berisi `beats_from_bpm()`: tahan tiap sampel sampai sampel berikutnya, pancarkan denyut tiap `60000/bpm` ms | Rata-rata jendela 60 detik dari deret rekonstruksi sama dengan rata-rata aritmetik sampel bpm dalam toleransi 1 bpm | belum |
-| W3 | Konstanta `BPM_TIER_FEATURES = ("mean_hr",)` di satu tempat, plus fungsi yang membuang fitur lain dari `BaselineProfile.values` dan `.spread` | `set(baseline.values) == {"mean_hr"}` pada sesi tier bpm | belum |
-| W4 | `Prepared` membawa `tier` dan `rr_coverage`. Jalur bpm **melewati** `assess_signal`, menyusun `SignalFitness(rmssd_trusted=False, reasons=["perangkat melaporkan bpm, bukan interval antar denyut"])` langsung | Tes dengan monkeypatch membuktikan `assess_signal` tidak pernah dipanggil di jalur bpm | belum |
-| W5 | Ambang cakupan sebagai `settings.tier.min_rr_coverage`, sementara 0.9, dengan komentar bahwa angkanya menunggu V2 | Ambang tidak ditulis sebagai literal di lebih dari satu tempat | belum |
-| W6 | `baseline_block()`: `rmssd_ms` lewat `_clean` | Nilainya `null`, bukan `NaN` | belum |
-| W7 | `measure_question`: saat rmssd tidak ada di `baseline.values`, alasan pemulihan jadi "perangkat tidak memberi bahan untuk menghitung pemulihan" | Tidak ada sesi tier bpm yang melaporkan "no quiet gap followed this question" padahal jedanya ada | belum |
-| W8 | `most_triggering_question` dan `median_reactivity_pct` jatuh ke `delta_pct_mean_hr` saat rmssd tidak ada; respons menyebut `reactivity_basis` | Sesi tier bpm tetap menamai pertanyaan paling memicu, dan dasarnya terbaca dari respons | belum |
-| W9 | Prompt narasi diberi tahu bahwa variabilitas tidak diukur, mengikuti pola `note_for_model` di `baseline.py` | Narasi tier bpm tidak pernah menyebut variabilitas | belum |
-| W10 | Penanda asal di respons: `source: "beat_intervals" \| "bpm"` dan `tier` | Arsip lama dan baru bisa dibedakan tanpa menebak | belum |
-| W11 | `tests/test_tier_bpm.py` — daftar lengkap di bawah tabel ini | Semua lewat, dan `pytest` penuh tetap hijau | belum |
+| W1 | `backend/hrv_api/schemas.py`: tambah `bpm_samples: list[BpmSample] \| None` dan `rr_coverage: float \| None` ke `AnalyzeRequest`. `BpmSample` = `at_sec >= 0`, `bpm` di 25–250. Perluas `_exactly_one_recording`. | Request tanpa `rr_ms` tapi berisi `bpm_samples` lolos validasi; request tanpa keduanya tetap ditolak | selesai |
+| W2 | Modul baru `src/hrv_rag/preprocessing/bpm.py` berisi `beats_from_bpm()`: tahan tiap sampel sampai sampel berikutnya, pancarkan denyut tiap `60000/bpm` ms | Rata-rata jendela 60 detik dari deret rekonstruksi sama dengan rata-rata aritmetik sampel bpm dalam toleransi 1 bpm | selesai |
+| W3 | Konstanta `BPM_TIER_FEATURES = ("mean_hr",)` di satu tempat, plus fungsi yang membuang fitur lain dari `BaselineProfile.values` dan `.spread` | `set(baseline.values) == {"mean_hr"}` pada sesi tier bpm | selesai |
+| W4 | `Prepared` membawa `tier` dan `rr_coverage`. Jalur bpm **melewati** `assess_signal`, menyusun `SignalFitness(rmssd_trusted=False, reasons=["perangkat melaporkan bpm, bukan interval antar denyut"])` langsung | Tes dengan monkeypatch membuktikan `assess_signal` tidak pernah dipanggil di jalur bpm | selesai |
+| W5 | Ambang cakupan sebagai `settings.tier.min_rr_coverage`, sementara 0.9, dengan komentar bahwa angkanya menunggu V2 | Ambang tidak ditulis sebagai literal di lebih dari satu tempat | selesai (angka masih sementara, menunggu V2) |
+| W6 | `baseline_block()`: `rmssd_ms` lewat `_clean` | Nilainya `null`, bukan `NaN` | selesai |
+| W7 | `measure_question`: saat rmssd tidak ada di `baseline.values`, alasan pemulihan jadi "perangkat tidak memberi bahan untuk menghitung pemulihan" | Tidak ada sesi tier bpm yang melaporkan "no quiet gap followed this question" padahal jedanya ada | selesai |
+| W8 | `most_triggering_question` dan `median_reactivity_pct` jatuh ke `delta_pct_mean_hr` saat rmssd tidak ada; respons menyebut `reactivity_basis` | Sesi tier bpm tetap menamai pertanyaan paling memicu, dan dasarnya terbaca dari respons | selesai |
+| W9 | Prompt narasi diberi tahu bahwa variabilitas tidak diukur, mengikuti pola `note_for_model` di `baseline.py` | Narasi tier bpm tidak pernah menyebut variabilitas | selesai (lewat prompt terpisah, lihat catatan) |
+| W10 | Penanda asal di respons: `source: "beat_intervals" \| "bpm"` dan `tier` | Arsip lama dan baru bisa dibedakan tanpa menebak | selesai |
+| W11 | `tests/test_tier_bpm.py` — daftar lengkap di bawah tabel ini | Semua lewat, dan `pytest` penuh tetap hijau | selesai |
 | W12 | Jalankan `python scripts/export_service.py <path apps/hrv-service>` | PROVENANCE.md tercap commit yang benar | belum |
+
+**Keputusan 14 September 2026, saat Blok W dikerjakan.**
+
+- Endpoint per menit (V1) dihapus; layanan hanya melayani sesi wawancara.
+  Demo frontend juga dijadikan V3 saja.
+- Sesi bpm memakai `tier` bernilai baru `T1-BPM` dan `source: "bpm"`. T1 tetap
+  berarti sesi armband ber-RR, supaya arti arsip lama tidak berubah.
+- Lubang di aliran bpm: irama laporan perangkat dibaca dari datanya sendiri
+  (median jarak antar sampel). Jarak di atas 1,5 kali irama itu berarti ada
+  laporan yang hilang. Denyut penjembatannya ditandai seperti denyut yang
+  diinterpolasi, sehingga jendela yang lebih dari 10% isinya jembatan dibuang
+  oleh gerbang segmen yang sudah ada. Pertanyaan yang kena lubang dilaporkan
+  "tidak terukur" beserta sebabnya. Jam tidak bergeser karena waktunya tetap
+  dijembatani.
+- Narasi sesi bpm memakai prompt terpisah
+  (`prompts/HRV_session_narrative_heart_rate_only.md`), karena prompt asli
+  menyatakan variabilitas direkam. Prompt asli tidak disentuh.
+- Rentang bpm di skema 30–200, diturunkan dari `QualityConfig`, bukan 25–250.
+- Jawaban golden untuk regresi ada di `tests/fixtures/golden_rr_sessions.json`,
+  direkam dari kode sebelum perubahan apa pun.
 
 **Isi W11, jangan dikurangi.**
 

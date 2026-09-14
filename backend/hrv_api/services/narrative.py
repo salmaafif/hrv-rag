@@ -21,8 +21,9 @@ to what it was given, and the sentences should not be displayed unedited.
 from __future__ import annotations
 
 import logging
+from dataclasses import replace
 
-from .analysis import Prepared
+from .analysis import BPM, Prepared
 from hrv_rag.config.settings import settings
 from hrv_rag.core.types import Modality
 from hrv_rag.features.stress_level import RULE_VERSION
@@ -37,7 +38,26 @@ UNAVAILABLE = (
 )
 
 
-def _fallback_meta(reason: str) -> dict:
+def _narrative_settings(prepared: Prepared):
+    """
+    The LLM settings for this session — the heart-rate-only prompt when the device
+    never delivered beat intervals, the original prompt otherwise.
+    """
+    if prepared.source != BPM:
+        return settings.llm
+    return replace(settings.llm,
+                   narrative_prompt=settings.llm.narrative_prompt_heart_rate_only)
+
+
+def _device(prepared: Prepared, modality: Modality) -> str:
+    """How the device is named to the model — with what it did NOT measure."""
+    if prepared.source == BPM:
+        return (f"{modality.value} device reporting heart rate (bpm) only, "
+                f"without beat-to-beat intervals")
+    return f"{modality.value} sensor"
+
+
+def _fallback_meta(reason: str, prompt_name: str | None = None) -> dict:
     return {"kb_version": "", "model": "", "trustworthy": False,
             "narrative_error": reason,
             # The rule already ran and produced every number in the response
@@ -47,7 +67,7 @@ def _fallback_meta(reason: str) -> dict:
             # deterministic from config, not from a result object that does
             # not exist in this branch.
             "rule_version": RULE_VERSION,
-            "prompt_version": settings.llm.narrative_prompt}
+            "prompt_version": prompt_name or settings.llm.narrative_prompt}
 
 
 def _meta(result) -> dict:
@@ -76,6 +96,7 @@ def write_session_narrative(prepared: Prepared, body: dict, measurements: list,
     would lose the comparison that makes the feedback useful — "you settled faster
     after the second one than the first" cannot be written one question at a time.
     """
+    llm = _narrative_settings(prepared)
     if not measurements:
         # Nothing per-question survived, so there is nothing for the model to
         # describe question by question. The session-level reading in
@@ -83,12 +104,14 @@ def write_session_narrative(prepared: Prepared, body: dict, measurements: list,
         # and the interface renders a fixed honest sentence for it. Calling the
         # model with an empty list would spend a request to be told nothing, and
         # invite it to fill the silence with something nobody measured.
-        return _empty_session(body), _fallback_meta("no per-question window")
+        return (_empty_session(body),
+                _fallback_meta("no per-question window", llm.narrative_prompt))
 
     try:
         from hrv_rag.rag.narrative import NarrativeInput, NarrativeWriter
     except Exception as exc:                      # pragma: no cover - import guard
-        return _empty_session(body), _fallback_meta(f"unavailable: {exc}")
+        return (_empty_session(body),
+                _fallback_meta(f"unavailable: {exc}", llm.narrative_prompt))
 
     inputs = [
         NarrativeInput(
@@ -106,11 +129,11 @@ def write_session_narrative(prepared: Prepared, body: dict, measurements: list,
 
     summary = body["summary"]
     try:
-        result = NarrativeWriter().write(
+        result = NarrativeWriter(cfg=llm).write(
             inputs=inputs,
             session_id=session_id,
             modality=modality.value,
-            device=f"{modality.value} sensor",
+            device=_device(prepared, modality),
             signal_quality="acceptable",
             resilience=summary.get("resilience") or "not determined",
             most_triggering=summary.get("most_triggering_question"),
@@ -126,7 +149,7 @@ def write_session_narrative(prepared: Prepared, body: dict, measurements: list,
         # Quota, network, malformed JSON — all the same to the caller, who still
         # gets every number.
         log.warning("session narrative unavailable: %s", exc)
-        return _empty_session(body), _fallback_meta(str(exc))
+        return _empty_session(body), _fallback_meta(str(exc), llm.narrative_prompt)
 
     by_number = {q.question_no: q for q in result.narrative.questions}
     for entry in body["questions"]:
@@ -143,68 +166,8 @@ def write_session_narrative(prepared: Prepared, body: dict, measurements: list,
     )
 
 
-def write_timeline_narrative(prepared: Prepared, body: dict, modality: Modality,
-                             session_id: str) -> tuple[dict, dict]:
-    """
-    Describe a recording that has no question structure.
-
-    V1 knows only that pressure rose and fell over time, so the whole recording is
-    presented to the model as a single stretch rather than dressed up as questions
-    it never asked. That keeps the prompt honest about what was actually observed.
-    """
-    try:
-        from hrv_rag.features.stress_level import classify
-        from hrv_rag.rag.narrative import NarrativeInput, NarrativeWriter
-    except Exception as exc:                      # pragma: no cover - import guard
-        return _empty_timeline(), _fallback_meta(f"unavailable: {exc}")
-
-    summary = body["summary"]
-    median = summary.get("median_reactivity_pct")
-    if median is None:
-        return _empty_timeline(), _fallback_meta("nothing measurable to describe")
-
-    reactivity = {"delta_pct_rmssd": float(median)}
-    overall = NarrativeInput(
-        question_no=1,
-        question_type="situational",
-        verdict=classify(reactivity),
-        reactivity=reactivity,
-        recovery_pct=None,
-        recovery_note="this recording has no question structure, so no quiet gap "
-                      "could be isolated",
-        attribution_hint="whole recording, not a single question",
-    )
-
-    try:
-        result = NarrativeWriter().write(
-            inputs=[overall], session_id=session_id, modality=modality.value,
-            device=f"{modality.value} sensor", signal_quality="acceptable",
-            resilience="not determined",
-            most_triggering=summary.get("peak_minute"),
-            recovery_summary="recovery was not measurable for this recording",
-            confounders=[], baseline_note=prepared.baseline_note,
-        )
-    except Exception as exc:
-        log.warning("timeline narrative unavailable: %s", exc)
-        return _empty_timeline(), _fallback_meta(str(exc))
-
-    written = result.narrative.questions[0] if result.narrative.questions else None
-    return (
-        {
-            "ringkasan": result.narrative.session_summary,
-            "rekomendasi": written.suggestion if written else "",
-            "penyemangat": result.narrative.encouragement,
-        },
-        _meta(result),
-    )
-
-
 def _empty_session(body: dict) -> dict:
     for entry in body["questions"]:
         entry["penjelasan"] = UNAVAILABLE
         entry["saran"] = ""
     return {"ringkasan_sesi": UNAVAILABLE, "penyemangat": ""}
-
-
-def _empty_timeline() -> dict:
-    return {"ringkasan": UNAVAILABLE, "rekomendasi": "", "penyemangat": ""}

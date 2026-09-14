@@ -69,6 +69,22 @@ class NarrativeResult:
         return not self.invented_numbers and not self.unknown_references
 
 
+def _pressure_rank(item: NarrativeInput) -> float:
+    """
+    Lower means a stronger reaction.
+
+    The RMSSD change when the session has one, exactly as before. A heart-rate-only
+    session has none, and ranking every question at the old default of 0.0 would
+    always pick the first — so heart rate ranks it instead, negated, because heart
+    rate RISES under pressure where RMSSD falls.
+    """
+    rmssd = item.reactivity.get("delta_pct_rmssd")
+    if rmssd is not None:
+        return rmssd
+    hr = item.reactivity.get("delta_pct_mean_hr")
+    return -hr if hr is not None and hr == hr else 0.0
+
+
 def build_session_query(inputs: list[NarrativeInput]) -> str:
     """
     One query describing the session, used to fetch context for the single call.
@@ -82,10 +98,7 @@ def build_session_query(inputs: list[NarrativeInput]) -> str:
     if not inputs:
         return "interview session with no usable measurement"
 
-    strongest = min(
-        inputs,
-        key=lambda i: i.reactivity.get("delta_pct_rmssd", 0.0),
-    )
+    strongest = min(inputs, key=_pressure_rank)
     parts = []
     for feature in ("rmssd", "mean_hr"):
         value = strongest.reactivity.get(f"delta_pct_{feature}")

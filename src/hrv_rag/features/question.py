@@ -22,6 +22,10 @@ from ..core.session import Question, QuestionType
 from .baseline import BaselineProfile
 from .dynamics import RecoveryResult, recovery_percent
 
+#: Recovery reason when the session never had the feature recovery is read from.
+RECOVERY_NOT_MEASURED = ("this device reports heart rate only, and recovery is "
+                         "read from beat-to-beat variability, so it was not measured")
+
 
 @dataclass
 class QuestionMeasurement:
@@ -192,7 +196,11 @@ def measure_question(question: Question, segments: pd.DataFrame,
 
     # --- recovery, only when a quiet window followed ---
     recovery = RecoveryResult(None, "no quiet gap followed this question")
-    if question.has_recovery_window:
+    if question.has_recovery_window and cfg.primary_feature not in baseline.values:
+        # A gap DID follow. Leaving the reason above in place would tell the person
+        # there was no pause, when the truth is the device gave nothing to measure.
+        recovery = RecoveryResult(None, RECOVERY_NOT_MEASURED)
+    elif question.has_recovery_window:
         # Starts at the END OF THE REACTION WINDOW, not at the end of the
         # answer. The two windows would otherwise overlap and one segment could
         # satisfy both — reintroducing exactly the contamination this file's

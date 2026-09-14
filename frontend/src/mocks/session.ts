@@ -183,21 +183,22 @@ function quadrant(
 }
 
 function summarise(results: QuestionResult[]): SessionSummary {
-  const reactivity = median(results.map((q) => q.delta_rmssd_pct))
+  // This fixture is a beat-interval session, so every RMSSD delta is present.
+  const rmssd = (q: QuestionResult) => q.delta_rmssd_pct ?? 0
+  const reactivity = median(results.map(rmssd))
   // Only questions whose recovery could actually be measured take part.
   const recovery = median(
     results
       .map((q) => q.recovery_pct)
       .filter((v): v is number => v !== null),
   )
-  const worst = results.reduce((a, b) =>
-    b.delta_rmssd_pct < a.delta_rmssd_pct ? b : a,
-  )
+  const worst = results.reduce((a, b) => (rmssd(b) < rmssd(a) ? b : a))
   return {
     most_triggering_question: worst.number,
     resilience: quadrant(reactivity, recovery),
     median_reactivity_pct: reactivity,
     median_recovery_pct: recovery,
+    reactivity_basis: 'rmssd',
   }
 }
 
@@ -205,6 +206,7 @@ export const mockSession: SessionResponse = {
   session_id: 'demo-session-001',
   modality: 'ECG',
   tier: 'T2',
+  source: 'beat_intervals',
   baseline: {
     rmssd_ms: 32,
     mean_hr_bpm: 73,

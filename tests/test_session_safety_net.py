@@ -25,6 +25,8 @@ the dishonest branch.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import numpy as np
 import pytest
 from fastapi.testclient import TestClient
@@ -153,7 +155,7 @@ def test_session_level_is_stripped_like_a_question():
 
 
 def test_a_missing_session_level_does_not_break_the_strip():
-    """Timeline responses have no `session_level` at all; the strip must not
+    """A session with no questions has no `session_level`; the strip must not
     invent one or crash reaching for it."""
     stripped = strip_technical({"questions": []})
     assert "session_level" not in stripped
@@ -164,14 +166,15 @@ def test_narrative_skips_the_model_when_nothing_was_measured():
     """
     With zero per-question measurements there is nothing for the model to
     describe, so no request is spent — and no silence is offered for it to
-    fill. `prepared=None` is deliberate: if the guard were removed, the model
-    path would reach for the baseline and crash, so this test cannot pass by
-    accident.
+    fill. The stand-in `prepared` carries only its source on purpose: if the
+    guard were removed, the model path would reach for the baseline and crash,
+    so this test cannot pass by accident.
     """
     body = {"questions": []}
+    prepared = SimpleNamespace(source="beat_intervals")
 
     narrative, meta = write_session_narrative(
-        None, body, [], Modality.ECG, "SESSION")
+        prepared, body, [], Modality.ECG, "SESSION")
 
     assert meta["trustworthy"] is False
     assert narrative["penyemangat"] == ""

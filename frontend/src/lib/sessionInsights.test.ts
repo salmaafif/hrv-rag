@@ -39,6 +39,7 @@ function session(questions: QuestionResult[]): SessionResponse {
     session_id: 'test',
     modality: 'ECG',
     tier: 'T2',
+    source: 'beat_intervals',
     baseline: {
       rmssd_ms: 32,
       mean_hr_bpm: 73,
@@ -53,6 +54,7 @@ function session(questions: QuestionResult[]): SessionResponse {
       resilience: 'low resilience',
       median_reactivity_pct: -24.3,
       median_recovery_pct: 40,
+      reactivity_basis: 'rmssd',
     },
     narrative: { ringkasan_sesi: 'Ringkasan.', penyemangat: 'Semangat.' },
     meta: {

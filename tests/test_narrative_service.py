@@ -1,9 +1,9 @@
 """
 Tests for backend/hrv_api/services/narrative.py's `meta` assembly.
 
-These bypass `write_session_narrative`/`write_timeline_narrative` entirely and
-call `_meta`/`_fallback_meta` directly, because test_api.py's fixtures stub
-those two public functions wholesale — a real HTTP test never reaches this
+These bypass `write_session_narrative` entirely and call `_meta`/`_fallback_meta`
+directly, because test_api.py's fixtures stub that public function wholesale —
+a real HTTP test never reaches this
 code, so the reproducibility fields (§3.3, docs/ARSITEKTUR_KARIRLINK_HRV.md)
 would otherwise ship untested.
 """

@@ -25,7 +25,18 @@ export type Modality = 'ECG' | 'PPG'
  * `tier === 'T0'` is validated against the contract rather than against
  * what this backend happens to send today.
  */
-export type ProductTier = 'T0' | 'T1' | 'T2'
+export type ProductTier = 'T0' | 'T1' | 'T1-BPM' | 'T2'
+
+/**
+ * Which of the two measurement paths produced the numbers.
+ *
+ * 'beat_intervals' when the device delivered the gap between every two beats;
+ * 'bpm' when it delivered only a heart-rate value, as most smartwatches do. A
+ * 'bpm' session always carries tier 'T1-BPM': heart rate is measured, while
+ * variability, recovery and the resilience quadrant are not — they arrive as
+ * null and must be shown as "belum terukur", never as zero.
+ */
+export type MeasurementSource = 'beat_intervals' | 'bpm'
 
 /**
  * The stress label.
@@ -58,7 +69,8 @@ export type ResilienceQuadrant =
 
 /** The person's own resting reference, against which everything else is judged. */
 export interface Baseline {
-  rmssd_ms: number
+  /** Null for a heart-rate-only session, where variability was never measured. */
+  rmssd_ms: number | null
   mean_hr_bpm: number
   /** How many 60-second windows the baseline was averaged over. */
   n_segments: number
@@ -94,9 +106,10 @@ export interface Baseline {
 export interface SignalFitness {
   rmssd_trusted: boolean
   reasons: string[]
-  quantization_step_ms: number
-  missed_beat_ratio: number
-  task_outlier_ratio: number
+  /** The three below are null when not computed — a heart-rate-only session. */
+  quantization_step_ms: number | null
+  missed_beat_ratio: number | null
+  task_outlier_ratio: number | null
 }
 
 /** Provenance, so a result can be traced back to the knowledge base and model. */
@@ -195,7 +208,8 @@ export interface QuestionResult {
   type: QuestionType
   level: StressLevel
   score: number
-  delta_rmssd_pct: number
+  /** Null for a heart-rate-only session. Developer view only. */
+  delta_rmssd_pct: number | null
   delta_hr_pct: number
   /**
    * How much of the reaction faded during the gap before the next question,
@@ -224,6 +238,12 @@ export interface SessionSummary {
   median_reactivity_pct: number | null
   /** Null when no question had a measurable recovery gap. */
   median_recovery_pct: number | null
+  /**
+   * What `most_triggering_question` and `median_reactivity_pct` were ranked by.
+   * 'rmssd' falls under pressure, so its median is usually negative; 'mean_hr'
+   * rises, so its median is usually positive. Read this before wording either.
+   */
+  reactivity_basis: 'rmssd' | 'mean_hr'
 }
 
 export interface SessionNarrative {
@@ -242,6 +262,7 @@ export interface SessionResponse {
    */
   modality: Modality
   tier: ProductTier
+  source: MeasurementSource
   baseline: Baseline
   questions: QuestionResult[]
   summary: SessionSummary
@@ -265,9 +286,28 @@ export interface QuestionTimelineEntry {
   is_difficult: boolean
 }
 
+/** One heart-rate report, from a device that may not deliver beat intervals. */
+export interface BpmSample {
+  /** Seconds from the FIRST sample — the recording's clock, like `offset_sec`. */
+  at_sec: number
+  bpm: number
+}
+
 export interface AnalyzeRequest {
   /** Beat-to-beat intervals in milliseconds, when coming from Bluetooth. */
   rr_ms?: number[]
+  /**
+   * Heart-rate reports, sent alongside `rr_ms` from a live device.
+   *
+   * Always sent when available, even from a strap that also delivers intervals:
+   * the backend, not the browser, decides which path the session takes.
+   */
+  bpm_samples?: BpmSample[]
+  /**
+   * Fraction of the session covered by real beat intervals, 0 to 1. Required by
+   * the backend whenever both `rr_ms` and `bpm_samples` are sent.
+   */
+  rr_coverage?: number
   /**
    * Raw CSV text, when the source is an uploaded file.
    *

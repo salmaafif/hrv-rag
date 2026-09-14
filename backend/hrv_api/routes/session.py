@@ -1,9 +1,8 @@
 """
-session.py — V2 and V3: score each interview question against the baseline.
+session.py — score each interview question against the person's baseline.
 
-V3 is not a different analysis from V2. The only difference is where the question
-timeline comes from: in V2 the person types it in, in V3 the app already knows
-because it ran the interview. One endpoint therefore serves both.
+The only analysis endpoint. The app that ran the interview knows when each
+question was asked, so it sends that timeline alongside the recording.
 """
 
 from __future__ import annotations
@@ -24,12 +23,16 @@ router = APIRouter()
 @router.post("/api/v1/analyze/session")
 def analyze_session(request: SessionRequest,
                     debug_scope: bool = Depends(require_api_key)) -> dict:
-    """V2 and V3: score each interview question against the person's baseline."""
+    """Score each interview question against the person's baseline."""
     modality = Modality(request.modality)
     try:
-        prepared = prepare(request.rr_ms, request.csv, request.baseline_minutes,
-                           modality, request.session_id,
-                           request.offset_sec)
+        prepared = prepare(
+            request.rr_ms, request.csv, request.baseline_minutes,
+            modality, request.session_id, request.offset_sec,
+            bpm_samples=([s.model_dump() for s in request.bpm_samples]
+                         if request.bpm_samples else None),
+            rr_coverage=request.rr_coverage,
+        )
         body, measurements = build_session(
             prepared, [q.model_dump() for q in request.questions]
         )
@@ -43,7 +46,7 @@ def analyze_session(request: SessionRequest,
     narrative, meta = write_session_narrative(prepared, body, measurements,
                                               modality, request.session_id)
     response = build_response(request, prepared, body, narrative, meta, modality,
-                          include_duration=False, debug_scope=debug_scope)
+                              debug_scope=debug_scope)
     # After the response is fully built, never before: the archive keeps what
     # the person was actually shown. Failure to archive never fails the call.
     archive_session(request.model_dump(), response)

@@ -257,6 +257,48 @@ class SignalFitnessConfig:
 
 
 # ===========================================================================
+# MEASUREMENT TIER — beat intervals, or heart rate only
+# ===========================================================================
+@dataclass(frozen=True)
+class TierConfig:
+    """
+    Which of the two measurement paths a session takes.
+
+    A chest strap or a good armband delivers the interval between every two beats;
+    most smartwatches deliver only a heart-rate value. The first path keeps every
+    feature; the second keeps heart rate alone (`BPM_TIER_FEATURES`). The choice is
+    made once per session, at the end, from what the device actually delivered —
+    never at connection time, because a clean start can degrade mid-session.
+    """
+
+    # Fraction of the session covered by real beat intervals, below which the WHOLE
+    # session is scored from heart rate alone.
+    #
+    # One threshold for the whole session, deliberately, rather than scoring RMSSD in
+    # whichever windows happened to be complete. An optical sensor loses beats while
+    # the wearer TALKS, so the likely pattern is complete intervals during quiet
+    # minutes and holes during answers. Comparing a real resting RMSSD with an
+    # answering RMSSD taken from the few clean seconds would bias the result in a
+    # direction nobody knows.
+    #
+    # PROVISIONAL. Not from the literature and not yet calibrated: it waits for the
+    # three-block HW9 recording that shows what coverage a healthy device normally
+    # reaches, after which it is set just below that and frozen.
+    min_rr_coverage: float = 0.90
+
+    # How far apart two heart-rate reports must be before the stretch between them
+    # counts as a hole in the stream, as a multiple of the device's own cadence.
+    #
+    # The cadence is read from the recording itself (median spacing), not assumed
+    # per device class: a broadcasting watch reports about once a second, a Wear OS
+    # sensor may report every few seconds, and both are normal for their device.
+    # One missed report doubles the spacing, so 1.5 sits exactly halfway between
+    # "on time" (1x) and "one report missing" (2x). Delivery jitter at a one-second
+    # cadence is tens of milliseconds, far inside that margin.
+    sample_gap_factor: float = 1.5
+
+
+# ===========================================================================
 # BASELINE QUALITY GATE
 # ===========================================================================
 @dataclass(frozen=True)
@@ -493,6 +535,12 @@ class LLMConfig:
     # only writes the narrative. One call covers the whole session.
     narrative_prompt: str = "HRV_session_narrative"
 
+    # Narrative prompt for a session scored from heart rate alone. A separate file
+    # because the one above tells the model variability was recorded, which is
+    # false for these sessions — and editing it would change the prompt every
+    # beat-interval result was produced with.
+    narrative_prompt_heart_rate_only: str = "HRV_session_narrative_heart_rate_only"
+
     # Requests per minute. The Gemini free tier allows only 5 for
     # gemini-2.5-flash; exceeding it returns HTTP 429 and aborts the run partway
     # through, wasting every call already made. The client paces itself to stay
@@ -697,6 +745,7 @@ class Settings:
     dynamics: DynamicsConfig = field(default_factory=DynamicsConfig)
     baseline_gate: BaselineGateConfig = field(default_factory=BaselineGateConfig)
     signal_fitness: SignalFitnessConfig = field(default_factory=SignalFitnessConfig)
+    tier: TierConfig = field(default_factory=TierConfig)
     stress_rule: StressRuleConfig = field(default_factory=StressRuleConfig)
     rag: RAGConfig = field(default_factory=RAGConfig)
     llm: LLMConfig = field(default_factory=LLMConfig)

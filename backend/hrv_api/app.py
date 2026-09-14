@@ -1,7 +1,7 @@
 """
 app.py — the HTTP surface KARIRLINK's gateway calls.
 
-Two endpoints, matching `frontend/src/types/api.ts` field for field. That file is
+One analysis endpoint, matching `frontend/src/types/api.ts` field for field. That file is
 the contract handed to the web team, and their PRD lists the output format of each
 FastAPI module as an open question — so this is the answer to it, not a
 reinterpretation of it.
@@ -63,7 +63,7 @@ from fastapi.middleware.cors import CORSMiddleware
 # `override=False` (the default): a key set in the real environment wins.
 load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
-from .routes import health, session, timeline  # noqa: E402
+from .routes import health, session  # noqa: E402
 
 log = logging.getLogger(__name__)
 
@@ -87,5 +87,4 @@ app.add_middleware(
 )
 
 app.include_router(health.router)
-app.include_router(timeline.router)
 app.include_router(session.router)

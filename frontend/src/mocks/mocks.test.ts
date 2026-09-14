@@ -52,8 +52,11 @@ describe('session fixture', () => {
   })
 
   it('points at the question with the largest reaction', () => {
+    // A beat-interval fixture: every RMSSD delta is present.
+    const rmssd = (q: (typeof mockSession.questions)[number]) =>
+      q.delta_rmssd_pct ?? 0
     const worst = mockSession.questions.reduce((a, b) =>
-      b.delta_rmssd_pct < a.delta_rmssd_pct ? b : a,
+      rmssd(b) < rmssd(a) ? b : a,
     )
     expect(mockSession.summary.most_triggering_question).toBe(worst.number)
   })

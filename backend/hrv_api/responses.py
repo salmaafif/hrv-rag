@@ -2,15 +2,15 @@
 responses.py — assembling what goes back over the wire.
 
 The frontend keeps presentation helpers in `lib/` rather than inside the screens;
-this is the same idea. Both endpoints answer with the same envelope, and the rule
-about withholding the technical layer applies to both, so it lives once here
-instead of being duplicated in two route files that could drift apart.
+this is the same idea. The envelope and the rule about withholding the technical
+layer live here rather than in the route, so the route stays a statement of what
+the endpoint promises.
 """
 
 from __future__ import annotations
 
 from hrv_rag.core.types import Modality
-from .services.analysis import Prepared, baseline_block
+from .services.analysis import BPM, Prepared, baseline_block
 
 #: Fields that belong to the developer view only (decision K4).
 TECHNICAL_FIELDS = ("score", "delta_rmssd_pct", "delta_hr_pct", "evidence")
@@ -29,10 +29,25 @@ TIER_FOR_MODALITY = {
     Modality.ECG: "T2",
 }
 
+#: Tier of a session scored from heart rate alone, whatever its modality.
+#:
+#: A value of its own rather than "T1". A beat-interval armband session is T1 and
+#: can still earn RMSSD a vote when its signal passes the checks; this tier never
+#: measures variability, recovery, or the resilience quadrant at all. Reusing T1
+#: would also change what every archived T1 session means.
+TIER_HEART_RATE_ONLY = "T1-BPM"
+
+
+def tier_for(prepared: Prepared, modality: Modality) -> str:
+    """The product surface this session may render."""
+    if prepared.source == BPM:
+        return TIER_HEART_RATE_ONLY
+    return TIER_FOR_MODALITY[modality]
+
 
 def build_response(request, prepared: Prepared, body: dict, narrative: dict,
                    meta: dict, modality: Modality,
-                   include_duration: bool, debug_scope: bool = False) -> dict:
+                   debug_scope: bool = False) -> dict:
     """
     Assemble the response, withholding the technical layer by default.
 
@@ -49,7 +64,9 @@ def build_response(request, prepared: Prepared, body: dict, narrative: dict,
     payload = {
         "session_id": request.session_id,
         "modality": modality.value,
-        "tier": TIER_FOR_MODALITY[modality],
+        "tier": tier_for(prepared, modality),
+        # Which path produced the numbers: "beat_intervals" or "bpm".
+        "source": prepared.source,
         # Instrument facts, not person facts: which features this recording
         # earned a vote for, and why. Integrators render tiers from `tier`;
         # this block is the measured justification behind it.
@@ -59,9 +76,6 @@ def build_response(request, prepared: Prepared, body: dict, narrative: dict,
         "narrative": narrative,
         "meta": meta,
     }
-    if include_duration:
-        payload["duration_sec"] = round(prepared.duration_sec, 1)
-
     if not (request.include_technical and debug_scope):
         payload = strip_technical(payload)
     return payload
@@ -69,21 +83,20 @@ def build_response(request, prepared: Prepared, body: dict, narrative: dict,
 
 def strip_technical(payload: dict) -> dict:
     """
-    Remove the developer-only numbers from every per-window or per-question entry.
+    Remove the developer-only numbers from every per-question entry.
 
     `features_disagree` deliberately STAYS. It is not a measurement — it is a
     warning that the two markers pointed opposite ways, and the interface needs it
     to avoid presenting an uncertain reading as a confident one.
     """
-    for key in ("timeline", "questions"):
-        for entry in payload.get(key, []):
-            for field in TECHNICAL_FIELDS:
-                entry.pop(field, None)
+    for entry in payload.get("questions", []):
+        for field in TECHNICAL_FIELDS:
+            entry.pop(field, None)
 
     # The session-level reading carries the same developer numbers as a question
     # and must be stripped by the same rule. It is a dict rather than a list, so
-    # the loop above would have walked its KEYS and silently stripped nothing —
-    # a new field leaking the exact values K4 exists to withhold.
+    # a loop written for the questions would have walked its KEYS and silently
+    # stripped nothing — leaking the exact values users must never be shown.
     whole = payload.get("session_level")
     if isinstance(whole, dict):
         for field in TECHNICAL_FIELDS:
