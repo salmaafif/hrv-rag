@@ -25,12 +25,23 @@ Repo web: `C:\Users\Salma Afifa Azis\Documents\karirlink\karirlink`
 
 | Blok | Isi | Repo | Branch | Status |
 |---|---|---|---|---|
-| W | Jalur bpm + dua tier di modul HRV | hrv-rag | `feat/tier-bpm` | jalan |
-| X | Gerbang NestJS + pengumpulan di peramban | karirlink | `feat/tier-bpm` | belum |
-| Y | Penampungan aliran + kode pemasangan | karirlink | `feat/wear-pairing` | belum |
-| Z | Aplikasi Wear OS `apps/wear-app` | karirlink | `feat/wear-app` | belum |
-| V | Verifikasi perangkat dan angka nyata | — | — | belum |
+| W | Jalur bpm + dua tier di modul HRV | hrv-rag | `feat/hardware` | selesai |
+| X | Gerbang NestJS + pengumpulan di peramban | karirlink | `feat/hrv-wear` | selesai |
+| Y | Penampungan aliran + kode pemasangan | karirlink | `feat/wear-pairing` | ditunda |
+| Z | Aplikasi Wear OS `apps/wear-app` | karirlink | `feat/wear-app` | ditunda |
+| V | Verifikasi perangkat dan angka nyata | — | — | jalan |
 | Q | Utang lama yang ditutup sekalian | keduanya | ikut blok terkait | belum |
+
+> **Keputusan 17 September 2026 — berhenti di jalur web.** Sesi wawancara nyata
+> hari itu berjalan penuh dengan HUAWEI Band HR-B88 yang menyiarkan detak
+> jantung: 838 laporan dalam 14 menit, tiap 1,01 detik, tanpa lubang, dan
+> hasilnya tersimpan sebagai sesi `T1-BPM`. Karena perangkat yang dipakai
+> menyiarkan, **Blok Y dan Z ditunda** — keduanya hanya dibutuhkan untuk jam
+> yang menolak menyiarkan. Rancangannya sudah ditulis dan disimpan di repo
+> karirlink, `docs/module-design/rancangan-aplikasi-jam-wear-os.md`.
+>
+> Branch yang benar-benar dipakai berbeda dari rencana awal: Blok W dikerjakan
+> di `feat/hardware` (hrv-rag) dan Blok X di `feat/hrv-wear` (karirlink).
 
 W harus selesai sebelum X. X sebelum Y. Y sebelum Z, karena sampai Y selesai
 tidak ada tempat untuk mengirim data jam tangan. V bisa jalan kapan saja dan
@@ -76,7 +87,7 @@ hijau, 215 tes lewat.
 | W9 | Prompt narasi diberi tahu bahwa variabilitas tidak diukur, mengikuti pola `note_for_model` di `baseline.py` | Narasi tier bpm tidak pernah menyebut variabilitas | selesai (lewat prompt terpisah, lihat catatan) |
 | W10 | Penanda asal di respons: `source: "beat_intervals" \| "bpm"` dan `tier` | Arsip lama dan baru bisa dibedakan tanpa menebak | selesai |
 | W11 | `tests/test_tier_bpm.py` — daftar lengkap di bawah tabel ini | Semua lewat, dan `pytest` penuh tetap hijau | selesai |
-| W12 | Jalankan `python scripts/export_service.py <path apps/hrv-service>` | PROVENANCE.md tercap commit yang benar | belum |
+| W12 | Jalankan `python scripts/export_service.py <path apps/hrv-service>` | PROVENANCE.md tercap commit yang benar | selesai |
 
 **Keputusan 14 September 2026, saat Blok W dikerjakan.**
 
@@ -121,14 +132,15 @@ di pesan commit bahwa isi `apps/hrv-service` adalah ekspor, bukan ketikan.
 
 | ID | Tugas | Selesai bila | Status |
 |---|---|---|---|
-| X1 | `apps/web`: kumpulkan `bpmSamples` berdampingan dengan `rrIntervals` pada tiap notifikasi | Perangkat tanpa RR tetap mengisi satu larik | belum |
-| X2 | `submission.ts`: `recordedBeforeFirstSec` dihitung dari cap waktu sampel, **bukan** dari jumlah interval. Kiriman batal hanya bila RR dan bpm dua-duanya kosong. Hitung `rrCoverage` | Sesi jam tangan menghasilkan `baselineMinutes` yang benar | belum |
-| X3 | `sebabKirimanBatal`: tambah sebab yang sesuai keadaan baru | Tidak ada sesi jam tangan yang dapat pesan "aliran denyutnya kosong" padahal bpm-nya penuh | belum |
-| X4 | `SubmitHeartRateDto`: field `bpmSamples` dan `rrCoverage` beserta validasinya | Kiriman bpm-only diterima | belum |
-| X5 | `HeartRateService.submit`: baris log menghitung sampel, bukan hanya interval | Log menyebut jumlah sampel dan cakupan | belum |
-| X6 | `HrvModuleService.analyzeSession`: teruskan field baru ke snake_case | Tidak ada field yang hilang di perjalanan | belum |
-| X7 | Panel hasil merender `tier` dan `reactivity_basis`; `recovery_pct: null` tampil "belum terukur" | Kartu tier bpm tidak menampilkan 0% di mana pun | belum |
-| X8 | Tes: satu kiriman bpm-only tersimpan sebagai satu baris `ExternalSignal` | Tes lewat | belum |
+| X1 | `apps/web`: kumpulkan `bpmSamples` berdampingan dengan `rrIntervals` pada tiap notifikasi | Perangkat tanpa RR tetap mengisi satu larik | selesai |
+| X2 | `submission.ts`: `recordedBeforeFirstSec` dihitung dari cap waktu sampel, **bukan** dari jumlah interval. Kiriman batal hanya bila RR dan bpm dua-duanya kosong. Hitung `rrCoverage` | Sesi jam tangan menghasilkan `baselineMinutes` yang benar | selesai |
+| X3 | `sebabKirimanBatal`: tambah sebab yang sesuai keadaan baru | Tidak ada sesi jam tangan yang dapat pesan "aliran denyutnya kosong" padahal bpm-nya penuh | selesai |
+| X4 | `SubmitHeartRateDto`: field `bpmSamples` dan `rrCoverage` beserta validasinya | Kiriman bpm-only diterima | selesai |
+| X5 | `HeartRateService.submit`: baris log menghitung sampel, bukan hanya interval | Log menyebut jumlah sampel dan cakupan | selesai |
+| X6 | `HrvModuleService.analyzeSession`: teruskan field baru ke snake_case | Tidak ada field yang hilang di perjalanan | selesai |
+| X7 | Panel hasil merender `tier` dan `reactivity_basis`; `recovery_pct: null` tampil "belum terukur" | Kartu tier bpm tidak menampilkan 0% di mana pun | selesai |
+| X8 | Tes: satu kiriman bpm-only tersimpan sebagai satu baris `ExternalSignal` | Tes lewat | selesai |
+| X9 | Tombol unduh rekaman sesi khusus build pengembangan + `scripts/replay_web_recording.py` di hrv-rag | Sesi perangkat nyata bisa diputar ulang tanpa perangkat | selesai (17 Sep) |
 
 Sebelum menambah nilai `tier` baru, periksa nilai yang sudah didefinisikan di
 `docs/module-design/rancangan-rag-hrv.md` di repo karirlink. Field `tier` sudah
@@ -185,7 +197,7 @@ dibutuhkan W5.
 
 | ID | Tugas | Selesai bila | Status |
 |---|---|---|---|
-| V1 | Uji perangkat kandidat dengan `frontend/uji-siaran-hr.html`: interval laporan, bulat atau tidak, bendera bit 4 | Ada catatan per perangkat yang diuji | belum |
+| V1 | Uji perangkat kandidat dengan `frontend/uji-siaran-hr.html`: interval laporan, bulat atau tidak, bendera bit 4 | Ada catatan per perangkat yang diuji | selesai untuk HUAWEI Band HR-B88 (17 Sep): melapor tiap 1,01 detik, tetap melapor saat nilai tidak berubah, tanpa lubang selama 14 menit, tanpa interval RR |
 | V2 | Rekam protokol tiga blok dengan HW9, lihat cakupan RR yang normal pada perangkat sehat, lalu tetapkan ambang W5 di bawahnya | Ambangnya punya dasar rekaman, bukan tebakan | belum |
 | V3 | Rekam serentak HW9 di lengan dan jam tangan di pergelangan | Dapat SD per jendela dan bias saat tertekan untuk perangkat yang benar-benar dipakai | belum |
 | V4 | Cocokkan V3 ke tabel `docs/HASIL_SIMULASI_SMARTWATCH.md` | macro-F1 yang berlaku untuk perangkat itu tercatat | belum |
