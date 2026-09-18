@@ -128,6 +128,14 @@ def test_the_summary_is_ordered_by_heart_rate_and_withholds_resilience(analysed)
         "median_reactivity_pct": -0.3,
         "median_recovery_pct": None,
         "reactivity_basis": "mean_hr",
+        # Nothing moved against her own baseline, and the rule scored zero of the
+        # two points this path can reach — so the calm figure is full.
+        "calm_index": 5.0,
+        # Both missing, and missing is the point: this band delivers no intervals,
+        # so recovery was never measurable and the quadrant never formed. A zero
+        # here would say she did not recover.
+        "recovery_index": None,
+        "resilience_index": None,
     }
     assert body["session_level"]["level"] == "low"
     assert body["session_level"]["delta_rmssd_pct"] is None

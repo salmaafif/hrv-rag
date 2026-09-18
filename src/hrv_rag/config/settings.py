@@ -224,6 +224,57 @@ class DynamicsConfig:
 
 
 # ===========================================================================
+# DISPLAY INDICES — the three 0-5 figures the result screen shows
+# ===========================================================================
+@dataclass(frozen=True)
+class IndexConfig:
+    """
+    Turning measurements into the three 0-5 figures KARIRLINK's result screen asks
+    for: Calm, Recovery, Resilience.
+
+    WHY THIS EXISTS AT ALL. The design carries numbers on a 0-5 scale, and nothing
+    in this project produced such a scale: there are per-question levels, a
+    recovery percentage, and a resilience quadrant. A screen that invents the
+    arithmetic itself is exactly the failure this project's first rule forbids, so
+    the conversion lives here — computed by code, with its choices written down and
+    tested — and the screen only renders what it is given.
+
+    WHAT THESE NUMBERS ARE NOT. They add no information. Every one of them is a
+    rescaling of a quantity that already exists, so they cannot be more certain
+    than their source, and a source that is missing leaves the figure missing too
+    (a heart-rate-only session has no recovery, so it has no Recovery figure —
+    never a zero, which would claim the person did not recover).
+    """
+
+    #: Top of the displayed scale. From the design; it decides nothing else.
+    scale_max: float = 5.0
+
+    # ---- Resilience ------------------------------------------------------
+    # The quadrant judges two axes: how large the reaction was, and how much of it
+    # came back during the gap. Coming back is the heavier half, and the split is
+    # not a matter of taste — it was corrected on 18 September 2026 after the
+    # equal-weight version was run on the two archived pilot sessions:
+    #
+    #   RMSSD fell 51% and 59%, recovery reached 65% and 99%, and the quadrant
+    #   called both "responsive but flexible" — the profile this project treats as
+    #   healthy. The equal-weight figure returned 1.6 and 2.5 of 5, reading as
+    #   poor resilience for the very sessions the module had just called flexible.
+    #
+    # A displayed number that contradicts the module's own verdict is worse than
+    # no number. With recovery carrying three quarters, the same sessions read
+    # 2.4 and 3.7, which agrees with the quadrant while still docking a session
+    # for reacting hard.
+    resilience_reactivity_weight: float = 0.25
+    resilience_recovery_weight: float = 0.75
+
+    # The reaction half reaches zero at this multiple of the quadrant's own
+    # "large reaction" cut-off (`DynamicsConfig.reactivity_threshold_pct`).
+    # Anchoring on that calibrated threshold rather than a fresh constant keeps
+    # one number to defend instead of two: at the cut-off the half scores 0.5.
+    resilience_reactivity_zero_at: float = 2.0
+
+
+# ===========================================================================
 # SIGNAL FITNESS — is this recording good enough for RMSSD?
 # ===========================================================================
 @dataclass(frozen=True)
@@ -752,6 +803,7 @@ class Settings:
     ppg_filter: PPGFilterConfig = field(default_factory=PPGFilterConfig)
     frequency: FrequencyConfig = field(default_factory=FrequencyConfig)
     dynamics: DynamicsConfig = field(default_factory=DynamicsConfig)
+    indices: IndexConfig = field(default_factory=IndexConfig)
     baseline_gate: BaselineGateConfig = field(default_factory=BaselineGateConfig)
     signal_fitness: SignalFitnessConfig = field(default_factory=SignalFitnessConfig)
     tier: TierConfig = field(default_factory=TierConfig)

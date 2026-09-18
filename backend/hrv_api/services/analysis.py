@@ -36,6 +36,8 @@ from hrv_rag.features.stress_level import classify
 from hrv_rag.features.signal_fitness import (SignalFitness, assess_signal,
                                              bpm_only_fitness)
 from hrv_rag.preprocessing.bpm import beats_from_bpm
+from hrv_rag.features.indices import (attainable_points, calm_index,
+                                      recovery_index, resilience_index)
 from hrv_rag.preprocessing.intervals import (IntervalFormatError, parse_rr_csv,
                                        rr_series_from_intervals,
                                        split_baseline_and_task, split_flags)
@@ -513,6 +515,25 @@ def build_session(prepared: Prepared, questions: list[dict]) -> tuple[dict, list
         "summary": {
             "most_triggering_question": most_triggering,
             "resilience": quadrant.value if quadrant else None,
+            # The same three quantities on the 0-5 scale KARIRLINK's result
+            # screen renders. Computed HERE, never in the screen: a rescaling
+            # written in a React component is arithmetic nobody tested and
+            # nobody could defend when asked where the number came from.
+            #
+            # Missing stays missing. A heart-rate-only session has no recovery
+            # and no quadrant, so two of the three come back null — a zero
+            # would claim the person did not recover, when the truth is that
+            # the device could not see it.
+            "calm_index": (
+                calm_index(whole_session["score"],
+                           attainable_points(whole_session["delta_rmssd_pct"]))
+                if whole_session else None
+            ),
+            "recovery_index": recovery_index(median_recovery),
+            "resilience_index": (
+                resilience_index(median_reactivity, median_recovery)
+                if basis == settings.dynamics.primary_feature else None
+            ),
             "median_reactivity_pct": (round(median_reactivity, 1)
                                       if median_reactivity == median_reactivity
                                       else None),
