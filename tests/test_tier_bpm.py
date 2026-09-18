@@ -303,11 +303,15 @@ def test_recovery_is_reported_unmeasured_with_the_true_reason(client):
     payload = post(client, body)
     by_number = {q["number"]: q for q in payload["questions"]}
 
-    # A gap followed question 1, so "no quiet gap" would be a lie.
+    # The device is the reason for BOTH, and the gap makes no difference to it.
+    # Question 1 had a gap; question 2 had none, which is the shape of every
+    # session's last answer. Telling question 2 "no quiet gap followed this
+    # question" was true and still wrong: it names a missing pause as the cause,
+    # when this device could not have produced a recovery from any pause at all.
     assert by_number[1]["recovery_pct"] is None
     assert by_number[1]["recovery_note"] == RECOVERY_NOT_MEASURED
-    # No gap followed question 2, and saying so stays true.
-    assert by_number[2]["recovery_note"] == "no quiet gap followed this question"
+    assert by_number[2]["recovery_pct"] is None
+    assert by_number[2]["recovery_note"] == RECOVERY_NOT_MEASURED
 
     assert payload["summary"]["median_recovery_pct"] is None
     assert payload["summary"]["resilience"] is None

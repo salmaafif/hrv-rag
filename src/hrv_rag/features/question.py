@@ -195,10 +195,19 @@ def measure_question(question: Question, segments: pd.DataFrame,
     reactivity = baseline.reactivity(features)
 
     # --- recovery, only when a quiet window followed ---
-    recovery = RecoveryResult(None, "no quiet gap followed this question")
-    if question.has_recovery_window and cfg.primary_feature not in baseline.values:
-        # A gap DID follow. Leaving the reason above in place would tell the person
-        # there was no pause, when the truth is the device gave nothing to measure.
+    #
+    # THE DEVICE IS CHECKED FIRST, and its answer holds whether or not a gap
+    # followed. Recovery is read from beat-to-beat variability; a device that
+    # never delivered it cannot produce the number in ANY question of ANY
+    # session, so naming the missing pause would give a fixable cause for
+    # something that was never measurable.
+    #
+    # The order used to be the other way round, and the last question of every
+    # heart-rate-only session paid for it: a session ends on its final answer,
+    # so that question has no gap by construction, and it was told "no quiet gap
+    # followed this question" — the one reason that is both true and misleading.
+    # Seen on the first real watch session, 17 September 2026.
+    if cfg.primary_feature not in baseline.values:
         recovery = RecoveryResult(None, RECOVERY_NOT_MEASURED)
     elif question.has_recovery_window:
         # Starts at the END OF THE REACTION WINDOW, not at the end of the
@@ -219,6 +228,8 @@ def measure_question(question: Question, segments: pd.DataFrame,
                     recovered=gap_features[key],
                     cfg=cfg,
                 )
+    else:
+        recovery = RecoveryResult(None, "no quiet gap followed this question")
 
     quality = float(answer_rows["outlier_pct"].mean()) if "outlier_pct" in answer_rows else float("nan")
     if quality == quality and quality > 5.0:

@@ -111,11 +111,12 @@ def test_both_questions_are_measured_and_neither_claims_a_recovery(analysed):
     assert body["coverage"] == {"measured": 2, "total": 2}
     assert (first["level"], second["level"]) == ("low", "low")
     assert first["recovery_pct"] is None and second["recovery_pct"] is None
-    # Two different reasons, and the difference matters: the first could never be
-    # measured because the device gives no intervals; the second had no quiet gap
-    # because the session ended on it.
+    # One reason for both, and it names the device. The session ended on the second
+    # answer, so no pause followed it — and until 17 September 2026 that is what it
+    # was told: "no quiet gap followed this question". True, and still the wrong
+    # cause, because this band could not have produced a recovery from any pause.
     assert "this device reports heart rate only" in first["recovery_note"]
-    assert second["recovery_note"] == "no quiet gap followed this question"
+    assert first["recovery_note"] == second["recovery_note"]
 
 
 def test_the_summary_is_ordered_by_heart_rate_and_withholds_resilience(analysed):
