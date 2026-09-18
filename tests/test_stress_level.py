@@ -31,6 +31,31 @@ def just_past(threshold: float) -> float:
     return threshold - 1.0 if threshold < 0 else threshold + 1.0
 
 
+# ------------------------------------------------------------- evidence text
+def test_a_small_change_is_never_written_as_no_change():
+    """
+    The evidence sentence is what the model is handed as the reason for a label,
+    so a measured -0.4% must not arrive as "0% below baseline" — a sentence that
+    says nothing moved. Whole-number rounding did exactly that on the first real
+    watch session, 17 September 2026.
+    """
+    line = classify(r(hr=-0.4)).evidence[0]
+
+    assert line == "heart rate 0.4% below baseline (0 pt)"
+    assert "0% " not in line
+
+
+def test_ordinary_changes_stay_whole_numbers():
+    """One decimal is the exception, not a new style: 4.7% still reads 5%."""
+    assert classify(r(hr=4.7)).evidence[0] == "heart rate 5% above baseline (0 pt)"
+    assert classify(r(rmssd=-31.2)).evidence[0] == "RMSSD 31% below baseline (2 pt)"
+
+
+def test_a_measurement_of_exactly_zero_still_reads_zero():
+    """Nothing moved, and the sentence is then true whatever it is written as."""
+    assert classify(r(hr=0.0)).evidence[0] == "heart rate 0.0% below baseline (0 pt)"
+
+
 # ----------------------------------------------------------------- levels
 def test_no_change_is_low():
     """Both features flat means no stress response to report."""
