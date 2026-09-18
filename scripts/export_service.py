@@ -36,9 +36,12 @@ zero code changes.
 
 from __future__ import annotations
 
+import argparse
+import hashlib
 import shutil
 import subprocess
 import sys
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -156,12 +159,90 @@ def copy_tree(rel: str, target: Path) -> None:
     )
 
 
-def main() -> None:
-    if len(sys.argv) != 2:
-        raise SystemExit(
-            "pakai: python scripts/export_service.py <folder tujuan>"
-        )
-    target = Path(sys.argv[1]).resolve()
+#: Not part of the export: someone else's virtual environment, their secrets, and
+#: build leftovers. PROVENANCE.md is excluded from COMPARISON only — it carries a
+#: timestamp, so it differs on every export by construction, and it is checked
+#: separately in `check()`.
+IGNORED_DIRS = {"__pycache__", ".venv", ".git"}
+IGNORED_NAMES = {".env", "PROVENANCE.md"}
+
+
+def _fingerprint(root: Path) -> dict[str, str]:
+    """Every exported file under `root`, as relative path -> sha256 of its bytes."""
+    prints: dict[str, str] = {}
+    for path in root.rglob("*"):
+        if not path.is_file():
+            continue
+        parts = path.relative_to(root).parts
+        if set(parts) & IGNORED_DIRS or path.name in IGNORED_NAMES:
+            continue
+        if path.suffix == ".pyc" or any(p.endswith(".egg-info") for p in parts):
+            continue
+        prints["/".join(parts)] = hashlib.sha256(path.read_bytes()).hexdigest()
+    return prints
+
+
+def check(target: Path) -> int:
+    """
+    Prove the copy at `target` is still what this repository would export.
+
+    WHY THIS EXISTS. The rule is that `apps/hrv-service` is generated, never typed
+    into. A rule nobody can test is a rule that gets broken quietly: the copy has
+    drifted before, and the drift is invisible — the service keeps running, and it
+    keeps running code that no longer matches the numbers the thesis reports.
+
+    So: export to a temporary folder, compare file by file, and exit non-zero on
+    any difference. One command before a demo closes the whole class of problem.
+    """
+    if not target.is_dir():
+        print(f"Tidak ada folder salinan di {target}", file=sys.stderr)
+        return 2
+
+    with tempfile.TemporaryDirectory() as tmp:
+        fresh = Path(tmp) / "hrv-service"
+        export(fresh, announce=False)
+        here, there = _fingerprint(fresh), _fingerprint(target)
+
+    missing = sorted(set(here) - set(there))
+    extra = sorted(set(there) - set(here))
+    changed = sorted(f for f in set(here) & set(there) if here[f] != there[f])
+
+    for label, files in (("hilang dari salinan", missing),
+                         ("ada di salinan tapi bukan hasil ekspor", extra),
+                         ("isinya berbeda", changed)):
+        for name in files:
+            print(f"{label}: {name}")
+
+    if missing or extra or changed:
+        print(f"\n{len(missing) + len(extra) + len(changed)} berkas berbeda. "
+              "Sunting di hrv-rag lalu ekspor ulang; jangan menyunting salinannya.",
+              file=sys.stderr)
+        return 1
+
+    # Identical content still leaves one question: exported from WHICH commit.
+    stamped = ""
+    provenance = target / "PROVENANCE.md"
+    if provenance.exists():
+        for line in provenance.read_text(encoding="utf-8").splitlines():
+            if line.startswith("- Commit"):
+                stamped = line.split("`")[1] if "`" in line else ""
+    if stamped and stamped != head_commit():
+        print(f"Isi salinan sama persis, tetapi dicap dari commit {stamped[:7]} "
+              f"sedangkan HEAD sekarang {head_commit()[:7]}.")
+        print("Itu wajar bila sejak ekspor tidak ada perubahan pada kode layanan.")
+    else:
+        print(f"Salinan di {target} sama persis dengan hasil ekspor dari repo ini.")
+    return 0
+
+
+def head_commit() -> str:
+    return subprocess.run(
+        ["git", "-C", str(REPO), "rev-parse", "HEAD"],
+        capture_output=True, text=True, check=True,
+    ).stdout.strip()
+
+
+def export(target: Path, announce: bool = True) -> None:
     target.mkdir(parents=True, exist_ok=True)
 
     for rel in TREES:
@@ -174,10 +255,7 @@ def main() -> None:
     (target / ".gitignore").write_text(GITIGNORE, encoding="utf-8")
     (target / "README.md").write_text(README, encoding="utf-8")
 
-    commit = subprocess.run(
-        ["git", "-C", str(REPO), "rev-parse", "HEAD"],
-        capture_output=True, text=True, check=True,
-    ).stdout.strip()
+    commit = head_commit()
     stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
     (target / "PROVENANCE.md").write_text(
         "# Asal salinan ini\n\n"
@@ -190,9 +268,34 @@ def main() -> None:
         encoding="utf-8",
     )
 
-    print(f"Layanan diekspor ke {target}")
-    print(f"Sumber: {commit}")
+    if announce:
+        print(f"Layanan diekspor ke {target}")
+        print(f"Sumber: {commit}")
+
+
+def main(argv: list[str] | None = None) -> int:
+    """
+    Export, or prove the existing copy still matches.
+
+    Argument parsing is argparse rather than `sys.argv[1]` on purpose: the hand
+    rolled version took ANY first argument as the destination folder, so a
+    mistyped flag exported the whole service into a directory named `--help`.
+    """
+    parser = argparse.ArgumentParser(
+        description="Ekspor layanan HRV ke folder lain, atau periksa salinannya.")
+    parser.add_argument("target", type=Path, help="folder tujuan (apps/hrv-service)")
+    parser.add_argument(
+        "--check", action="store_true",
+        help="jangan menulis apa pun; bandingkan salinan di folder itu dengan "
+             "hasil ekspor sekarang, dan keluar dengan kode galat bila berbeda")
+    args = parser.parse_args(argv)
+
+    target = args.target.resolve()
+    if args.check:
+        return check(target)
+    export(target)
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
