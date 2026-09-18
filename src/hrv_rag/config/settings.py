@@ -500,10 +500,19 @@ class StressRuleConfig:
     # — the five top-scoring combinations differed only in the high thresholds and
     # produced identical results.
     #
-    # The values kept are the ones derived from the literature. Calibrating them
-    # needs a dataset with a genuine middle condition (SWELL-KW has three levels) or
-    # self-reports from real users. Until then, treat the moderate/high boundary as
-    # reasoned rather than measured, and say so.
+    # WHERE THE TWO KEPT VALUES CAME FROM, stated exactly (corrected 17 Sep 2026).
+    # They are this project's own opening defaults, written before any calibration
+    # ran, and kept because the grid search could not tell them from any neighbour.
+    # An earlier version of this comment called them "derived from the literature".
+    # That claim cannot be shown: no source in this repository cites -30% or +15%,
+    # the knowledge base names neither figure, and the commit that introduced them
+    # carries no reference. Their provenance is simply not recorded.
+    #
+    # Calibrating them needs a dataset with a genuine middle condition (SWELL-KW has
+    # three levels) or self-reports from real users. Until then, treat the
+    # moderate/high boundary as assumed rather than measured, and say so — including
+    # in the thesis defence, where "we chose it and could not test it" is an answer
+    # and a citation that does not exist is not.
 
     # Total points needed for each label, out of a maximum of four.
     moderate_points: int = 1
