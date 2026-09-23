@@ -166,9 +166,16 @@ def _new_keys(expected, actual, path: str = "") -> set[str]:
 #: holds, rescaled to 0-5 for KARIRLINK's result screen (18 September 2026). They
 #: are listed here one by one on purpose: a wildcard would let a genuinely new
 #: measurement slip into the RR path without anyone noticing.
+#: `.baseline.from_session_start` (23 September 2026) is not a measurement at
+#: all — it is the caller's own statement about what those resting minutes were,
+#: echoed back. It appears in the RR path for the same reason it appears
+#: everywhere else: a stored response is read back long after the session, and
+#: nothing else in it distinguishes a quiet reference from the opening minutes of
+#: the interview.
 ALLOWED_NEW_KEYS = {".source", ".summary.reactivity_basis",
                     ".summary.calm_index", ".summary.recovery_index",
-                    ".summary.resilience_index"}
+                    ".summary.resilience_index",
+                    ".baseline.from_session_start"}
 
 
 @pytest.mark.parametrize("case", ["ecg_offset", "ppg_no_offset"])

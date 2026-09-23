@@ -114,6 +114,25 @@ class AnalyzeRequest(BaseModel):
     #: every question window.
     offset_sec: float = Field(default=0.0, ge=0.0, le=1800.0)
 
+    #: The resting period is the opening of the session, not a quiet stretch
+    #: before it.
+    #:
+    #: Off by default, and this module NEVER infers it: only the caller knows
+    #: whether the person was already answering during those minutes. Set it and
+    #: the reading changes meaning — the reference stops being "this person at
+    #: rest" and becomes "this person at the start of the session", so every
+    #: percentage below is measured against a body that was already working, and
+    #: reads calmer than the truth. The flag is echoed in `baseline` so the screen
+    #: showing the result can say which of the two it is (KarirLink, 23 September
+    #: 2026: questions appear the instant the person presses start, so a genuine
+    #: resting period is not always on offer).
+    #:
+    #: Nothing downstream branches on it. It is provenance, and the analysis is
+    #: deliberately identical either way: a baseline is whatever the caller
+    #: marked as the resting period, and pretending otherwise would mean two
+    #: code paths where the numbers must stay comparable.
+    baseline_from_session_start: bool = False
+
     #: Include feature names, scores and evidence in the response.
     #:
     #: Off by default. Those fields must not reach an end user, and an API cannot

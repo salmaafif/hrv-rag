@@ -71,7 +71,18 @@ def build_response(request, prepared: Prepared, body: dict, narrative: dict,
         # earned a vote for, and why. Integrators render tiers from `tier`;
         # this block is the measured justification behind it.
         "signal_fitness": prepared.signal_fitness.block(),
-        "baseline": baseline_block(prepared),
+        # `from_session_start` is the caller's own statement, echoed back
+        # unchanged: what the resting period WAS is something only the caller
+        # witnessed. It travels with the numbers because a screen that calls a
+        # contaminated reference "quiet" is claiming a measurement nobody made,
+        # and the flag is the only thing that separates the two cases once the
+        # response is stored.
+        "baseline": {
+            **baseline_block(prepared),
+            "from_session_start": bool(
+                getattr(request, "baseline_from_session_start", False)
+            ),
+        },
         **body,
         "narrative": narrative,
         "meta": meta,

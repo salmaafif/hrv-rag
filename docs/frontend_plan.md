@@ -103,7 +103,8 @@ tetap berlaku untuk jalur dataset penelitian, yang memang mulai dari gelombang.
     "mean_hr_bpm": 73.0,
     "n_segments": 7,
     "is_stable": true,
-    "warning": null
+    "warning": null,
+    "from_session_start": false
   },
   "timeline": [
     {
@@ -155,6 +156,26 @@ mengirim 120 dan backend memperlakukannya sebagai 0 — akibatnya setiap jendela
 pertanyaan dinilai dari rekaman 2 menit lebih lambat daripada yang disebutkan.
 Responsnya tetap lengkap dan tetap masuk akal, hanya menggambarkan menit yang lain.
 Keluaran V1 (`start_sec` pada `timeline`) memakai titik nol yang sama.
+
+**`baseline_from_session_start` — KOREKSI 23 September 2026.** Bawaannya `false`, dan
+modul TIDAK PERNAH menyimpulkannya sendiri: hanya pemanggil yang menyaksikan
+menit-menit itu. Diisi `true` bila yang dipakai sebagai istirahat sebenarnya
+**awal sesi**, bukan masa tenang sebelumnya.
+
+Latar belakangnya dari KARIRLINK: pertanyaan muncul begitu kandidat menekan
+"Setuju dan mulai", jadi yang menjadi bahan istirahat hanyalah menit-menit di
+gerbang perizinan — dan siapa pun yang menyambungkan sensor lalu menekan mulai
+dengan cepat tidak punya dua menit itu. Sebelumnya seluruh sesinya ditolak;
+sekarang aplikasinya boleh memakai dua menit pertama sesi, dengan penanda ini
+menyala.
+
+Yang ditukar disebut apa adanya: menit-menit itu memuat jawaban pertanyaan
+pertama, jadi setiap persen dibagi angka yang sudah naik dan ketegangan terbaca
+**lebih tenang daripada yang sebenarnya**, sementara pertanyaan pertama jatuh di
+dalam pembandingnya sendiri dan tidak ikut ternilai. Angka tidak berubah oleh
+penanda ini — ia provenans, dan dikembalikan apa adanya di
+`baseline.from_session_start` supaya layar yang membaca hasil tersimpan bisa
+menyebut pembandingnya "awal sesi", bukan "tenang".
 
 **`offset_sec`** menjembatani jam ketiga: sensor Bluetooth mengalirkan denyut sejak
 ia berpasangan, sedangkan jam sesi baru mulai saat tombol ditekan. Isi dengan berapa

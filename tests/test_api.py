@@ -251,6 +251,60 @@ def test_the_baseline_reports_how_many_windows_it_rests_on(client):
     assert baseline["rmssd_ms"] > 0
 
 
+def test_a_resting_period_is_reported_as_quiet_unless_the_caller_says_otherwise(
+    client,
+):
+    # The default must be the honest one for a caller that never heard of this
+    # flag: a baseline is a quiet stretch, and only the caller can say it was not.
+    response = client.post("/api/v1/analyze/session", json=session_body(),
+                           headers={"X-API-Key": KEY})
+    assert response.json()["baseline"]["from_session_start"] is False
+
+
+def test_a_baseline_taken_from_the_opening_of_the_session_says_so(client):
+    """
+    The flag travels with the numbers, unchanged.
+
+    A caller whose questions begin the moment the person presses start has no
+    quiet stretch to offer, and measures against the opening minutes instead.
+    Those minutes contain answering, so every percentage built on them reads
+    calmer than the truth. The response is stored and read back weeks later, so
+    the screen has nothing but this field to tell the two apart.
+    """
+    response = client.post(
+        "/api/v1/analyze/session",
+        json=session_body(baseline_from_session_start=True),
+        headers={"X-API-Key": KEY},
+    )
+    assert response.status_code == 200
+    assert response.json()["baseline"]["from_session_start"] is True
+
+
+def test_the_flag_changes_the_wording_and_never_the_numbers(client):
+    """
+    Provenance, not a second analysis.
+
+    Two code paths for one number is how two callers end up with results that
+    cannot be compared. What the flag buys is the right to say which kind of
+    reference the percentages rest on — nothing else.
+    """
+    body = session_body()
+    quiet = client.post("/api/v1/analyze/session", json=body,
+                        headers={"X-API-Key": KEY}).json()
+    opening = client.post(
+        "/api/v1/analyze/session",
+        json=session_body(baseline_from_session_start=True),
+        headers={"X-API-Key": KEY},
+    ).json()
+
+    assert opening["questions"] == quiet["questions"]
+    assert opening["session_level"] == quiet["session_level"]
+    assert {k: v for k, v in opening["baseline"].items()
+            if k != "from_session_start"} == {
+        k: v for k, v in quiet["baseline"].items() if k != "from_session_start"
+    }
+
+
 def test_technical_numbers_are_withheld_by_default(client):
     """
     Users must never be shown feature names or a raw score. An API cannot police
