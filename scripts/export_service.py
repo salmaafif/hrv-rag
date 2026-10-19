@@ -85,7 +85,26 @@ HRV_API_KEYS=kunci-lokal
 # Kunci Gemini — OPSIONAL. Tanpa kunci, label tekanan tetap keluar (dihitung
 # aturan deterministik, luring); yang kosong hanya narasinya, dan
 # meta.trustworthy menandainya. Jangan pernah commit nilai aslinya.
+#
+# Kunci ini TETAP dipakai walau narasi ditulis penyedia lain: pengambilan
+# konteks RAG meng-embed kuerinya dengan gemini-embedding-001, model yang sama
+# dengan yang membangun indeks pengetahuan.
 # GEMINI_API_KEY=
+
+# Penulis narasi (19 Okt 2026): gemini (bawaan), ollama, atau openrouter.
+# Label tekanan TIDAK bergantung pada pilihan ini; ia dari aturan deterministik.
+# LLM_PROVIDER=gemini
+
+# Model Gemini penulis narasi. Kosong = gemini-2.5-flash, model yang dipakai
+# seluruh angka validasi TA. Sengaja BUKAN GEMINI_MODEL: nama itu milik AI
+# Gateway dan menunjuk model lain.
+# HRV_GEMINI_MODEL=
+
+# Untuk LLM_PROVIDER=openrouter (DeepSeek, sama dengan AI Gateway). Kuncinya
+# sama dengan OPENROUTER_API_KEY di apps/ai-gateway/.env. Modelnya wajib diisi
+# dengan slug berversi, tidak pernah alias ~...-latest.
+# OPENROUTER_API_KEY=
+# HRV_OPENROUTER_MODEL=deepseek/deepseek-v4.1-flash
 
 # Arsip sesi berizin — dua kunci: pengguna mencentang persetujuan DAN operator
 # mengisi folder ini. Kunci operator ini SENGAJA dinyalakan di contoh sejak

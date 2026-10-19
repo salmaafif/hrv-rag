@@ -259,13 +259,19 @@ def test_gemini_keeps_its_original_retry_behaviour(monkeypatch):
 
 
 # ------------------------------------------------------------- configuration
-def test_missing_base_url_says_what_to_do():
+def test_missing_base_url_says_what_to_do(monkeypatch):
+    # The real .env is loaded by other test modules (test_api imports the app,
+    # which calls load_dotenv), so its OPENWEBUI_BASE_URL would otherwise fill
+    # the blank in and this test would pass only when run on its own.
+    for name in ("OPENWEBUI_BASE_URL", "OLLAMA_BASE_URL", "VASTAI_BASE_URL"):
+        monkeypatch.delenv(name, raising=False)
     with pytest.raises(RuntimeError, match="OPENWEBUI_BASE_URL"):
         OllamaInterpreter(base_url="", api_key="k", model="m",
                           client=FakeClient())
 
 
-def test_missing_model_refuses_rather_than_guessing():
+def test_missing_model_refuses_rather_than_guessing(monkeypatch):
+    monkeypatch.delenv("OLLAMA_MODEL", raising=False)  # see the test above
     # No default tag on purpose: a wrong one would have the server answer with
     # whatever it does have, and the result would name a model that never ran.
     with pytest.raises(RuntimeError, match="OLLAMA_MODEL"):
@@ -383,3 +389,211 @@ def test_pipeline_records_the_model_that_actually_answered(monkeypatch):
     ))
     assert result.model == "ollama:qwen3:32b"
     assert result.model != LLMConfig().model
+
+
+
+# ======================================================== OpenRouter (19 Oct 2026)
+from hrv_rag.config.settings import OpenRouterConfig  # noqa: E402
+from hrv_rag.rag.llm import (OpenRouterHTTPError,  # noqa: E402
+                             OpenRouterInterpreter, _is_retryable_openrouter)
+
+
+class FakeOpenRouterClient:
+    """Stands in for httpx.Client on the OpenRouter route."""
+
+    def __init__(self, content=None, status: int = 200, body=None,
+                 model: str = "deepseek/deepseek-v4.1-flash-20261001") -> None:
+        self.content = json.dumps(VALID_REPLY) if content is None else content
+        self.status = status
+        self.body = body
+        self.model = model
+        self.posts: list[tuple[str, dict]] = []
+
+    def post(self, path, json=None):
+        self.posts.append((path, json))
+        if self.body is not None:
+            return FakeResponse(self.body, self.status)
+        return FakeResponse({
+            "model": self.model,
+            "choices": [{"message": {"content": self.content}}],
+        }, self.status)
+
+
+def make_openrouter(client: FakeOpenRouterClient | None = None,
+                    **kw) -> OpenRouterInterpreter:
+    return OpenRouterInterpreter(
+        cfg=LLMConfig(), openrouter_cfg=OpenRouterConfig(),
+        api_key="sk-or-test", model="deepseek/deepseek-v4.1-flash",
+        client=client or FakeOpenRouterClient(), **kw,
+    )
+
+
+def test_openrouter_shares_the_contract():
+    assert issubclass(OpenRouterInterpreter, BaseInterpreter)
+    result = make_openrouter().interpret("prompt")
+    assert isinstance(result, LLMResponse)
+    assert result.stress_level.value == "moderate"
+
+
+def test_openrouter_sends_the_schema_it_cannot_enforce_through_the_api():
+    # json_object mode does not carry the schema, so the system message must, or
+    # the model would guess the field names.
+    client = FakeOpenRouterClient()
+    make_openrouter(client).interpret("prompt")
+    path, body = client.posts[0]
+    assert path == "/chat/completions"
+    assert body["response_format"] == {"type": "json_object"}
+    system = body["messages"][0]
+    assert system["role"] == "system"
+    for field_name in ("stress_level", "user_summary", "user_recommendation"):
+        assert field_name in system["content"]
+    assert body["messages"][1] == {"role": "user", "content": "prompt"}
+
+
+def test_openrouter_routes_like_the_ai_gateway():
+    # require_parameters stops an upstream that silently ignores response_format;
+    # data_collection=deny keeps session data away from training logs.
+    client = FakeOpenRouterClient()
+    make_openrouter(client).interpret("prompt")
+    _, body = client.posts[0]
+    assert body["provider"]["require_parameters"] is True
+    assert body["provider"]["data_collection"] == "deny"
+    assert body["reasoning"] == {"effort": "none"}
+    assert body["temperature"] == 0.0
+    assert body["max_tokens"] == LLMConfig().max_output_tokens
+
+
+def test_openrouter_temperature_can_be_overridden_per_call():
+    client = FakeOpenRouterClient()
+    make_openrouter(client).interpret("prompt", temperature=0.7)
+    assert client.posts[0][1]["temperature"] == 0.7
+
+
+def test_openrouter_records_the_model_that_actually_answered():
+    interp = make_openrouter()
+    assert interp.model_label == "openrouter:deepseek/deepseek-v4.1-flash"
+    interp.interpret("prompt")
+    assert (interp.model_label
+            == "openrouter:deepseek/deepseek-v4.1-flash-20261001")
+
+
+def test_openrouter_rejects_prose_instead_of_json():
+    client = FakeOpenRouterClient(content="The stress level looks moderate.")
+    with pytest.raises(ValueError, match="did not return JSON"):
+        make_openrouter(client).interpret("prompt")
+
+
+def test_openrouter_rejects_json_of_the_wrong_shape():
+    partial = json.dumps({"stress_level": "moderate", "confidence": 0.6})
+    with pytest.raises(ValidationError):
+        make_openrouter(FakeOpenRouterClient(content=partial)).interpret("prompt")
+
+
+def test_openrouter_accepts_valid_json_inside_a_code_fence():
+    fenced = "```json\n" + json.dumps(VALID_REPLY) + "\n```"
+    result = make_openrouter(FakeOpenRouterClient(content=fenced)).interpret("p")
+    assert result.confidence == 0.6
+
+
+def test_openrouter_fails_loudly_on_an_empty_reply():
+    with pytest.raises(ValueError, match="empty response"):
+        make_openrouter(FakeOpenRouterClient(content="  ")).interpret("prompt")
+
+
+def test_openrouter_rejected_key_is_not_retried(monkeypatch):
+    slept: list[float] = []
+    monkeypatch.setattr("hrv_rag.rag.rate_limit.time.sleep", slept.append)
+    client = FakeOpenRouterClient(status=401,
+                                  body={"error": {"message": "No auth"}})
+    with pytest.raises(RuntimeError, match="OpenRouter HTTP 401"):
+        make_openrouter(client).interpret("prompt")
+    assert slept == []
+    assert len(client.posts) == 1
+
+
+def test_openrouter_busy_upstream_is_retried(monkeypatch):
+    monkeypatch.setattr("hrv_rag.rag.rate_limit.time.sleep", lambda s: None)
+    client = FakeOpenRouterClient(status=429,
+                                  body={"error": {"message": "rate limited"}})
+    with pytest.raises(RuntimeError, match="Still failing after"):
+        make_openrouter(client).interpret("prompt")
+    assert len(client.posts) == 5
+
+
+def test_openrouter_error_inside_a_200_body_is_retried_not_parsed():
+    assert _is_retryable_openrouter(OpenRouterHTTPError(None, "upstream")) is True
+    assert _is_retryable_openrouter(OpenRouterHTTPError(400, "bad")) is False
+    assert _is_retryable_openrouter(OpenRouterHTTPError(503, "busy")) is True
+
+
+def test_openrouter_error_message_does_not_echo_the_prompt():
+    # The body of a validation error can quote the request, which holds session
+    # data. Only error.message is kept.
+    client = FakeOpenRouterClient(status=400, body={
+        "error": {"message": "invalid model", "metadata": {"raw": "SECRET PROMPT"}},
+    })
+    with pytest.raises(RuntimeError) as info:
+        make_openrouter(client).interpret("prompt")
+    assert "SECRET PROMPT" not in str(info.value)
+
+
+def test_openrouter_without_a_model_refuses_rather_than_guessing(monkeypatch):
+    monkeypatch.delenv("HRV_OPENROUTER_MODEL", raising=False)
+    monkeypatch.setattr("hrv_rag.rag.llm.load_dotenv", lambda *a, **k: None)
+    with pytest.raises(RuntimeError, match="HRV_OPENROUTER_MODEL"):
+        OpenRouterInterpreter(api_key="k", openrouter_cfg=OpenRouterConfig(),
+                              client=FakeOpenRouterClient())
+
+
+def test_openrouter_without_a_key_says_what_to_do(monkeypatch):
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.setattr("hrv_rag.rag.llm.load_dotenv", lambda *a, **k: None)
+    with pytest.raises(RuntimeError, match="OPENROUTER_API_KEY"):
+        OpenRouterInterpreter(model="m", client=FakeOpenRouterClient())
+
+
+def test_openrouter_model_comes_from_the_environment(monkeypatch):
+    monkeypatch.setenv("HRV_OPENROUTER_MODEL", "deepseek/deepseek-v4.1-flash")
+    monkeypatch.setattr("hrv_rag.rag.llm.load_dotenv", lambda *a, **k: None)
+    interp = OpenRouterInterpreter(api_key="k", client=FakeOpenRouterClient())
+    assert interp.model == "deepseek/deepseek-v4.1-flash"
+
+
+def test_factory_builds_openrouter_from_the_environment(monkeypatch):
+    monkeypatch.setenv("LLM_PROVIDER", "openrouter")
+    monkeypatch.setattr("hrv_rag.rag.llm.load_dotenv", lambda *a, **k: None)
+    created = {}
+    monkeypatch.setattr("hrv_rag.rag.llm.OpenRouterInterpreter",
+                        lambda cfg: created.setdefault("provider", "openrouter"))
+    make_interpreter(LLMConfig())
+    assert created["provider"] == "openrouter"
+
+
+# --------------------------------------------- the Gemini model from the environment
+class _FakeGenai:
+    class Client:
+        def __init__(self, api_key):
+            self.api_key = api_key
+
+
+def _gemini(monkeypatch) -> GeminiInterpreter:
+    import sys
+    import types as _types
+    google = _types.ModuleType("google")
+    google.genai = _FakeGenai
+    monkeypatch.setitem(sys.modules, "google", google)
+    monkeypatch.setitem(sys.modules, "google.genai", _FakeGenai)
+    return GeminiInterpreter(LLMConfig(), api_key="k")
+
+
+def test_gemini_model_can_be_set_from_hrv_gemini_model(monkeypatch):
+    monkeypatch.setenv("HRV_GEMINI_MODEL", "gemini-3.5-flash")
+    assert _gemini(monkeypatch).model_label == "gemini-3.5-flash"
+
+
+def test_gemini_ignores_the_gateways_gemini_model(monkeypatch):
+    # GEMINI_MODEL belongs to the AI Gateway. A copy of its .env pointing at a
+    # different model must not silently re-run the thesis on that model.
+    monkeypatch.delenv("HRV_GEMINI_MODEL", raising=False)
+    monkeypatch.setenv("GEMINI_MODEL", "gemini-3.5-flash")
+    assert _gemini(monkeypatch).model_label == LLMConfig().model

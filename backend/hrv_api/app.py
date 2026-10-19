@@ -35,7 +35,12 @@ somebody who has read one side can navigate the other:
 Running it:
     pip install -e .   &&   uvicorn hrv_api.app:app --reload
 Environment:
-    GEMINI_API_KEY   required only for the narrative
+    GEMINI_API_KEY   required only for the narrative; also embeds the retrieval
+                     query, so it stays required when another backend writes
+    LLM_PROVIDER     who writes the narrative: gemini (default), ollama, openrouter
+    HRV_GEMINI_MODEL optional; overrides the validated default gemini-2.5-flash
+    OPENROUTER_API_KEY, HRV_OPENROUTER_MODEL
+                     required when LLM_PROVIDER=openrouter
     HRV_API_KEYS     comma-separated keys this service will accept
     HRV_CORS_ORIGINS comma-separated origins allowed to call it
 """

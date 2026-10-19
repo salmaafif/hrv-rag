@@ -577,6 +577,14 @@ class StressRuleConfig:
 class LLMConfig:
     """Parameters for the interpretation call to Gemini."""
 
+    # The Gemini model every reported figure was produced with. The environment
+    # variable HRV_GEMINI_MODEL overrides it (19 Oct 2026), so the deployed
+    # service can move to another model without a code change.
+    #
+    # The override is deliberately NOT named GEMINI_MODEL. That name already
+    # belongs to the KARIRLINK AI Gateway, and a copy of the gateway's .env sat
+    # in this repo's .env pointing at a different model — reading it would have
+    # quietly re-run the thesis on a model nobody chose for it.
     model: str = "gemini-2.5-flash"
 
     # Temperature 0.0 for maximum determinism. The LLM is stochastic by nature,
@@ -613,7 +621,7 @@ class LLMConfig:
     # loudly rather than returning half an answer, which is the desired behaviour.
     max_output_tokens: int = 8192
 
-    # Which backend answers. "gemini" or "ollama"; the environment variable
+    # Which backend answers. "gemini", "ollama" or "openrouter"; the environment variable
     # LLM_PROVIDER overrides it, so a run can switch backend without editing code.
     #
     # Gemini remains the default deliberately. Every number already reported was
@@ -702,6 +710,49 @@ class OllamaConfig:
 
     # A rented GPU has no quota, so pacing exists only to avoid queueing requests
     # faster than one machine can serve them.
+    requests_per_minute: int = 60
+
+
+@dataclass(frozen=True)
+class OpenRouterConfig:
+    """
+    Parameters for a hosted model reached through OpenRouter (19 Oct 2026).
+
+    WHY THIS EXISTS. The KARIRLINK AI Gateway moved its three model tasks to
+    DeepSeek through OpenRouter on 21 Sep 2026, after Gemini kept hanging until
+    its timeout. The HRV narrative was the last caller still on Gemini. This
+    backend lets the deployed service follow, through the same LLM_PROVIDER
+    switch, while Gemini stays the default here for reproducibility.
+
+    WHAT IT DOES NOT CHANGE. The stress label comes from the frozen rule with no
+    API call (macro-F1 0.828 against 0.672 for the model). Only the narrative,
+    and therefore faithfulness and consistency, depend on this backend, and the
+    guards in `guards.py` check its output exactly as they check Gemini's.
+    """
+
+    # Model slug, e.g. "deepseek/deepseek-v4.1-flash". Empty by design, like
+    # `OllamaConfig.model`: set HRV_OPENROUTER_MODEL in .env. Use a versioned
+    # slug, never a `~...-latest` alias, which moves to another model unannounced.
+    model: str = ""
+
+    base_url: str = "https://openrouter.ai/api/v1"
+
+    # "none" turns off the thinking mode of hybrid models (DeepSeek V4). The
+    # narrative is short and the rule already did the reasoning; thinking only
+    # adds latency the candidate waits through.
+    reasoning_effort: str = "none"
+
+    # "deny" routes only to upstream providers that do not log prompts for
+    # training. Same value, and same reason, as the AI Gateway.
+    data_collection: str = "deny"
+
+    # Upstream ordering: "throughput", "latency" or "price". Same as the gateway.
+    provider_sort: str = "throughput"
+
+    timeout_sec: float = 120.0
+
+    # A paid key has no daily quota worth pacing for; this only stops a batch
+    # from bursting faster than the upstream wants.
     requests_per_minute: int = 60
 
 
@@ -811,6 +862,7 @@ class Settings:
     rag: RAGConfig = field(default_factory=RAGConfig)
     llm: LLMConfig = field(default_factory=LLMConfig)
     ollama: OllamaConfig = field(default_factory=OllamaConfig)
+    openrouter: OpenRouterConfig = field(default_factory=OpenRouterConfig)
     session: SessionConfig = field(default_factory=SessionConfig)
     split: SplitConfig = field(default_factory=SplitConfig)
 
