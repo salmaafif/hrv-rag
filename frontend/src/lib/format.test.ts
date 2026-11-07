@@ -17,10 +17,48 @@ import {
   formatModality,
   formatQuestionType,
   formatRecovery,
+  formatRecoveryNote,
   formatResilience,
   formatSignedPercent,
   hasMeasurement,
 } from './format'
+
+describe('formatRecoveryNote', () => {
+  /**
+   * The backend's reasons are English code strings. Shown raw they put an
+   * English sentence on an Indonesian screen, which is what happened.
+   */
+  it('translates the reasons the backend actually sends', () => {
+    expect(formatRecoveryNote(
+      'this device reports heart rate only, and recovery is read from ' +
+      'beat-to-beat variability, so it was not measured',
+    )).toContain('hanya mengirim detak jantung')
+    expect(formatRecoveryNote('no quiet gap followed this question'))
+      .toContain('Tidak ada jeda')
+    expect(formatRecoveryNote('gap produced no usable segment'))
+      .toContain('Jeda setelah pertanyaan ini')
+    // Written with the measured figures filled in, so matched by its opening.
+    expect(formatRecoveryNote('reaction too small (4.2% < 10%)'))
+      .toContain('terlalu kecil')
+  })
+
+  it('never lets an unknown reason through as it arrived', () => {
+    const shown = formatRecoveryNote('some reason added next year')
+    expect(shown).not.toContain('reason')
+    expect(shown).toBe('Pemulihan tidak bisa dihitung untuk pertanyaan ini.')
+  })
+
+  it('keeps numbers and feature names off the screen', () => {
+    const shown = formatRecoveryNote('reaction too small (4.2% < 10%)')
+    for (const forbidden of ['4.2', '10%', 'RMSSD', 'variability']) {
+      expect(shown).not.toContain(forbidden)
+    }
+  })
+
+  it('still says something when the reason is empty', () => {
+    expect(formatRecoveryNote('')).toContain('Tidak ada jeda')
+  })
+})
 
 describe('formatRecovery', () => {
   it('says "tidak diukur" when recovery could not be measured', () => {

@@ -1,13 +1,9 @@
 /**
  * ResultPage.tsx — stage 3: what the analysis found.
  *
- * Two shapes come back from the two endpoints, so this page picks between two
- * views. V2 and V3 share `SessionResult` unchanged, since both report one
- * result per question from the same endpoint. V1's timeline view arrives next.
- *
  * The result lives in memory, so opening this URL cold has nothing to show.
- * That redirects back to the start of the mode rather than rendering an empty
- * shell, which would look like the analysis had produced nothing.
+ * That redirects back to the start rather than rendering an empty shell, which
+ * would look like the analysis had produced nothing.
  */
 
 import { Button } from '../components/Button'
@@ -15,17 +11,33 @@ import { Card } from '../components/Card'
 import { SessionResult } from '../components/SessionResult'
 import { NavigateKeepingSearch } from '../app/NavigateKeepingSearch'
 import { useNavigateKeepingSearch } from '../app/useNavigateKeepingSearch'
-import { questionHeartRates } from '../lib/questionHeartRate'
-import { mockQuestionTimeline } from '../mocks/questionTimeline'
+import {
+  questionHeartRates,
+  questionHeartRatesFromReadings,
+} from '../lib/questionHeartRate'
 import type { StageContext } from '../app/stageContext'
 
-export function ResultPage({ mode, device, session }: StageContext) {
+export function ResultPage({ device, session }: StageContext) {
   const navigate = useNavigateKeepingSearch()
   const result = session.result
 
   if (result === null) {
-    return <NavigateKeepingSearch to={`/${mode.id}/mulai`} />
+    return <NavigateKeepingSearch to="/mulai" />
   }
+
+  // Beat intervals when the device sent them; otherwise the watch's own
+  // heart-rate reports, each placed with the offset from its own clock.
+  const timeline = session.questionTimeline
+  const heartRate =
+    timeline === null
+      ? null
+      : device.rrIntervals.length
+        ? questionHeartRates(device.rrIntervals, session.sessionOffsetSec, timeline)
+        : questionHeartRatesFromReadings(
+            device.bpmReadings,
+            session.sessionBpmOffsetSec,
+            timeline,
+          )
 
   return (
     <div className="space-y-6">
@@ -41,28 +53,13 @@ export function ResultPage({ mode, device, session }: StageContext) {
         </Card>
       )}
 
-      {'questions' in result ? (
-        <SessionResult
-          result={result}
-          heartRate={questionHeartRates(
-            device.rrIntervals,
-            session.sessionOffsetSec,
-            session.questionTimeline ?? mockQuestionTimeline,
-          )}
-        />
-      ) : (
-        <Card title="Tekanan per menit">
-          <p className="rounded-lg border border-dashed border-hairline p-6 text-center text-sm text-ink-muted">
-            Grafik linimasa ditambahkan di tahap berikutnya.
-          </p>
-        </Card>
-      )}
+      <SessionResult result={result} heartRate={heartRate} />
 
       <Button
         variant="accent"
         onClick={() => {
           session.restart()
-          navigate(`/${mode.id}/mulai`)
+          navigate('/mulai')
         }}
       >
         Latihan lagi

@@ -1,5 +1,5 @@
 /**
- * SessionResult.tsx — the per-question dashboard, for V2 and V3.
+ * SessionResult.tsx — the per-question dashboard.
  *
  * READING ORDER IS THE DESIGN. Somebody who just finished an interview wants
  * one thing first: how did that go. So the sentence answering it comes before

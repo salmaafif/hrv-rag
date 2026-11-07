@@ -28,6 +28,19 @@ from .time_domain import TIME_FEATURES
 #: Features compared against the baseline.
 COMPARED_FEATURES: tuple[str, ...] = TIME_FEATURES + FREQ_FEATURES
 
+#: The ONLY features a heart-rate-only session may keep.
+#:
+#: A list of what is allowed, never a list of what to block. The beat series of
+#: such a session is rebuilt from bpm (`preprocessing/bpm.py`), so every
+#: variability feature computed from it — RMSSD, SDNN, pNN50, LF, HF, LF/HF —
+#: describes the rebuild rather than the heart. A block-list would have to name
+#: all of them and would miss the next one added; this admits heart rate and
+#: nothing else, including features that do not exist yet.
+#:
+#: Not `mean_rr` either. It is only the inverse of heart rate, adds no
+#: information, and reporting it invites the belief that beats were measured.
+BPM_TIER_FEATURES: tuple[str, ...] = ("mean_hr",)
+
 
 @dataclass
 class BaselineProfile:
@@ -131,6 +144,22 @@ class BaselineProfile:
             else:
                 out[f"delta_pct_{feat}"] = (value - ref) / ref * 100.0
         return out
+
+    def restricted_to(self, allowed: tuple[str, ...]) -> "BaselineProfile":
+        """
+        The same reference with every feature outside `allowed` DELETED.
+
+        Deleted, not set to NaN. Every reader of a baseline builds its feature list
+        from `values`, so an absent feature is never compared, never becomes a
+        reactivity, and never reaches a response. A NaN would still be a number
+        that later code could round, print, or add up.
+        """
+        return BaselineProfile(
+            subject=self.subject,
+            values={k: v for k, v in self.values.items() if k in allowed},
+            spread={k: v for k, v in self.spread.items() if k in allowed},
+            n_segments=self.n_segments,
+        )
 
     def relative_spread(self, feature: str) -> float:
         """

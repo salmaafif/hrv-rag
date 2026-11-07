@@ -224,6 +224,57 @@ class DynamicsConfig:
 
 
 # ===========================================================================
+# DISPLAY INDICES — the three 0-5 figures the result screen shows
+# ===========================================================================
+@dataclass(frozen=True)
+class IndexConfig:
+    """
+    Turning measurements into the three 0-5 figures KARIRLINK's result screen asks
+    for: Calm, Recovery, Resilience.
+
+    WHY THIS EXISTS AT ALL. The design carries numbers on a 0-5 scale, and nothing
+    in this project produced such a scale: there are per-question levels, a
+    recovery percentage, and a resilience quadrant. A screen that invents the
+    arithmetic itself is exactly the failure this project's first rule forbids, so
+    the conversion lives here — computed by code, with its choices written down and
+    tested — and the screen only renders what it is given.
+
+    WHAT THESE NUMBERS ARE NOT. They add no information. Every one of them is a
+    rescaling of a quantity that already exists, so they cannot be more certain
+    than their source, and a source that is missing leaves the figure missing too
+    (a heart-rate-only session has no recovery, so it has no Recovery figure —
+    never a zero, which would claim the person did not recover).
+    """
+
+    #: Top of the displayed scale. From the design; it decides nothing else.
+    scale_max: float = 5.0
+
+    # ---- Resilience ------------------------------------------------------
+    # The quadrant judges two axes: how large the reaction was, and how much of it
+    # came back during the gap. Coming back is the heavier half, and the split is
+    # not a matter of taste — it was corrected on 18 September 2026 after the
+    # equal-weight version was run on the two archived pilot sessions:
+    #
+    #   RMSSD fell 51% and 59%, recovery reached 65% and 99%, and the quadrant
+    #   called both "responsive but flexible" — the profile this project treats as
+    #   healthy. The equal-weight figure returned 1.6 and 2.5 of 5, reading as
+    #   poor resilience for the very sessions the module had just called flexible.
+    #
+    # A displayed number that contradicts the module's own verdict is worse than
+    # no number. With recovery carrying three quarters, the same sessions read
+    # 2.4 and 3.7, which agrees with the quadrant while still docking a session
+    # for reacting hard.
+    resilience_reactivity_weight: float = 0.25
+    resilience_recovery_weight: float = 0.75
+
+    # The reaction half reaches zero at this multiple of the quadrant's own
+    # "large reaction" cut-off (`DynamicsConfig.reactivity_threshold_pct`).
+    # Anchoring on that calibrated threshold rather than a fresh constant keeps
+    # one number to defend instead of two: at the cut-off the half scores 0.5.
+    resilience_reactivity_zero_at: float = 2.0
+
+
+# ===========================================================================
 # SIGNAL FITNESS — is this recording good enough for RMSSD?
 # ===========================================================================
 @dataclass(frozen=True)
@@ -254,6 +305,48 @@ class SignalFitnessConfig:
     # about -18%; beyond that the rule's moderate threshold starts to blur.
     # HW9: floor 2.8 ms on resting RMSSD 35-62 ms = 0.04-0.08, comfortably in.
     max_quantization_ratio: float = 0.30
+
+
+# ===========================================================================
+# MEASUREMENT TIER — beat intervals, or heart rate only
+# ===========================================================================
+@dataclass(frozen=True)
+class TierConfig:
+    """
+    Which of the two measurement paths a session takes.
+
+    A chest strap or a good armband delivers the interval between every two beats;
+    most smartwatches deliver only a heart-rate value. The first path keeps every
+    feature; the second keeps heart rate alone (`BPM_TIER_FEATURES`). The choice is
+    made once per session, at the end, from what the device actually delivered —
+    never at connection time, because a clean start can degrade mid-session.
+    """
+
+    # Fraction of the session covered by real beat intervals, below which the WHOLE
+    # session is scored from heart rate alone.
+    #
+    # One threshold for the whole session, deliberately, rather than scoring RMSSD in
+    # whichever windows happened to be complete. An optical sensor loses beats while
+    # the wearer TALKS, so the likely pattern is complete intervals during quiet
+    # minutes and holes during answers. Comparing a real resting RMSSD with an
+    # answering RMSSD taken from the few clean seconds would bias the result in a
+    # direction nobody knows.
+    #
+    # PROVISIONAL. Not from the literature and not yet calibrated: it waits for the
+    # three-block HW9 recording that shows what coverage a healthy device normally
+    # reaches, after which it is set just below that and frozen.
+    min_rr_coverage: float = 0.90
+
+    # How far apart two heart-rate reports must be before the stretch between them
+    # counts as a hole in the stream, as a multiple of the device's own cadence.
+    #
+    # The cadence is read from the recording itself (median spacing), not assumed
+    # per device class: a broadcasting watch reports about once a second, a Wear OS
+    # sensor may report every few seconds, and both are normal for their device.
+    # One missed report doubles the spacing, so 1.5 sits exactly halfway between
+    # "on time" (1x) and "one report missing" (2x). Delivery jitter at a one-second
+    # cadence is tens of milliseconds, far inside that margin.
+    sample_gap_factor: float = 1.5
 
 
 # ===========================================================================
@@ -458,10 +551,19 @@ class StressRuleConfig:
     # — the five top-scoring combinations differed only in the high thresholds and
     # produced identical results.
     #
-    # The values kept are the ones derived from the literature. Calibrating them
-    # needs a dataset with a genuine middle condition (SWELL-KW has three levels) or
-    # self-reports from real users. Until then, treat the moderate/high boundary as
-    # reasoned rather than measured, and say so.
+    # WHERE THE TWO KEPT VALUES CAME FROM, stated exactly (corrected 17 Sep 2026).
+    # They are this project's own opening defaults, written before any calibration
+    # ran, and kept because the grid search could not tell them from any neighbour.
+    # An earlier version of this comment called them "derived from the literature".
+    # That claim cannot be shown: no source in this repository cites -30% or +15%,
+    # the knowledge base names neither figure, and the commit that introduced them
+    # carries no reference. Their provenance is simply not recorded.
+    #
+    # Calibrating them needs a dataset with a genuine middle condition (SWELL-KW has
+    # three levels) or self-reports from real users. Until then, treat the
+    # moderate/high boundary as assumed rather than measured, and say so — including
+    # in the thesis defence, where "we chose it and could not test it" is an answer
+    # and a citation that does not exist is not.
 
     # Total points needed for each label, out of a maximum of four.
     moderate_points: int = 1
@@ -475,6 +577,14 @@ class StressRuleConfig:
 class LLMConfig:
     """Parameters for the interpretation call to Gemini."""
 
+    # The Gemini model every reported figure was produced with. The environment
+    # variable HRV_GEMINI_MODEL overrides it (19 Oct 2026), so the deployed
+    # service can move to another model without a code change.
+    #
+    # The override is deliberately NOT named GEMINI_MODEL. That name already
+    # belongs to the KARIRLINK AI Gateway, and a copy of the gateway's .env sat
+    # in this repo's .env pointing at a different model — reading it would have
+    # quietly re-run the thesis on a model nobody chose for it.
     model: str = "gemini-2.5-flash"
 
     # Temperature 0.0 for maximum determinism. The LLM is stochastic by nature,
@@ -493,6 +603,12 @@ class LLMConfig:
     # only writes the narrative. One call covers the whole session.
     narrative_prompt: str = "HRV_session_narrative"
 
+    # Narrative prompt for a session scored from heart rate alone. A separate file
+    # because the one above tells the model variability was recorded, which is
+    # false for these sessions — and editing it would change the prompt every
+    # beat-interval result was produced with.
+    narrative_prompt_heart_rate_only: str = "HRV_session_narrative_heart_rate_only"
+
     # Requests per minute. The Gemini free tier allows only 5 for
     # gemini-2.5-flash; exceeding it returns HTTP 429 and aborts the run partway
     # through, wasting every call already made. The client paces itself to stay
@@ -505,7 +621,7 @@ class LLMConfig:
     # loudly rather than returning half an answer, which is the desired behaviour.
     max_output_tokens: int = 8192
 
-    # Which backend answers. "gemini" or "ollama"; the environment variable
+    # Which backend answers. "gemini", "ollama" or "openrouter"; the environment variable
     # LLM_PROVIDER overrides it, so a run can switch backend without editing code.
     #
     # Gemini remains the default deliberately. Every number already reported was
@@ -594,6 +710,49 @@ class OllamaConfig:
 
     # A rented GPU has no quota, so pacing exists only to avoid queueing requests
     # faster than one machine can serve them.
+    requests_per_minute: int = 60
+
+
+@dataclass(frozen=True)
+class OpenRouterConfig:
+    """
+    Parameters for a hosted model reached through OpenRouter (19 Oct 2026).
+
+    WHY THIS EXISTS. The KARIRLINK AI Gateway moved its three model tasks to
+    DeepSeek through OpenRouter on 21 Sep 2026, after Gemini kept hanging until
+    its timeout. The HRV narrative was the last caller still on Gemini. This
+    backend lets the deployed service follow, through the same LLM_PROVIDER
+    switch, while Gemini stays the default here for reproducibility.
+
+    WHAT IT DOES NOT CHANGE. The stress label comes from the frozen rule with no
+    API call (macro-F1 0.828 against 0.672 for the model). Only the narrative,
+    and therefore faithfulness and consistency, depend on this backend, and the
+    guards in `guards.py` check its output exactly as they check Gemini's.
+    """
+
+    # Model slug, e.g. "deepseek/deepseek-v4.1-flash". Empty by design, like
+    # `OllamaConfig.model`: set HRV_OPENROUTER_MODEL in .env. Use a versioned
+    # slug, never a `~...-latest` alias, which moves to another model unannounced.
+    model: str = ""
+
+    base_url: str = "https://openrouter.ai/api/v1"
+
+    # "none" turns off the thinking mode of hybrid models (DeepSeek V4). The
+    # narrative is short and the rule already did the reasoning; thinking only
+    # adds latency the candidate waits through.
+    reasoning_effort: str = "none"
+
+    # "deny" routes only to upstream providers that do not log prompts for
+    # training. Same value, and same reason, as the AI Gateway.
+    data_collection: str = "deny"
+
+    # Upstream ordering: "throughput", "latency" or "price". Same as the gateway.
+    provider_sort: str = "throughput"
+
+    timeout_sec: float = 120.0
+
+    # A paid key has no daily quota worth pacing for; this only stops a batch
+    # from bursting faster than the upstream wants.
     requests_per_minute: int = 60
 
 
@@ -695,12 +854,15 @@ class Settings:
     ppg_filter: PPGFilterConfig = field(default_factory=PPGFilterConfig)
     frequency: FrequencyConfig = field(default_factory=FrequencyConfig)
     dynamics: DynamicsConfig = field(default_factory=DynamicsConfig)
+    indices: IndexConfig = field(default_factory=IndexConfig)
     baseline_gate: BaselineGateConfig = field(default_factory=BaselineGateConfig)
     signal_fitness: SignalFitnessConfig = field(default_factory=SignalFitnessConfig)
+    tier: TierConfig = field(default_factory=TierConfig)
     stress_rule: StressRuleConfig = field(default_factory=StressRuleConfig)
     rag: RAGConfig = field(default_factory=RAGConfig)
     llm: LLMConfig = field(default_factory=LLMConfig)
     ollama: OllamaConfig = field(default_factory=OllamaConfig)
+    openrouter: OpenRouterConfig = field(default_factory=OpenRouterConfig)
     session: SessionConfig = field(default_factory=SessionConfig)
     split: SplitConfig = field(default_factory=SplitConfig)
 

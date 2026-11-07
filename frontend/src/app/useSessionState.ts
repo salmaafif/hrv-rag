@@ -12,33 +12,29 @@
  */
 
 import { useCallback, useState } from 'react'
-import { analyzeSession, analyzeTimeline } from '../api/client'
+import { analyzeSession } from '../api/client'
 import type { AnalyzeOptions } from '../api/dummy'
 import { ApiError, toApiError } from '../api/errors'
-import { mockQuestionTimeline } from '../mocks/questionTimeline'
+import { rrCoverage, streamElapsedSec, toBpmSamples } from '../lib/bpmReadings'
 import type {
   AnalyzeRequest,
   Modality,
   QuestionTimelineEntry,
   SessionResponse,
-  TimelineResponse,
 } from '../types/api'
 import { modalityFor, type WearLocation } from '../types/device'
-import type { ModeDefinition } from './modes'
 import type { DeviceConnection } from './useDeviceConnection'
 
 export type AnalysisStatus = 'idle' | 'running' | 'done' | 'error'
 
-/** Bounds for the resting period, in minutes. */
-export const BASELINE_MIN_MINUTES = 2
-export const BASELINE_MAX_MINUTES = 8
-
 /**
- * How long V3 sits quiet before the first question, in minutes.
+ * How long the interview sits quiet before the first question, in minutes.
  *
  * Fixed rather than offered as a setting: the app runs this period itself, so
  * there is nothing the person could usefully decide, and asking would put a
- * choice in front of them that only makes the screen longer.
+ * choice in front of them that only makes the screen longer. The session
+ * screen counts it down and the request sends it as `baseline_minutes`, both
+ * from this one constant, so the two cannot disagree.
  *
  * TWO MINUTES IS THE FLOOR, not a cautious choice that could be trimmed further.
  * Features are computed over 60-second windows, so a one-minute rest produces a
@@ -59,9 +55,6 @@ export const BASELINE_MAX_MINUTES = 8
 export const INTERVIEW_REST_MINUTES = 2
 
 export interface SessionState {
-  baselineMinutes: number
-  setBaselineMinutes: (minutes: number) => void
-
   /**
    * Seconds of RR already buffered when the session screen mounted.
    *
@@ -72,6 +65,11 @@ export interface SessionState {
    * the sensor on, which is exactly what a two-minute baseline is short of.
    */
   sessionOffsetSec: number
+  /**
+   * The same instant on the heart-rate report clock, counted from the first
+   * report. What places a watch's reports, which have no interval buffer.
+   */
+  sessionBpmOffsetSec: number
   markSessionStart: () => void
 
   fileName: string | null
@@ -91,27 +89,32 @@ export interface SessionState {
    * True when there is both a data source and a known wear location — that is,
    * when the analysis has something to work on.
    *
-   * Not the same as being able to START a V3 interview. The interview can run
+   * Not the same as being able to START the interview. The interview can run
    * with no sensor connected at all, because the recording is made elsewhere
    * and uploaded once the interview is over.
    */
   isReady: boolean
+  /**
+   * True when an analysis can actually be sent: a recording is ready AND an
+   * interview has produced its question timeline.
+   *
+   * The processing screen redirects on this, not on `isReady`. A sensor that is
+   * still connected after "latihan lagi" is ready, but there is no question to
+   * score — and redirecting on `isReady` alone left that screen spinning forever
+   * on an analysis that would never be sent.
+   */
+  canAnalyse: boolean
   storeConsented: boolean
   setStoreConsented: (agreed: boolean) => void
 
-  /**
-   * When each question was actually asked, recorded by V3 as it ran.
-   *
-   * Null until an interview has been completed. V2 has no way to produce this
-   * yet and falls back to a fixture.
-   */
+  /** When each question was actually asked. Null until an interview has finished. */
   questionTimeline: QuestionTimelineEntry[] | null
   setQuestionTimeline: (entries: QuestionTimelineEntry[]) => void
 
   status: AnalysisStatus
-  result: TimelineResponse | SessionResponse | null
+  result: SessionResponse | null
   error: ApiError | null
-  run: (mode: ModeDefinition, options?: AnalyzeOptions) => void
+  run: (options?: AnalyzeOptions) => void
   /**
    * Clear the analysis only, keeping the recording and the question timeline.
    *
@@ -132,8 +135,8 @@ export interface SessionState {
 }
 
 export function useSessionState(device: DeviceConnection): SessionState {
-  const [baselineMinutes, setBaselineMinutesRaw] = useState(4)
   const [sessionOffsetSec, setSessionOffsetSec] = useState(0)
+  const [sessionBpmOffsetSec, setSessionBpmOffsetSec] = useState(0)
   const [file, setFileRaw] = useState<File | null>(null)
   const [fileWornAt, setFileWornAtState] = useState<WearLocation | null>(null)
   const [questionTimeline, setQuestionTimelineState] = useState<
@@ -151,7 +154,12 @@ export function useSessionState(device: DeviceConnection): SessionState {
   const markSessionStart = useCallback(() => {
     const buffered = device.rrIntervals.reduce((total, ms) => total + ms, 0)
     setSessionOffsetSec(buffered / 1000)
-  }, [device.rrIntervals])
+    // The same instant on the heart-rate report clock. A watch that sends no
+    // intervals leaves the buffer above empty, so without this its offset would
+    // read zero however long it had already been streaming — and every
+    // question would land that many minutes early.
+    setSessionBpmOffsetSec(streamElapsedSec(device.bpmReadings))
+  }, [device.rrIntervals, device.bpmReadings])
 
   // Consent to keep the recording for research. False until the person ticks
   // the box themselves — a session that never saw the checkbox sends false,
@@ -159,17 +167,8 @@ export function useSessionState(device: DeviceConnection): SessionState {
   const [storeConsented, setStoreConsented] = useState(false)
 
   const [status, setStatus] = useState<AnalysisStatus>('idle')
-  const [result, setResult] = useState<TimelineResponse | SessionResponse | null>(
-    null,
-  )
+  const [result, setResult] = useState<SessionResponse | null>(null)
   const [error, setError] = useState<ApiError | null>(null)
-
-  const setBaselineMinutes = useCallback((minutes: number) => {
-    if (!Number.isFinite(minutes)) return
-    setBaselineMinutesRaw(
-      Math.min(BASELINE_MAX_MINUTES, Math.max(BASELINE_MIN_MINUTES, minutes)),
-    )
-  }, [])
 
   const setFile = useCallback((next: File | null) => {
     setFileRaw(next)
@@ -193,6 +192,7 @@ export function useSessionState(device: DeviceConnection): SessionState {
   const hasSource = device.connected !== null || file !== null
   const modality = wornAt === null ? null : modalityFor(wornAt)
   const isReady = hasSource && modality !== null
+  const canAnalyse = isReady && questionTimeline !== null
 
   const reset = useCallback(() => {
     setStatus('idle')
@@ -210,8 +210,10 @@ export function useSessionState(device: DeviceConnection): SessionState {
   }, [])
 
   const run = useCallback(
-    (mode: ModeDefinition, options: AnalyzeOptions = {}) => {
-      if (modality === null) return
+    (options: AnalyzeOptions = {}) => {
+      // Without the timeline there is no question to score; without the
+      // modality there is no honest way to say how far to trust the signal.
+      if (modality === null || questionTimeline === null) return
       setStatus('running')
       setError(null)
 
@@ -222,30 +224,45 @@ export function useSessionState(device: DeviceConnection): SessionState {
           // it is the more deliberate, more recent choice, and its timing lines
           // up with the interview because the same clock produced both.
           const beats = device.rrIntervals
+          const readings = device.bpmReadings
+          // Two reports are the least that spans any time at all.
+          const reportsHeartRate = readings.length >= 2
+          const live = beats.length > 0 || reportsHeartRate
+
+          // Both streams travel together, with the coverage that decides between
+          // them. The browser does not choose: a threshold that decides how a
+          // person is scored belongs in the frozen, tested backend.
+          const liveRecording = {
+            ...(beats.length ? { rr_ms: beats } : {}),
+            ...(reportsHeartRate
+              ? {
+                  bpm_samples: toBpmSamples(readings),
+                  rr_coverage: rrCoverage(beats, readings),
+                  bpm_offset_sec: sessionBpmOffsetSec,
+                }
+              : {}),
+          }
+
           const base: AnalyzeRequest = {
             store_consented: storeConsented,
-            baseline_minutes: baselineMinutes,
-            offset_sec: beats.length ? sessionOffsetSec : 0,
+            baseline_minutes: INTERVIEW_REST_MINUTES,
+            offset_sec: beats.length
+              ? sessionOffsetSec
+              : reportsHeartRate
+                ? sessionBpmOffsetSec
+                : 0,
             modality,
-            ...(beats.length
-              ? { rr_ms: beats }
+            ...(live
+              ? liveRecording
               : file
                 ? { csv: await file.text() }
                 : {}),
           }
 
-          const analysed =
-            mode.endpoint === '/api/v1/analyze/timeline'
-              ? await analyzeTimeline(base, options)
-              : await analyzeSession(
-                  {
-                    ...base,
-                    // V3 supplies real timings recorded during the interview.
-                    // V2 has no editor yet, so it falls back to the fixture.
-                    questions: questionTimeline ?? mockQuestionTimeline,
-                  },
-                  options,
-                )
+          const analysed = await analyzeSession(
+            { ...base, questions: questionTimeline },
+            options,
+          )
 
           setResult(analysed)
           setStatus('done')
@@ -257,15 +274,13 @@ export function useSessionState(device: DeviceConnection): SessionState {
 
       void send()
     },
-    [baselineMinutes, device.rrIntervals, file, modality, questionTimeline,
-     storeConsented,
-     sessionOffsetSec],
+    [device.rrIntervals, device.bpmReadings, file, modality, questionTimeline,
+     storeConsented, sessionOffsetSec, sessionBpmOffsetSec],
   )
 
   return {
-    baselineMinutes,
-    setBaselineMinutes,
     sessionOffsetSec,
+    sessionBpmOffsetSec,
     markSessionStart,
     fileName: file?.name ?? null,
     setFile,
@@ -273,6 +288,7 @@ export function useSessionState(device: DeviceConnection): SessionState {
     setFileWornAt,
     modality,
     isReady,
+    canAnalyse,
     storeConsented,
     setStoreConsented,
     questionTimeline,

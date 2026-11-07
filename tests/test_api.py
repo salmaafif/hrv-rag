@@ -14,6 +14,8 @@ What matters most below, in order:
   - a failed model call costs the prose and nothing else.
 """
 
+from pathlib import Path
+
 import numpy as np
 import pytest
 from fastapi.testclient import TestClient
@@ -23,7 +25,6 @@ from hrv_api.app import app
 # defined — each route module imported the name into its own namespace, so
 # patching the definition would leave the route still holding the original.
 from hrv_api.routes import session as session_route
-from hrv_api.routes import timeline as timeline_route
 
 KEY = "test-key"
 DEBUG_KEY = "test-debug-key"
@@ -37,11 +38,6 @@ def configured(monkeypatch):
     monkeypatch.setattr(
         session_route, "write_session_narrative",
         lambda *a, **k: ({"ringkasan_sesi": "", "penyemangat": ""},
-                         {"kb_version": "", "model": "", "trustworthy": False}),
-    )
-    monkeypatch.setattr(
-        timeline_route, "write_timeline_narrative",
-        lambda *a, **k: ({"ringkasan": "", "rekomendasi": "", "penyemangat": ""},
                          {"kb_version": "", "model": "", "trustworthy": False}),
     )
 
@@ -74,6 +70,36 @@ def session_body(**overrides) -> dict:
 
 
 # ------------------------------------------------------------------ access
+def test_the_env_file_is_loaded_when_the_app_is_assembled(monkeypatch):
+    """
+    `deps.require_api_key` reads HRV_API_KEYS on the very FIRST request — long
+    before any RAG module lazily loads .env for its Gemini key. So the app
+    itself must load the repo-root .env at assembly. Without that, a service
+    started plainly (as KARIRLINK's dev.mjs does) refused every caller with
+    503 "HRV_API_KEYS is unset" while a healthy 266-interval submission came
+    home "module unavailable" — measured live, 4 September 2026.
+    """
+    import importlib
+
+    import hrv_api.app as app_module
+
+    loaded_paths: list[Path] = []
+    monkeypatch.setattr(
+        "dotenv.load_dotenv",
+        lambda path=None, **kwargs: loaded_paths.append(Path(path)),
+    )
+    importlib.reload(app_module)
+
+    assert loaded_paths, "app assembly never called load_dotenv"
+    assert loaded_paths[0].name == ".env"
+    # Anchored to the app's own file, not the caller's working directory —
+    # dev.mjs starts uvicorn from a cwd this module cannot predict.
+    assert (
+        loaded_paths[0].parent
+        == Path(app_module.__file__).resolve().parents[2]
+    )
+
+
 def test_health_needs_no_key(client):
     assert client.get("/health").status_code == 200
 
@@ -81,12 +107,12 @@ def test_health_needs_no_key(client):
 def test_a_request_without_a_key_is_refused(client):
     # The Gemini quota behind this endpoint belongs to one person. An open URL is
     # an open invitation to empty it.
-    response = client.post("/api/v1/analyze/timeline", json=session_body())
+    response = client.post("/api/v1/analyze/session", json=session_body())
     assert response.status_code == 401
 
 
 def test_a_request_with_the_wrong_key_is_refused(client):
-    response = client.post("/api/v1/analyze/timeline", json=session_body(),
+    response = client.post("/api/v1/analyze/session", json=session_body(),
                            headers={"X-API-Key": "guessed"})
     assert response.status_code == 401
 
@@ -99,9 +125,21 @@ def test_an_unconfigured_service_refuses_everyone(client, monkeypatch):
     in testing and be wide open in production.
     """
     monkeypatch.delenv("HRV_API_KEYS", raising=False)
-    response = client.post("/api/v1/analyze/timeline", json=session_body(),
+    response = client.post("/api/v1/analyze/session", json=session_body(),
                            headers={"X-API-Key": KEY})
     assert response.status_code == 503
+
+
+def test_the_per_minute_timeline_endpoint_no_longer_exists(client):
+    """
+    The product is the interview session and nothing else. A per-minute endpoint
+    left reachable would be a second, unmaintained way to score a recording —
+    one the bpm tier was never taught about.
+    """
+    body = {"rr_ms": beats(6), "baseline_minutes": 2, "modality": "ECG"}
+    response = client.post("/api/v1/analyze/timeline", json=body,
+                           headers={"X-API-Key": KEY})
+    assert response.status_code == 404
 
 
 # ------------------------------------------------------------ bad recordings
@@ -213,6 +251,60 @@ def test_the_baseline_reports_how_many_windows_it_rests_on(client):
     assert baseline["rmssd_ms"] > 0
 
 
+def test_a_resting_period_is_reported_as_quiet_unless_the_caller_says_otherwise(
+    client,
+):
+    # The default must be the honest one for a caller that never heard of this
+    # flag: a baseline is a quiet stretch, and only the caller can say it was not.
+    response = client.post("/api/v1/analyze/session", json=session_body(),
+                           headers={"X-API-Key": KEY})
+    assert response.json()["baseline"]["from_session_start"] is False
+
+
+def test_a_baseline_taken_from_the_opening_of_the_session_says_so(client):
+    """
+    The flag travels with the numbers, unchanged.
+
+    A caller whose questions begin the moment the person presses start has no
+    quiet stretch to offer, and measures against the opening minutes instead.
+    Those minutes contain answering, so every percentage built on them reads
+    calmer than the truth. The response is stored and read back weeks later, so
+    the screen has nothing but this field to tell the two apart.
+    """
+    response = client.post(
+        "/api/v1/analyze/session",
+        json=session_body(baseline_from_session_start=True),
+        headers={"X-API-Key": KEY},
+    )
+    assert response.status_code == 200
+    assert response.json()["baseline"]["from_session_start"] is True
+
+
+def test_the_flag_changes_the_wording_and_never_the_numbers(client):
+    """
+    Provenance, not a second analysis.
+
+    Two code paths for one number is how two callers end up with results that
+    cannot be compared. What the flag buys is the right to say which kind of
+    reference the percentages rest on — nothing else.
+    """
+    body = session_body()
+    quiet = client.post("/api/v1/analyze/session", json=body,
+                        headers={"X-API-Key": KEY}).json()
+    opening = client.post(
+        "/api/v1/analyze/session",
+        json=session_body(baseline_from_session_start=True),
+        headers={"X-API-Key": KEY},
+    ).json()
+
+    assert opening["questions"] == quiet["questions"]
+    assert opening["session_level"] == quiet["session_level"]
+    assert {k: v for k, v in opening["baseline"].items()
+            if k != "from_session_start"} == {
+        k: v for k, v in quiet["baseline"].items() if k != "from_session_start"
+    }
+
+
 def test_technical_numbers_are_withheld_by_default(client):
     """
     Users must never be shown feature names or a raw score. An API cannot police
@@ -292,39 +384,6 @@ def test_unmeasurable_recovery_is_null_and_never_zero(client):
     question = response.json()["questions"][0]
     assert question["recovery_pct"] is None
     assert question["recovery_note"] != ""
-
-
-def test_timeline_response_scores_every_window(client):
-    body = {"rr_ms": beats(6), "baseline_minutes": 2, "modality": "ECG"}
-    response = client.post("/api/v1/analyze/timeline", json=body,
-                           headers={"X-API-Key": KEY})
-    assert response.status_code == 200
-
-    payload = response.json()
-    assert len(payload["timeline"]) > 0
-    assert payload["duration_sec"] > 0
-    counts = payload["summary"]
-    assert (counts["count_low"] + counts["count_moderate"]
-            + counts["count_high"]) == len(payload["timeline"])
-
-
-def test_timeline_windows_carry_authoritative_seconds(client):
-    # `minute` is a display label and can be fractional, because windows advance
-    # every 30 seconds. The seconds are what anything downstream should use.
-    body = {"rr_ms": beats(6), "baseline_minutes": 2, "modality": "ECG"}
-    payload = client.post("/api/v1/analyze/timeline", json=body,
-                          headers={"X-API-Key": KEY}).json()
-
-    first = payload["timeline"][0]
-    # `approx`, because both ends are rounded to a tenth from a start that now
-    # falls on a beat boundary rather than on a whole second. 179.3 - 119.3 is
-    # exactly 60 in decimal and 59.999... in binary floating point.
-    assert first["end_sec"] - first["start_sec"] == pytest.approx(60)
-    # The first window starts where the resting period ENDED, which is a beat
-    # boundary near the requested two minutes rather than exactly on it. It used
-    # to read 120.0 because the code added `baseline_minutes * 60` — the same
-    # assumption that put every question window in the wrong place.
-    assert first["start_sec"] == pytest.approx(120, abs=2)
 
 
 def test_modality_travels_with_the_result(client):
@@ -496,9 +555,9 @@ def test_untrusted_rmssd_loses_its_vote_but_keeps_being_reported(client):
     """
     rest = [900.0, 1000.0] * 65            # ~123 s, RMSSD 100 ms, 100 ms grid
     task = [1000.0] * 200                  # RMSSD 0 -> -100%; HR -5% (calm)
-    body = {"rr_ms": rest + task, "baseline_minutes": 2, "modality": "PPG"}
+    body = session_body(rr_ms=rest + task, modality="PPG")
 
-    reply = client.post("/api/v1/analyze/timeline", json=body,
+    reply = client.post("/api/v1/analyze/session", json=body,
                         headers={"X-API-Key": KEY})
     assert reply.status_code == 200
     data = reply.json()
@@ -507,8 +566,10 @@ def test_untrusted_rmssd_loses_its_vote_but_keeps_being_reported(client):
     assert fitness["rmssd_trusted"] is False
     assert any("clock" in r for r in fitness["reasons"])
 
-    # The mask decided the label: every window scored from heart rate alone.
-    assert {p["level"] for p in data["timeline"]} == {"low"}
+    # The mask decided the label: scored from heart rate alone.
+    assert data["questions"], "the question produced no result"
+    assert {q["level"] for q in data["questions"]} == {"low"}
+    assert data["session_level"]["level"] == "low"
 
 
 def test_a_trusted_recording_still_scores_with_rmssd(client):
@@ -520,16 +581,16 @@ def test_a_trusted_recording_still_scores_with_rmssd(client):
     """
     rest = [900.0 + (i * 37) % 23 + 60 * (i % 2) for i in range(130)]
     task = [1000.0 + (i * 41) % 7 for i in range(200)]     # near-flat jitter
-    body = {"rr_ms": rest + task, "baseline_minutes": 2, "modality": "PPG"}
+    body = session_body(rr_ms=rest + task, modality="PPG")
 
-    reply = client.post("/api/v1/analyze/timeline", json=body,
+    reply = client.post("/api/v1/analyze/session", json=body,
                         headers={"X-API-Key": KEY})
     assert reply.status_code == 200
     data = reply.json()
 
     assert data["signal_fitness"]["rmssd_trusted"] is True
-    assert "moderate" in {p["level"] for p in data["timeline"]} or \
-           "high" in {p["level"] for p in data["timeline"]}
+    assert data["questions"], "the question produced no result"
+    assert {q["level"] for q in data["questions"]} & {"moderate", "high"}
 
 
 def test_a_consented_failure_keeps_the_recording_too(client, tmp_path, monkeypatch):

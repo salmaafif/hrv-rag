@@ -1,5 +1,5 @@
 /**
- * session.ts — fixture for V2 and V3, `POST /api/v1/analyze/session`.
+ * session.ts — fixture for `POST /api/v1/analyze/session`.
  *
  * The six questions are the ones drawn in the KARIRLINK Figma frames, so the
  * mock and the design describe the same session.
@@ -75,7 +75,9 @@ const SEEDS: QuestionSeed[] = [
     deltaRmssdPct: -41,
     deltaHrPct: 24,
     recoveryPct: null,
-    recoveryNote: 'jeda sebelum pertanyaan berikutnya kurang dari 30 detik',
+    // The backend's own wording, English as it arrives — so the screen's
+    // translation is exercised by the fixture instead of bypassed by it.
+    recoveryNote: 'no quiet gap followed this question',
     penjelasan:
       'Ini pertanyaan dengan tekanan paling besar sepanjang sesi. Jeda ' +
       'sesudahnya terlalu pendek, jadi belum kelihatan seberapa cepat kamu ' +
@@ -183,21 +185,22 @@ function quadrant(
 }
 
 function summarise(results: QuestionResult[]): SessionSummary {
-  const reactivity = median(results.map((q) => q.delta_rmssd_pct))
+  // This fixture is a beat-interval session, so every RMSSD delta is present.
+  const rmssd = (q: QuestionResult) => q.delta_rmssd_pct ?? 0
+  const reactivity = median(results.map(rmssd))
   // Only questions whose recovery could actually be measured take part.
   const recovery = median(
     results
       .map((q) => q.recovery_pct)
       .filter((v): v is number => v !== null),
   )
-  const worst = results.reduce((a, b) =>
-    b.delta_rmssd_pct < a.delta_rmssd_pct ? b : a,
-  )
+  const worst = results.reduce((a, b) => (rmssd(b) < rmssd(a) ? b : a))
   return {
     most_triggering_question: worst.number,
     resilience: quadrant(reactivity, recovery),
     median_reactivity_pct: reactivity,
     median_recovery_pct: recovery,
+    reactivity_basis: 'rmssd',
   }
 }
 
@@ -205,6 +208,7 @@ export const mockSession: SessionResponse = {
   session_id: 'demo-session-001',
   modality: 'ECG',
   tier: 'T2',
+  source: 'beat_intervals',
   baseline: {
     rmssd_ms: 32,
     mean_hr_bpm: 73,
@@ -245,7 +249,7 @@ export const mockSessionNoRecovery: SessionResponse = (() => {
   const stripped = questions.map((q) => ({
     ...q,
     recovery_pct: null,
-    recovery_note: 'jeda sebelum pertanyaan berikutnya kurang dari 30 detik',
+    recovery_note: 'no quiet gap followed this question',
   }))
   return {
     ...mockSession,
@@ -254,3 +258,103 @@ export const mockSessionNoRecovery: SessionResponse = (() => {
     summary: summarise(stripped),
   }
 })()
+
+/**
+ * A session from a watch that reports heart rate only (`source: 'bpm'`).
+ *
+ * The same six questions and heart-rate changes, with everything the backend
+ * does not measure on that path ABSENT rather than zero: no RMSSD anywhere, no
+ * recovery, no resilience quadrant, and a summary ranked by heart rate. The
+ * dummy serves it whenever a request carries heart-rate reports and no
+ * intervals, so `?dev=1&sensor=bpm` shows the screen that path really gets.
+ */
+export const mockSessionHeartRateOnly: SessionResponse = (() => {
+  // Written per level rather than copied from the seeds: those sentences talk
+  // about settling afterwards, which this path never measures.
+  const PENJELASAN: Record<QuestionResult['level'], string> = {
+    low: 'Detak jantungmu tetap dekat dengan saat kamu tenang di awal.',
+    moderate: 'Detak jantungmu naik sedang saat menjawab pertanyaan ini.',
+    high: 'Detak jantungmu naik cukup tinggi saat menjawab pertanyaan ini.',
+  }
+
+  const measured: QuestionResult[] = SEEDS.map((seed) => {
+    const verdict = mockVerdict(null, seed.deltaHrPct)
+    return {
+      number: seed.number,
+      text: seed.text,
+      type: seed.type,
+      level: verdict.level,
+      score: verdict.score,
+      delta_rmssd_pct: null,
+      delta_hr_pct: seed.deltaHrPct,
+      recovery_pct: null,
+      recovery_note:
+        'this device reports heart rate only, and recovery is read from ' +
+        'beat-to-beat variability, so it was not measured',
+      evidence: verdict.evidence,
+      features_disagree: verdict.features_disagree,
+      penjelasan: PENJELASAN[verdict.level],
+      saran: seed.saran,
+    }
+  })
+
+  const largest = measured.reduce((a, b) =>
+    Math.abs(b.delta_hr_pct) > Math.abs(a.delta_hr_pct) ? b : a,
+  )
+
+  return {
+    ...mockSession,
+    session_id: 'demo-session-004',
+    tier: 'T1-BPM',
+    source: 'bpm',
+    baseline: { ...mockSession.baseline, rmssd_ms: null },
+    signal_fitness: {
+      rmssd_trusted: false,
+      reasons: [
+        'device reports heart rate (bpm) only, not beat-to-beat intervals, ' +
+          'so variability was not measured',
+      ],
+      quantization_step_ms: null,
+      missed_beat_ratio: null,
+      task_outlier_ratio: null,
+    },
+    questions: measured,
+    summary: {
+      most_triggering_question: largest.number,
+      resilience: null,
+      median_reactivity_pct: median(measured.map((q) => q.delta_hr_pct)),
+      median_recovery_pct: null,
+      reactivity_basis: 'mean_hr',
+    },
+    narrative: {
+      ringkasan_sesi:
+        'Secara umum detak jantungmu cukup terjaga. Ada dua pertanyaan yang ' +
+        'membuatnya naik jauh lebih tinggi daripada yang lain.',
+      penyemangat: mockSession.narrative.penyemangat,
+    },
+    meta: {
+      ...mockSession.meta,
+      prompt_version: 'HRV_session_narrative_heart_rate_only',
+    },
+  }
+})()
+
+/**
+ * A session whose resting period came back too unsteady to trust.
+ *
+ * The unstable-baseline warning is the single most important thing the result
+ * screen can say — every number is a comparison against that period — so it
+ * must be possible to look at it on demand (`?baseline=goyah`). The warning is
+ * the backend's own wording from `BaselineVerdict.note_for_user`.
+ */
+export const mockSessionUnstableBaseline: SessionResponse = {
+  ...mockSession,
+  session_id: 'demo-session-003',
+  baseline: {
+    ...mockSession.baseline,
+    is_stable: false,
+    warning:
+      'periode tenang di awal belum benar-benar tenang, jadi angka di bawah ' +
+      'ini kurang pasti dari biasanya',
+  },
+}

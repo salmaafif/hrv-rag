@@ -12,9 +12,8 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { analyzeSession, analyzeTimeline, usesMockData } from './client'
+import { analyzeSession, usesMockData } from './client'
 import { ApiError } from './errors'
-import { mockQuestionTimeline } from '../mocks/questionTimeline'
 
 const FAST = { latencyMs: 0 }
 
@@ -31,22 +30,22 @@ beforeEach(() => {
 })
 
 const baseRequest = {
-  baseline_minutes: 4,
+  baseline_minutes: 2,
   modality: 'ECG' as const,
+  questions: [],
 }
 
-describe('analyzeTimeline', () => {
-  it('returns a per-minute timeline', async () => {
-    const result = await analyzeTimeline(baseRequest, FAST)
-    expect(result.timeline.length).toBeGreaterThan(0)
-    expect(result.summary.count_low).toBeGreaterThanOrEqual(0)
+describe('analyzeSession', () => {
+  it('returns per-question results', async () => {
+    const result = await analyzeSession(baseRequest, FAST)
+    expect(result.questions.length).toBeGreaterThan(0)
   })
 
   it('can return the unsteady-baseline case on demand', async () => {
     // This is the warning the result screen must surface. Being able to reach
     // it deliberately is the difference between designing that state and
     // discovering it.
-    const result = await analyzeTimeline(baseRequest, {
+    const result = await analyzeSession(baseRequest, {
       ...FAST,
       simulateUnstableBaseline: true,
     })
@@ -55,25 +54,33 @@ describe('analyzeTimeline', () => {
   })
 
   it('returns a stable baseline by default', async () => {
-    const result = await analyzeTimeline(baseRequest, FAST)
+    const result = await analyzeSession(baseRequest, FAST)
     expect(result.baseline.is_stable).toBe(true)
   })
-})
 
-describe('analyzeSession', () => {
-  it('returns per-question results', async () => {
+  const reports = Array.from({ length: 10 }, (_, i) => ({ at_sec: i, bpm: 72 }))
+
+  it('answers a watch that sent heart rate only with that path', async () => {
+    const result = await analyzeSession({ ...baseRequest, bpm_samples: reports }, FAST)
+    expect(result.source).toBe('bpm')
+    expect(result.baseline.rmssd_ms).toBeNull()
+  })
+
+  it('keeps the interval answer when intervals came too', async () => {
+    // Which path a mixed request really takes is the backend's threshold to
+    // apply; the dummy does not guess it.
     const result = await analyzeSession(
-      { ...baseRequest, questions: mockQuestionTimeline },
+      { ...baseRequest, rr_ms: [850, 860], bpm_samples: reports, rr_coverage: 0.95 },
       FAST,
     )
-    expect(result.questions.length).toBe(mockQuestionTimeline.length)
+    expect(result.source).toBe('beat_intervals')
   })
 })
 
 describe('failures', () => {
   it('rejects with an ApiError carrying a message the user can read', async () => {
     await expect(
-      analyzeTimeline(baseRequest, { ...FAST, simulateError: true }),
+      analyzeSession(baseRequest, { ...FAST, simulateError: true }),
     ).rejects.toBeInstanceOf(ApiError)
   })
 
@@ -81,7 +88,7 @@ describe('failures', () => {
     // The retry offer is not cosmetic: on a free host most failures are the
     // server waking up, and a second attempt genuinely works.
     try {
-      await analyzeTimeline(baseRequest, { ...FAST, simulateError: true })
+      await analyzeSession(baseRequest, { ...FAST, simulateError: true })
       expect.unreachable('should have thrown')
     } catch (cause) {
       expect(cause).toBeInstanceOf(ApiError)

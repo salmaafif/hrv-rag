@@ -14,14 +14,12 @@
  * unusable, so the wait here is short but real.
  */
 
-import type {
-  AnalyzeRequest,
-  SessionRequest,
-  SessionResponse,
-  TimelineResponse,
-} from '../types/api'
-import { mockTimeline, mockTimelineUnstableBaseline } from '../mocks/timeline'
-import { mockSession } from '../mocks/session'
+import type { SessionRequest, SessionResponse } from '../types/api'
+import {
+  mockSession,
+  mockSessionHeartRateOnly,
+  mockSessionUnstableBaseline,
+} from '../mocks/session'
 import { ApiError } from './errors'
 
 /** Long enough to see a loading state, short enough to work with. */
@@ -74,19 +72,24 @@ async function respond<T>(payload: T, options: AnalyzeOptions): Promise<T> {
   return payload
 }
 
-export function dummyAnalyzeTimeline(
-  _request: AnalyzeRequest,
-  options: AnalyzeOptions = {},
-): Promise<TimelineResponse> {
-  return respond(
-    options.simulateUnstableBaseline ? mockTimelineUnstableBaseline : mockTimeline,
-    options,
-  )
+/**
+ * The fixture matching what the request would get from the real backend.
+ *
+ * Heart-rate reports with no intervals can only take the heart-rate path, so
+ * they get that path's fixture. A request carrying both is answered with the
+ * interval fixture: which path it really takes depends on a coverage threshold
+ * that lives in the backend, and the dummy does not pretend to know it.
+ */
+function fixtureFor(request: SessionRequest, options: AnalyzeOptions): SessionResponse {
+  if (options.simulateUnstableBaseline) return mockSessionUnstableBaseline
+  const heartRateOnly =
+    !request.rr_ms?.length && (request.bpm_samples?.length ?? 0) >= 2
+  return heartRateOnly ? mockSessionHeartRateOnly : mockSession
 }
 
 export function dummyAnalyzeSession(
-  _request: SessionRequest,
+  request: SessionRequest,
   options: AnalyzeOptions = {},
 ): Promise<SessionResponse> {
-  return respond(mockSession, options)
+  return respond(fixtureFor(request, options), options)
 }

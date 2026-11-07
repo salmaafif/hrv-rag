@@ -16,10 +16,11 @@
 
 import { describe, expect, it } from 'vitest'
 import {
-  mockTimeline,
-  mockTimelineUnstableBaseline,
-} from './timeline'
-import { mockSession, mockSessionNoRecovery } from './session'
+  mockSession,
+  mockSessionHeartRateOnly,
+  mockSessionNoRecovery,
+  mockSessionUnstableBaseline,
+} from './session'
 
 describe('session fixture', () => {
   it('keeps a question whose recovery could not be measured', () => {
@@ -52,8 +53,11 @@ describe('session fixture', () => {
   })
 
   it('points at the question with the largest reaction', () => {
+    // A beat-interval fixture: every RMSSD delta is present.
+    const rmssd = (q: (typeof mockSession.questions)[number]) =>
+      q.delta_rmssd_pct ?? 0
     const worst = mockSession.questions.reduce((a, b) =>
-      b.delta_rmssd_pct < a.delta_rmssd_pct ? b : a,
+      rmssd(b) < rmssd(a) ? b : a,
     )
     expect(mockSession.summary.most_triggering_question).toBe(worst.number)
   })
@@ -78,35 +82,64 @@ describe('session fixture without any measurable recovery', () => {
   })
 })
 
-describe('timeline fixture', () => {
-  it('starts after the baseline period rather than at second zero', () => {
-    expect(mockTimeline.timeline[0]!.start_sec).toBe(240)
+describe('session fixture from a watch that reports heart rate only', () => {
+  /** Every number filed under a variability name, anywhere in the payload. */
+  function variabilityNumbers(node: unknown, path = ''): string[] {
+    if (Array.isArray(node)) {
+      return node.flatMap((item, i) => variabilityNumbers(item, `${path}[${i}]`))
+    }
+    if (node === null || typeof node !== 'object') return []
+    return Object.entries(node).flatMap(([key, value]) => {
+      const named = key.split('_').some((part) =>
+        ['rmssd', 'sdnn', 'pnn50', 'lf', 'hf'].includes(part))
+      const here = named && typeof value === 'number' ? [`${path}.${key}`] : []
+      return [...here, ...variabilityNumbers(value, `${path}.${key}`)]
+    })
+  }
+
+  it('carries no variability number anywhere', () => {
+    // A screen built against this fixture must never meet an RMSSD it could
+    // quote. The same rule the backend test enforces on the real payload.
+    expect(variabilityNumbers(mockSessionHeartRateOnly)).toEqual([])
+    expect(JSON.stringify(mockSessionHeartRateOnly)).not.toContain('RMSSD')
+    // The control: the interval fixture does carry them.
+    expect(variabilityNumbers(mockSession)).not.toEqual([])
   })
 
-  it('advances every 30 seconds with 60-second windows', () => {
-    // Adjacent points share half their data. The chart must not present them
-    // as two independent readings that corroborate each other.
-    const [first, second] = mockTimeline.timeline
-    expect(second!.start_sec - first!.start_sec).toBe(30)
-    expect(first!.end_sec - first!.start_sec).toBe(60)
+  it('names its path and tier', () => {
+    expect(mockSessionHeartRateOnly.source).toBe('bpm')
+    expect(mockSessionHeartRateOnly.tier).toBe('T1-BPM')
+    expect(mockSessionHeartRateOnly.summary.reactivity_basis).toBe('mean_hr')
   })
 
-  it('counts every point exactly once in the summary', () => {
-    const { count_low, count_moderate, count_high } = mockTimeline.summary
-    expect(count_low + count_moderate + count_high).toBe(
-      mockTimeline.timeline.length,
+  it('reports recovery and resilience as unmeasured, never as zero', () => {
+    for (const q of mockSessionHeartRateOnly.questions) {
+      expect(q.recovery_pct).toBeNull()
+      expect(q.recovery_note).not.toBe('')
+    }
+    expect(mockSessionHeartRateOnly.summary.median_recovery_pct).toBeNull()
+    expect(mockSessionHeartRateOnly.summary.resilience).toBeNull()
+  })
+
+  it('names the question with the largest heart-rate rise', () => {
+    const largest = mockSessionHeartRateOnly.questions.reduce((a, b) =>
+      b.delta_hr_pct > a.delta_hr_pct ? b : a,
     )
-  })
-
-  it('keeps a window where the two markers disagree', () => {
-    expect(mockTimeline.timeline.some((p) => p.features_disagree)).toBe(true)
+    expect(mockSessionHeartRateOnly.summary.most_triggering_question)
+      .toBe(largest.number)
   })
 })
 
-describe('timeline fixture with an unstable baseline', () => {
+describe('session fixture with an unstable baseline', () => {
   it('carries a warning the screen has to surface', () => {
-    expect(mockTimelineUnstableBaseline.baseline.is_stable).toBe(false)
-    expect(mockTimelineUnstableBaseline.baseline.warning).not.toBeNull()
+    expect(mockSessionUnstableBaseline.baseline.is_stable).toBe(false)
+    expect(mockSessionUnstableBaseline.baseline.warning).not.toBeNull()
+  })
+
+  it('changes nothing but the baseline', () => {
+    // Otherwise a screen reviewed against it would be judged on two
+    // differences at once and nobody could tell which one drew the warning.
+    expect(mockSessionUnstableBaseline.questions).toBe(mockSession.questions)
   })
 })
 

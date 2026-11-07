@@ -19,13 +19,25 @@ export type Modality = 'ECG' | 'PPG'
  * The product surface a response is allowed to render, per the T0/T1/T2 table
  * in `docs/ARSITEKTUR_KARIRLINK_HRV.md` A4 (decision A5).
  *
- * 'T0' (no sensor) never appears here — both endpoints require a `modality`,
- * so a response reaching this file always carries 'T1' (PPG) or 'T2' (ECG).
+ * 'T0' (no sensor) never appears here — the endpoint requires a `modality`,
+ * so a response reaching this file carries 'T1' (PPG), 'T2' (ECG), or
+ * 'T1-BPM' (a device that reported heart rate only).
  * It is typed as the full three-way union anyway, so a client checking
  * `tier === 'T0'` is validated against the contract rather than against
  * what this backend happens to send today.
  */
-export type ProductTier = 'T0' | 'T1' | 'T2'
+export type ProductTier = 'T0' | 'T1' | 'T1-BPM' | 'T2'
+
+/**
+ * Which of the two measurement paths produced the numbers.
+ *
+ * 'beat_intervals' when the device delivered the gap between every two beats;
+ * 'bpm' when it delivered only a heart-rate value, as most smartwatches do. A
+ * 'bpm' session always carries tier 'T1-BPM': heart rate is measured, while
+ * variability, recovery and the resilience quadrant are not — they arrive as
+ * null and must be shown as "belum terukur", never as zero.
+ */
+export type MeasurementSource = 'beat_intervals' | 'bpm'
 
 /**
  * The stress label.
@@ -58,7 +70,8 @@ export type ResilienceQuadrant =
 
 /** The person's own resting reference, against which everything else is judged. */
 export interface Baseline {
-  rmssd_ms: number
+  /** Null for a heart-rate-only session, where variability was never measured. */
+  rmssd_ms: number | null
   mean_hr_bpm: number
   /** How many 60-second windows the baseline was averaged over. */
   n_segments: number
@@ -94,9 +107,10 @@ export interface Baseline {
 export interface SignalFitness {
   rmssd_trusted: boolean
   reasons: string[]
-  quantization_step_ms: number
-  missed_beat_ratio: number
-  task_outlier_ratio: number
+  /** The three below are null when not computed — a heart-rate-only session. */
+  quantization_step_ms: number | null
+  missed_beat_ratio: number | null
+  task_outlier_ratio: number | null
 }
 
 /** Provenance, so a result can be traced back to the knowledge base and model. */
@@ -126,67 +140,7 @@ export interface ResponseMeta {
 }
 
 // ---------------------------------------------------------------------------
-// V1 — POST /api/v1/analyze/timeline
-// ---------------------------------------------------------------------------
-
-export interface TimelinePoint {
-  /**
-   * Which minute of the recording this window ends in.
-   *
-   * CAN BE FRACTIONAL. Windows are 60 seconds long but advance every 30
-   * seconds, so successive values run 5, 5.5, 6, 6.5 rather than 5, 6, 7.
-   * `start_sec` and `end_sec` are the authoritative fields; treat `minute` as a
-   * label for display only.
-   */
-  minute: number
-  start_sec: number
-  end_sec: number
-  level: StressLevel
-  /** 0–4, from the two-feature rule. Developer view only. */
-  score: number
-  /** Percent change against the person's own baseline. Developer view only. */
-  delta_rmssd_pct: number
-  delta_hr_pct: number
-  /** English, one line per feature that scored. Developer view only. */
-  evidence: string[]
-  /**
-   * True when RMSSD rose while heart rate also rose. The two markers point
-   * opposite ways, so the reading is less certain and the UI must flag it.
-   */
-  features_disagree: boolean
-}
-
-export interface TimelineSummary {
-  /** Null when no window could be measured. */
-  peak_minute: number | null
-  median_reactivity_pct: number | null
-  count_low: number
-  count_moderate: number
-  count_high: number
-}
-
-/** Indonesian prose from the LLM. The only part of the response it writes. */
-export interface TimelineNarrative {
-  ringkasan: string
-  rekomendasi: string
-  penyemangat: string
-}
-
-export interface TimelineResponse {
-  signal_fitness?: SignalFitness
-  session_id: string
-  modality: Modality
-  tier: ProductTier
-  duration_sec: number
-  baseline: Baseline
-  timeline: TimelinePoint[]
-  summary: TimelineSummary
-  narrative: TimelineNarrative
-  meta: ResponseMeta
-}
-
-// ---------------------------------------------------------------------------
-// V2 and V3 — POST /api/v1/analyze/session
+// POST /api/v1/analyze/session
 // ---------------------------------------------------------------------------
 
 export interface QuestionResult {
@@ -195,7 +149,8 @@ export interface QuestionResult {
   type: QuestionType
   level: StressLevel
   score: number
-  delta_rmssd_pct: number
+  /** Null for a heart-rate-only session. Developer view only. */
+  delta_rmssd_pct: number | null
   delta_hr_pct: number
   /**
    * How much of the reaction faded during the gap before the next question,
@@ -224,6 +179,12 @@ export interface SessionSummary {
   median_reactivity_pct: number | null
   /** Null when no question had a measurable recovery gap. */
   median_recovery_pct: number | null
+  /**
+   * What `most_triggering_question` and `median_reactivity_pct` were ranked by.
+   * 'rmssd' falls under pressure, so its median is usually negative; 'mean_hr'
+   * rises, so its median is usually positive. Read this before wording either.
+   */
+  reactivity_basis: 'rmssd' | 'mean_hr'
 }
 
 export interface SessionNarrative {
@@ -242,6 +203,7 @@ export interface SessionResponse {
    */
   modality: Modality
   tier: ProductTier
+  source: MeasurementSource
   baseline: Baseline
   questions: QuestionResult[]
   summary: SessionSummary
@@ -253,7 +215,7 @@ export interface SessionResponse {
 // Request payloads
 // ---------------------------------------------------------------------------
 
-/** One entry of the question timeline the caller supplies for V2 and V3. */
+/** One entry of the question timeline the interview records as it runs. */
 export interface QuestionTimelineEntry {
   number: number
   text: string
@@ -265,9 +227,34 @@ export interface QuestionTimelineEntry {
   is_difficult: boolean
 }
 
+/** One heart-rate report, from a device that may not deliver beat intervals. */
+export interface BpmSample {
+  /** Seconds from the FIRST sample — the recording's clock, like `offset_sec`. */
+  at_sec: number
+  bpm: number
+}
+
 export interface AnalyzeRequest {
   /** Beat-to-beat intervals in milliseconds, when coming from Bluetooth. */
   rr_ms?: number[]
+  /**
+   * Heart-rate reports, sent alongside `rr_ms` from a live device.
+   *
+   * Always sent when available, even from a strap that also delivers intervals:
+   * the backend, not the browser, decides which path the session takes.
+   */
+  bpm_samples?: BpmSample[]
+  /**
+   * Fraction of the session covered by real beat intervals, 0 to 1. Required by
+   * the backend whenever both `rr_ms` and `bpm_samples` are sent.
+   */
+  rr_coverage?: number
+  /**
+   * `offset_sec` measured on the heart-rate report clock. Used by the backend
+   * when the session is scored from heart rate; the interval clock and the
+   * report clock drift apart exactly when beats go missing.
+   */
+  bpm_offset_sec?: number
   /**
    * Raw CSV text, when the source is an uploaded file.
    *

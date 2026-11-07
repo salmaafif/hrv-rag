@@ -17,7 +17,7 @@ optional module.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 import pandas as pd
@@ -25,17 +25,22 @@ import pandas as pd
 from hrv_rag.config.settings import settings
 from hrv_rag.core.session import Question, QuestionType, SessionTimeline
 from hrv_rag.core.types import Modality, Phase
-from hrv_rag.features.baseline import (BaselineProfile, BaselineVerdict,
-                                       check_baseline)
+from hrv_rag.features.baseline import (BPM_TIER_FEATURES, BaselineProfile,
+                                       BaselineVerdict, check_baseline)
 from hrv_rag.features.extractor import extract_features
 from hrv_rag.features.question import (arousal_index, cognitive_load_hint,
-                                 measure_question)
+                                 measure_question, reaction_window,
+                                 segments_for_window)
 from hrv_rag.features.dynamics import resilience_quadrant
 from hrv_rag.features.stress_level import classify
-from hrv_rag.features.signal_fitness import SignalFitness, assess_signal
+from hrv_rag.features.signal_fitness import (SignalFitness, assess_signal,
+                                             bpm_only_fitness)
+from hrv_rag.preprocessing.bpm import beats_from_bpm
+from hrv_rag.features.indices import (attainable_points, calm_index,
+                                      recovery_index, resilience_index)
 from hrv_rag.preprocessing.intervals import (IntervalFormatError, parse_rr_csv,
                                        rr_series_from_intervals,
-                                       split_baseline_and_task)
+                                       split_baseline_and_task, split_flags)
 
 #: The threshold used to be redeclared here, and in `session_pipeline.py`, and in
 #: two scripts — four copies of one number, none of them measured. It now lives in
@@ -45,6 +50,15 @@ from hrv_rag.preprocessing.intervals import (IntervalFormatError, parse_rr_csv,
 
 class AnalysisError(ValueError):
     """The recording cannot be analysed, with a reason fit to show a user."""
+
+
+#: The two measurement paths, as they are named in every response (`source`).
+BEAT_INTERVALS = "beat_intervals"
+BPM = "bpm"
+
+#: Why a question went unmeasured when the heart-rate stream had a hole in it.
+STREAM_INTERRUPTED = ("the heart-rate stream was interrupted during this answer, "
+                      "so it was reported as not measured rather than filled in")
 
 
 @dataclass
@@ -90,6 +104,17 @@ class Prepared:
     #: connected before the person pressed start.
     offset_sec: float = 0.0
 
+    #: Which path produced the numbers: `BEAT_INTERVALS` or `BPM`. Reported in the
+    #: response, because the two are very different measurements with identical
+    #: shapes, and an archive that cannot tell them apart cannot be re-analysed.
+    source: str = BEAT_INTERVALS
+
+    #: What the caller measured, kept as provenance for the path decision.
+    rr_coverage: float | None = None
+
+    #: Stretches the heart-rate stream never reported, in RECORDING seconds.
+    stream_gaps_sec: list[tuple[float, float]] = field(default_factory=list)
+
     @property
     def question_shift_sec(self) -> float:
         """
@@ -133,26 +158,77 @@ def _intervals_from_request(rr_ms: list[float] | None, csv: str | None
     )
 
 
+def choose_source(rr_ms: list[float] | None, csv: str | None,
+                  bpm_samples: list[dict] | None,
+                  rr_coverage: float | None) -> str:
+    """
+    Decide, once for the whole session, which path it takes.
+
+    Beat intervals whenever there are no heart-rate samples to fall back on, or
+    when the intervals covered enough of the session. Heart rate alone otherwise.
+    The two are never spliced together: below the threshold the intervals that
+    did arrive are set aside entirely (see `TierConfig.min_rr_coverage`).
+
+    Missing coverage with both present counts as NOT enough. Without evidence the
+    intervals were complete, the path that claims less is the honest one.
+    """
+    if csv or not bpm_samples:
+        return BEAT_INTERVALS
+    if not rr_ms:
+        return BPM
+    if rr_coverage is not None and rr_coverage >= settings.tier.min_rr_coverage:
+        return BEAT_INTERVALS
+    return BPM
+
+
 def prepare(rr_ms: list[float] | None, csv: str | None,
             baseline_minutes: float, modality: Modality,
-            session_id: str, offset_sec: float = 0.0) -> Prepared:
+            session_id: str, offset_sec: float = 0.0,
+            bpm_samples: list[dict] | None = None,
+            rr_coverage: float | None = None,
+            bpm_offset_sec: float | None = None) -> Prepared:
     """
     Turn a raw recording into a personal baseline plus a feature table.
 
     Failures here are reported as `AnalysisError` with a sentence a user could
     read, because every one of them is something they can act on: the wrong unit,
     a recording too short, a resting period too noisy to anchor anything.
+
+    TWO PATHS, ONE MACHINE. A heart-rate-only session is rebuilt into beats and
+    runs through exactly the same split, windows and gates as a beat-interval
+    session. It differs in three places only, all below: the rebuilt beats that
+    bridge a hole are flagged, every feature but heart rate is deleted from the
+    baseline, and the signal checks are not run on beats that never existed.
     """
-    intervals = _intervals_from_request(rr_ms, csv)
+    source = choose_source(rr_ms, csv, bpm_samples, rr_coverage)
+    if source == BPM and bpm_offset_sec is not None:
+        # The report clock places the questions on this path, not the interval
+        # clock `offset_sec` was measured on (see `AnalyzeRequest.bpm_offset_sec`).
+        offset_sec = bpm_offset_sec
+    bridged, gaps = None, []
+    if source == BPM:
+        try:
+            rebuilt = beats_from_bpm([s["at_sec"] for s in bpm_samples],
+                                     [s["bpm"] for s in bpm_samples])
+        except ValueError as exc:
+            raise AnalysisError(str(exc)) from None
+        intervals, bridged, gaps = rebuilt.rr_ms, rebuilt.in_gap, rebuilt.gaps_sec
+    else:
+        intervals = _intervals_from_request(rr_ms, csv)
+
     rest_rr, task_rr, rest_end_sec = split_baseline_and_task(
         intervals, baseline_minutes, offset_sec
     )
+    rest_bridged = task_bridged = None
+    if bridged is not None:
+        rest_bridged, task_bridged = split_flags(bridged, intervals,
+                                                 baseline_minutes, offset_sec)
 
     try:
         rest = rr_series_from_intervals(rest_rr, modality, session_id,
-                                        Phase.CALIBRATION)
+                                        Phase.CALIBRATION, bridged=rest_bridged)
         task = rr_series_from_intervals(task_rr, modality, session_id,
-                                        Phase.QUESTION)
+                                        Phase.QUESTION, bridged=task_bridged)
     except IntervalFormatError as exc:
         raise AnalysisError(str(exc)) from None
 
@@ -166,6 +242,11 @@ def prepare(rr_ms: list[float] | None, csv: str | None,
             "personal reference to compare against"
         ) from None
 
+    if source == BPM:
+        # Before anything reads the baseline — the gate, the reactivity, the
+        # response. What is not in `values` is never measured downstream.
+        baseline = baseline.restricted_to(BPM_TIER_FEATURES)
+
     task_table, _ = extract_features(task)
     if task_table.empty:
         raise AnalysisError(
@@ -178,7 +259,8 @@ def prepare(rr_ms: list[float] | None, csv: str | None,
     # range would break the rule that a user never sees feature names (K4).
     verdict = check_baseline(baseline)
 
-    fitness = assess_signal(rest.rr_ms, task.rr_ms, task.outlier_ratio)
+    fitness = (bpm_only_fitness() if source == BPM
+               else assess_signal(rest.rr_ms, task.rr_ms, task.outlier_ratio))
 
     return Prepared(
         baseline=baseline, baseline_unstable=not verdict.is_acceptable,
@@ -187,6 +269,7 @@ def prepare(rr_ms: list[float] | None, csv: str | None,
         task_table=task_table,
         duration_sec=float(np.sum(intervals) / 1000.0),
         rest_end_sec=rest_end_sec, offset_sec=offset_sec,
+        source=source, rr_coverage=rr_coverage, stream_gaps_sec=gaps,
     )
 
 
@@ -202,8 +285,11 @@ def baseline_block(prepared: Prepared) -> dict:
     """
     verdict = prepared.baseline_verdict
     return {
-        "rmssd_ms": round(prepared.baseline.values.get("rmssd", float("nan")), 2),
-        "mean_hr_bpm": round(prepared.baseline.values.get("mean_hr", float("nan")), 1),
+        # Through `_clean`, because NaN is not valid JSON and a heart-rate-only
+        # baseline has no RMSSD. Two digits kept: a beat-interval session must
+        # report exactly what it always did.
+        "rmssd_ms": _clean(prepared.baseline.values.get("rmssd", float("nan")), 2),
+        "mean_hr_bpm": _clean(prepared.baseline.values.get("mean_hr", float("nan")), 1),
         "n_segments": prepared.baseline.n_segments,
         "is_stable": not prepared.baseline_unstable,
         "evidence": verdict.evidence.value,
@@ -215,65 +301,88 @@ def _disagree(verdict) -> bool:
     return any("disagree" in line for line in verdict.evidence)
 
 
-# ==================================================================== V1
-def build_timeline(prepared: Prepared) -> dict:
+def reactivity_basis(baseline: BaselineProfile) -> str:
     """
-    Score every 60-second window after the resting period.
+    Which feature the session summary ranks questions by.
 
-    `minute` is a display label and can be fractional, because windows advance
-    every 30 seconds. `start_sec` and `end_sec` remain the authoritative fields —
-    the contract says so, and rounding a half-minute away would make two distinct
-    windows look like one.
-
-    Times are reported in SESSION seconds, the same clock the caller supplies
-    question timings in. This used to add `baseline_minutes * 60` to reach the
-    same place, which was right only while the recording and the session started
-    together — the assumption a connected Bluetooth sensor quietly breaks.
-    `prepared.question_shift_sec` carries the real distance instead.
+    RMSSD whenever the baseline holds it — the feature every validated number was
+    produced with, so a beat-interval session is summarised exactly as before.
+    Heart rate when the session never had beat intervals: it is the only thing
+    measured there, and naming the question with the largest rise is a true
+    statement. The basis travels in the response, because a "most triggering
+    question" whose basis changed silently is worse than one that is missing.
     """
-    points, reactivities = [], []
+    primary = settings.dynamics.primary_feature
+    return primary if primary in baseline.values else "mean_hr"
 
-    for _, row in prepared.task_table.iterrows():
-        reactivity = prepared.baseline.reactivity(
-            {c: row[c] for c in prepared.baseline.values if c in row}
-        )
-        verdict = classify(prepared.scoring_reactivity(reactivity))
-        d_rmssd = reactivity.get("delta_pct_rmssd", float("nan"))
-        d_hr = reactivity.get("delta_pct_mean_hr", float("nan"))
 
-        start = float(row["start_sec"]) - prepared.question_shift_sec
-        points.append({
-            "minute": round(start / 60.0 + 1.0, 1),
-            "start_sec": round(start, 1),
-            "end_sec": round(start + settings.segmentation.length_sec, 1),
-            "level": verdict.level.value,
-            "score": verdict.points,
-            "delta_rmssd_pct": _clean(d_rmssd),
-            "delta_hr_pct": _clean(d_hr),
-            "evidence": list(verdict.evidence),
-            "features_disagree": _disagree(verdict),
-        })
-        if d_rmssd == d_rmssd:
-            reactivities.append((abs(d_rmssd), points[-1]["minute"], d_rmssd))
+def _unmeasured_reason(prepared: Prepared, question: Question,
+                       measurement) -> str:
+    """Why a question has no result, naming a hole in the stream when there was one."""
+    start, end = reaction_window(question)
+    for gap_start, gap_end in prepared.stream_gaps_sec:
+        # Recording seconds to task seconds: the task table starts where the
+        # resting period ended.
+        if (gap_start - prepared.rest_end_sec < end
+                and gap_end - prepared.rest_end_sec > start):
+            return STREAM_INTERRUPTED
+    return measurement.notes[0] if measurement.notes else "no usable window"
 
-    levels = [p["level"] for p in points]
-    peak = max(reactivities, default=None)
 
+def session_level(prepared: Prepared, timeline: SessionTimeline) -> dict | None:
+    """
+    One reading for the WHOLE answering phase, against the same baseline.
+
+    THE SAFETY NET, and the reason it exists. Until 1 September 2026 a session in
+    which no single question held a usable window produced no result at all: the
+    caller got a 422, KARIRLINK's backend translated it into "the HRV module is
+    unavailable", and the person was told the feature was broken when nothing was
+    broken — they had simply answered quickly. Measured on the live pipeline,
+    every answer under 31 seconds did that.
+
+    Yet the recording is still there. A five-question session is minutes of
+    continuous signal, and comparing all of it against the person's own baseline
+    is the same arithmetic the per-question path runs, on a longer window. It
+    cannot say WHICH question was hardest, and it must never be presented as if it
+    could — but "your body ran tenser than your calm baseline during the
+    interview" is a true statement, and it is worth more than an empty screen.
+
+    Computed for every session, not only failing ones. It costs one median, and
+    reporting it always means the number is the same number whether or not the
+    per-question path happened to succeed — a figure that appears only on failure
+    is a figure nobody has ever checked.
+    """
+    if not timeline.questions or prepared.task_table.empty:
+        return None
+
+    start = min(reaction_window(q)[0] for q in timeline.questions)
+    end = max(max(reaction_window(q)[1], q.gap_end_sec or 0.0)
+              for q in timeline.questions)
+
+    rows = prepared.task_table[
+        (prepared.task_table["end_sec"] > start)
+        & (prepared.task_table["start_sec"] < end)
+    ]
+    if rows.empty:
+        return None
+
+    feature_names = list(prepared.baseline.values.keys())
+    features = {c: float(rows[c].dropna().median())
+                for c in feature_names
+                if c in rows.columns and not rows[c].dropna().empty}
+    if not features:
+        return None
+
+    reactivity = prepared.baseline.reactivity(features)
+    verdict = classify(prepared.scoring_reactivity(reactivity))
     return {
-        "timeline": points,
-        "summary": {
-            # The largest reaction in EITHER direction. Two of five development
-            # subjects show RMSSD rising under load, and for them the signed
-            # minimum would name the calmest window as the peak.
-            "peak_minute": peak[1] if peak else None,
-            "median_reactivity_pct": (
-                round(float(np.median([r[2] for r in reactivities])), 1)
-                if reactivities else None
-            ),
-            "count_low": levels.count("low"),
-            "count_moderate": levels.count("moderate"),
-            "count_high": levels.count("high"),
-        },
+        "level": verdict.level.value,
+        "score": verdict.points,
+        "n_segments": int(len(rows)),
+        "delta_rmssd_pct": _clean(reactivity.get("delta_pct_rmssd", float("nan"))),
+        "delta_hr_pct": _clean(reactivity.get("delta_pct_mean_hr", float("nan"))),
+        "evidence": list(verdict.evidence),
+        "features_disagree": _disagree(verdict),
     }
 
 
@@ -314,13 +423,26 @@ def build_session(prepared: Prepared, questions: list[dict]) -> tuple[dict, list
             is_difficult=bool(entry.get("is_difficult", False)),
         ))
 
-    results, measurements = [], []
+    results, measurements, unmeasured = [], [], []
     reactivities, recoveries = [], []
+    basis = reactivity_basis(prepared.baseline)
 
     for question in timeline.questions:
         measurement = measure_question(question, prepared.task_table,
                                        prepared.baseline)
         if not measurement.has_data:
+            # REPORTED, NOT DROPPED. This used to `continue`, so a question that
+            # could not be measured simply vanished from the response and the
+            # screen showed four questions where five were asked, with nothing
+            # saying so. That contradicts the binding principle the acquisition
+            # document already states: a segment that fails the gates is
+            # FLAGGED, not silently removed, and coverage is reported at the end.
+            unmeasured.append({
+                "number": question.number,
+                "text": question.text,
+                "type": question.qtype.value,
+                "reason": _unmeasured_reason(prepared, question, measurement),
+            })
             continue
 
         verdict = classify(prepared.scoring_reactivity(measurement.reactivity))
@@ -348,44 +470,88 @@ def build_session(prepared: Prepared, questions: list[dict]) -> tuple[dict, list
         })
         measurements.append((question, measurement, verdict, hint))
 
-        if d_rmssd == d_rmssd:
-            reactivities.append((question.number, d_rmssd))
+        d_basis = measurement.reactivity.get(f"delta_pct_{basis}", float("nan"))
+        if d_basis == d_basis:
+            reactivities.append((question.number, d_basis))
         if measurement.recovery.is_computable:
             recoveries.append(measurement.recovery.percent)
 
-    if not results:
+    whole_session = session_level(prepared, timeline)
+
+    if not results and whole_session is None:
+        # Only now is there genuinely nothing to say: not one question could be
+        # placed AND the answering phase as a whole yielded no window either.
+        # The old message blamed clock alignment, which was the 28 August cause
+        # and has since been fixed in the web app; leaving it in place sent
+        # everyone debugging the wrong thing.
         raise AnalysisError(
-            "no question had a usable window — the recording and the question "
-            "timings may not line up"
+            "the answering phase produced no measurable window at all — the "
+            "recording may end early, or those minutes were too noisy"
         )
 
     median_reactivity = float(np.median([d for _, d in reactivities])) if reactivities else float("nan")
     median_recovery = float(np.median(recoveries)) if recoveries else None
-    # Largest reaction in either direction, for the same reason as V1.
+    # Largest reaction in EITHER direction. Two of five development subjects
+    # show RMSSD rising under load, and for them the signed minimum would name
+    # the calmest question as the most triggering.
     most_triggering = (max(reactivities, key=lambda pair: abs(pair[1]))[0]
                        if reactivities else None)
-    quadrant = resilience_quadrant(median_reactivity, median_recovery)
+    # Only on RMSSD. The quadrant's reactivity cut-off is calibrated for an RMSSD
+    # change; fed a heart-rate median it would sort people by a threshold that was
+    # never meant for that feature. Today recovery being None would also stop it,
+    # but that is a coincidence this line does not rely on.
+    quadrant = (resilience_quadrant(median_reactivity, median_recovery)
+                if basis == settings.dynamics.primary_feature else None)
 
     body = {
         "questions": results,
+        # Additive, so every existing consumer of `questions` keeps working: the
+        # contract said nothing about these keys and nothing about them changes
+        # the meaning of the ones it did define.
+        "unmeasured": unmeasured,
+        "coverage": {"measured": len(results),
+                     "total": len(timeline.questions)},
+        "session_level": whole_session,
         "summary": {
             "most_triggering_question": most_triggering,
             "resilience": quadrant.value if quadrant else None,
+            # The same three quantities on the 0-5 scale KARIRLINK's result
+            # screen renders. Computed HERE, never in the screen: a rescaling
+            # written in a React component is arithmetic nobody tested and
+            # nobody could defend when asked where the number came from.
+            #
+            # Missing stays missing. A heart-rate-only session has no recovery
+            # and no quadrant, so two of the three come back null — a zero
+            # would claim the person did not recover, when the truth is that
+            # the device could not see it.
+            "calm_index": (
+                calm_index(whole_session["score"],
+                           attainable_points(whole_session["delta_rmssd_pct"]))
+                if whole_session else None
+            ),
+            "recovery_index": recovery_index(median_recovery),
+            "resilience_index": (
+                resilience_index(median_reactivity, median_recovery)
+                if basis == settings.dynamics.primary_feature else None
+            ),
             "median_reactivity_pct": (round(median_reactivity, 1)
                                       if median_reactivity == median_reactivity
                                       else None),
             "median_recovery_pct": (round(median_recovery, 1)
                                     if median_recovery is not None else None),
+            # What `most_triggering_question` and `median_reactivity_pct` were
+            # ranked by: "rmssd" (falls under pressure) or "mean_hr" (rises).
+            "reactivity_basis": basis,
         },
     }
     return body, measurements
 
 
-def _clean(value: float) -> float | None:
+def _clean(value: float, digits: int = 1) -> float | None:
     """
     JSON has no NaN. A missing measurement travels as null, never as zero.
 
     Serialising NaN would either break the parse or arrive as the string "NaN";
     turning it into 0 would claim the feature was measured and did not move.
     """
-    return round(float(value), 1) if value == value else None
+    return round(float(value), digits) if value == value else None

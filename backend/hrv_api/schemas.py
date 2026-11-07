@@ -55,6 +55,23 @@ class QuestionTimelineEntry(BaseModel):
         return self
 
 
+#: Heart-rate bounds, the same physiology the interval path enforces
+#: (`QualityConfig.rr_min_sec`/`rr_max_sec`: 300-2000 ms, i.e. 200-30 bpm). One
+#: source for both, so a value accepted here is never silently flagged as an
+#: ectopic beat once rebuilt.
+MIN_BPM = 60.0 / settings.quality.rr_max_sec
+MAX_BPM = 60.0 / settings.quality.rr_min_sec
+
+
+class BpmSample(BaseModel):
+    """One heart-rate report from a device that does not deliver beat intervals."""
+
+    #: Seconds from the FIRST sample of the recording — the recording's own clock,
+    #: the same one `offset_sec` is measured on. Never the device's wall clock.
+    at_sec: float = Field(ge=0)
+    bpm: float = Field(ge=MIN_BPM, le=MAX_BPM)
+
+
 class AnalyzeRequest(BaseModel):
     """A recording, plus what is needed to interpret it."""
 
@@ -62,6 +79,23 @@ class AnalyzeRequest(BaseModel):
     rr_ms: list[float] | None = None
     #: Raw CSV text, when the recording was uploaded as a file.
     csv: str | None = None
+
+    #: Heart-rate reports, from a device that may not deliver beat intervals.
+    bpm_samples: list[BpmSample] | None = None
+    #: Fraction of the session covered by real beat intervals. Decides which path
+    #: the session takes (`settings.tier.min_rr_coverage`); required whenever both
+    #: `rr_ms` and `bpm_samples` are sent, because without it the choice is a guess.
+    rr_coverage: float | None = Field(default=None, ge=0.0, le=1.0)
+
+    #: `offset_sec`, measured on the heart-rate report clock instead.
+    #:
+    #: A live device sending both streams has two clocks: the beat intervals add
+    #: up to one, the reports' own timestamps make the other, and the two drift
+    #: apart whenever beats go missing — which is exactly when a session falls to
+    #: heart rate. `offset_sec` belongs to the interval clock. When the session is
+    #: scored from heart rate, this one places the questions; when it is omitted,
+    #: `offset_sec` serves both.
+    bpm_offset_sec: float | None = Field(default=None, ge=0.0, le=1800.0)
 
     baseline_minutes: float = Field(ge=MIN_BASELINE_MINUTES, le=8)
     modality: str = Field(pattern="^(ECG|PPG)$")
@@ -80,6 +114,25 @@ class AnalyzeRequest(BaseModel):
     #: every question window.
     offset_sec: float = Field(default=0.0, ge=0.0, le=1800.0)
 
+    #: The resting period is the opening of the session, not a quiet stretch
+    #: before it.
+    #:
+    #: Off by default, and this module NEVER infers it: only the caller knows
+    #: whether the person was already answering during those minutes. Set it and
+    #: the reading changes meaning — the reference stops being "this person at
+    #: rest" and becomes "this person at the start of the session", so every
+    #: percentage below is measured against a body that was already working, and
+    #: reads calmer than the truth. The flag is echoed in `baseline` so the screen
+    #: showing the result can say which of the two it is (KarirLink, 23 September
+    #: 2026: questions appear the instant the person presses start, so a genuine
+    #: resting period is not always on offer).
+    #:
+    #: Nothing downstream branches on it. It is provenance, and the analysis is
+    #: deliberately identical either way: a baseline is whatever the caller
+    #: marked as the resting period, and pretending otherwise would mean two
+    #: code paths where the numbers must stay comparable.
+    baseline_from_session_start: bool = False
+
     #: Include feature names, scores and evidence in the response.
     #:
     #: Off by default. Those fields must not reach an end user, and an API cannot
@@ -97,22 +150,23 @@ class AnalyzeRequest(BaseModel):
     store_consented: bool = False
 
     @model_validator(mode="after")
-    def _exactly_one_recording(self) -> "AnalyzeRequest":
-        if not self.rr_ms and not self.csv:
-            raise ValueError("send either rr_ms or csv")
-        if self.rr_ms and self.csv:
+    def _one_coherent_recording(self) -> "AnalyzeRequest":
+        live = bool(self.rr_ms) or bool(self.bpm_samples)
+        if not live and not self.csv:
+            raise ValueError("send rr_ms, bpm_samples, or csv")
+        if self.csv and live:
             # Refused rather than silently preferring one. Two recordings both
             # produce a complete report, and only one of them is the session the
             # person actually did.
-            raise ValueError("send only one of rr_ms or csv, not both")
+            raise ValueError("send either a csv file or a live recording, not both")
+        if self.rr_ms and self.bpm_samples and self.rr_coverage is None:
+            raise ValueError(
+                "rr_coverage is required when both rr_ms and bpm_samples are sent"
+            )
         return self
 
 
-class TimelineRequest(AnalyzeRequest):
-    """V1: no question timings, so every window is scored on its own."""
-
-
 class SessionRequest(AnalyzeRequest):
-    """V2 and V3: the caller supplies when each question was asked."""
+    """An interview session: the caller supplies when each question was asked."""
 
     questions: list[QuestionTimelineEntry] = Field(min_length=1)

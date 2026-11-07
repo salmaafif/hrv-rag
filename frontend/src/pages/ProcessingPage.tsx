@@ -22,7 +22,7 @@ import { NavigateKeepingSearch } from '../app/NavigateKeepingSearch'
 import { useNavigateKeepingSearch } from '../app/useNavigateKeepingSearch'
 import type { StageContext } from '../app/stageContext'
 
-export function ProcessingPage({ mode, session }: StageContext) {
+export function ProcessingPage({ session }: StageContext) {
   const navigate = useNavigateKeepingSearch()
   const [params] = useSearchParams()
   const startedRef = useRef(false)
@@ -34,24 +34,25 @@ export function ProcessingPage({ mode, session }: StageContext) {
     if (startedRef.current) return
     if (session.status !== 'idle') return
     startedRef.current = true
-    session.run(mode, {
+    session.run({
       devMode: params.get('dev') === '1',
       simulateError: params.get('gagal') === '1',
       simulateUnstableBaseline: params.get('baseline') === 'goyah',
     })
-  }, [session, mode, params])
+  }, [session, params])
 
   useEffect(() => {
     if (session.status === 'done') {
       // `replace` so the back button from the results does not land on a
       // processing screen that would immediately re-run the analysis.
-      navigate(`/${mode.id}/hasil`, { replace: true })
+      navigate('/hasil', { replace: true })
     }
-  }, [session.status, mode.id, navigate])
+  }, [session.status, navigate])
 
-  // Nothing to analyse — someone opened this URL directly.
-  if (session.status === 'idle' && !session.isReady) {
-    return <NavigateKeepingSearch to={`/${mode.id}/mulai`} />
+  // Nothing to analyse — someone opened this URL directly, or started over
+  // with the sensor still connected but no interview run yet.
+  if (session.status === 'idle' && !session.canAnalyse) {
+    return <NavigateKeepingSearch to="/mulai" />
   }
 
   if (session.status === 'error' && session.error) {
@@ -87,7 +88,7 @@ export function ProcessingPage({ mode, session }: StageContext) {
               // dead end until the whole page was reloaded.
               startedRef.current = false
               session.reset()
-              navigate(`/${mode.id}/mulai`)
+              navigate('/mulai')
             }}
           >
             Kembali ke awal

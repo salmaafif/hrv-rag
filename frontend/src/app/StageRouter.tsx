@@ -1,15 +1,14 @@
 /**
- * StageRouter.tsx — picks the screen for `/:mode/:stage`.
+ * StageRouter.tsx — picks the screen for `/:stage`.
  *
- * One route with a switch rather than four sibling routes, so that every rule
- * about which stages exist for which mode lives in one readable place. The rule
- * that matters: `sesi` belongs to V3 alone, because only V3 runs the interview.
- * Reaching it in V1 or V2 is not an error the person made — it is a stale link
- * or a typed URL — so it redirects instead of showing a failure.
+ * One route with a switch rather than five sibling routes, so the list of
+ * screens lives in one readable place. An unknown stage is a stale link or a
+ * typed URL, not an error the person made, so it redirects instead of showing a
+ * failure.
  */
 
 import { useOutletContext, useParams } from 'react-router'
-import type { StageSegment } from './modes'
+import { isStage } from './stages'
 import type { StageContext } from './stageContext'
 import { NavigateKeepingSearch } from './NavigateKeepingSearch'
 import { StartPage } from '../pages/StartPage'
@@ -18,30 +17,12 @@ import { UploadPage } from '../pages/UploadPage'
 import { ProcessingPage } from '../pages/ProcessingPage'
 import { ResultPage } from '../pages/ResultPage'
 
-const STAGES: readonly StageSegment[] = [
-  'mulai',
-  'sesi',
-  'unggah',
-  'proses',
-  'hasil',
-]
-
-function isStage(value: string | undefined): value is StageSegment {
-  return STAGES.includes(value as StageSegment)
-}
-
 export function StageRouter() {
   const context = useOutletContext<StageContext>()
   const { stage } = useParams<{ stage: string }>()
-  const { mode } = context
 
   if (!isStage(stage)) {
-    return <NavigateKeepingSearch to={`/${mode.id}/mulai`} />
-  }
-  // Both of these belong to V3 alone: only V3 runs an interview, and only V3
-  // has a recording that could not have existed before that interview.
-  if ((stage === 'sesi' || stage === 'unggah') && !mode.runsInterview) {
-    return <NavigateKeepingSearch to={`/${mode.id}/mulai`} />
+    return <NavigateKeepingSearch to="/mulai" />
   }
 
   switch (stage) {

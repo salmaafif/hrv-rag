@@ -7,12 +7,10 @@
  * keeps that single instance without introducing a global store for two values.
  */
 
-import type { ModeDefinition } from './modes'
 import type { DeviceConnection } from './useDeviceConnection'
 import type { SessionState } from './useSessionState'
 
 export interface StageContext {
-  mode: ModeDefinition
   device: DeviceConnection
   session: SessionState
 }

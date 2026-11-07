@@ -14,18 +14,9 @@
  * To switch over: set `VITE_USE_MOCK_API=false` and `VITE_API_BASE_URL`.
  */
 
-import type {
-  AnalyzeRequest,
-  SessionRequest,
-  SessionResponse,
-  TimelineResponse,
-} from '../types/api'
+import type { SessionRequest, SessionResponse } from '../types/api'
 import { ApiError } from './errors'
-import {
-  dummyAnalyzeSession,
-  dummyAnalyzeTimeline,
-  type AnalyzeOptions,
-} from './dummy'
+import { dummyAnalyzeSession, type AnalyzeOptions } from './dummy'
 
 export { ApiError } from './errors'
 export type { AnalyzeOptions } from './dummy'
@@ -163,14 +154,6 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
       true,
     )
   }
-}
-
-export function analyzeTimeline(
-  request: AnalyzeRequest,
-  options: AnalyzeOptions = {},
-): Promise<TimelineResponse> {
-  if (usesMockData(options.devMode)) return dummyAnalyzeTimeline(request, options)
-  return postJson<TimelineResponse>('/api/v1/analyze/timeline', request)
 }
 
 export function analyzeSession(

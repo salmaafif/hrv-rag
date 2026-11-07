@@ -1,10 +1,8 @@
 /**
  * RecordingUpload.tsx — pick a recording file and say where it was worn.
  *
- * Shared because the same two questions get asked at two different moments:
- * on the start screen for V1 and V2, whose recording already existed before
- * anyone opened the app, and after the interview for V3, whose recording could
- * not exist any earlier than that.
+ * Asked after the interview, because a recording made during it could not
+ * exist any earlier than that.
  *
  * The wear location is asked every time a new file is chosen, never carried
  * over. A different recording may well have come from a different device, and

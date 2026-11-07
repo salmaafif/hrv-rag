@@ -1,10 +1,10 @@
 /**
- * UploadPage.tsx — V3, after the interview: hand over the recording.
+ * UploadPage.tsx — after the interview: hand over the recording.
  *
  * This stage exists because of when the heart data comes into being. The
- * recording is made DURING the interview, so in V3 there is nothing to upload
- * until the interview is over. Putting the upload on the start screen — where
- * it began life — asked for a file that could not yet exist.
+ * recording is made DURING the interview, so there is nothing to upload until
+ * the interview is over. Putting the upload on the start screen — where it began
+ * life — asked for a file that could not yet exist.
  *
  * The stage is skipped entirely when a sensor was connected: the app already
  * has the data, and asking for it again would be asking twice for the same
@@ -16,14 +16,15 @@ import { Card } from '../components/Card'
 import { RecordingUpload } from '../components/RecordingUpload'
 import { NavigateKeepingSearch } from '../app/NavigateKeepingSearch'
 import { useNavigateKeepingSearch } from '../app/useNavigateKeepingSearch'
+import { INTERVIEW_REST_MINUTES } from '../app/useSessionState'
 import type { StageContext } from '../app/stageContext'
 
-export function UploadPage({ mode, session }: StageContext) {
+export function UploadPage({ session }: StageContext) {
   const navigate = useNavigateKeepingSearch()
 
   // Nothing was recorded here, so there is nothing to attach a recording to.
   if (session.questionTimeline === null) {
-    return <NavigateKeepingSearch to={`/${mode.id}/mulai`} />
+    return <NavigateKeepingSearch to="/mulai" />
   }
 
   return (
@@ -38,7 +39,7 @@ export function UploadPage({ mode, session }: StageContext) {
 
           <p className="mt-4 rounded-xl bg-amber-soft p-4 text-sm text-level-moderate">
             Rekaman harus dimulai <strong>sebelum</strong> sesi latihan tadi,
-            mencakup {session.baselineMinutes} menit periode tenang di awal.
+            mencakup {INTERVIEW_REST_MINUTES} menit periode tenang di awal.
             Tanpa bagian tenang itu, tidak ada pembanding untuk menilai sisanya.
           </p>
 
@@ -51,7 +52,7 @@ export function UploadPage({ mode, session }: StageContext) {
           variant="accent"
           full
           disabled={!session.isReady}
-          onClick={() => navigate(`/${mode.id}/proses`)}
+          onClick={() => navigate('/proses')}
         >
           Analisis rekaman
         </Button>

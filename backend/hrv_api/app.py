@@ -1,7 +1,7 @@
 """
 app.py — the HTTP surface KARIRLINK's gateway calls.
 
-Two endpoints, matching `frontend/src/types/api.ts` field for field. That file is
+One analysis endpoint, matching `frontend/src/types/api.ts` field for field. That file is
 the contract handed to the web team, and their PRD lists the output format of each
 FastAPI module as an open question — so this is the answer to it, not a
 reinterpretation of it.
@@ -35,7 +35,12 @@ somebody who has read one side can navigate the other:
 Running it:
     pip install -e .   &&   uvicorn hrv_api.app:app --reload
 Environment:
-    GEMINI_API_KEY   required only for the narrative
+    GEMINI_API_KEY   required only for the narrative; also embeds the retrieval
+                     query, so it stays required when another backend writes
+    LLM_PROVIDER     who writes the narrative: gemini (default), ollama, openrouter
+    HRV_GEMINI_MODEL optional; overrides the validated default gemini-2.5-flash
+    OPENROUTER_API_KEY, HRV_OPENROUTER_MODEL
+                     required when LLM_PROVIDER=openrouter
     HRV_API_KEYS     comma-separated keys this service will accept
     HRV_CORS_ORIGINS comma-separated origins allowed to call it
 """
@@ -44,11 +49,26 @@ from __future__ import annotations
 
 import logging
 import os
+from pathlib import Path
 
+from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .routes import health, session, timeline
+# The repo-root .env is loaded HERE, at assembly, not lazily. Every earlier
+# `load_dotenv` in this codebase lives inside the RAG modules and runs only
+# when a narrative is first written — but `deps.require_api_key` reads
+# HRV_API_KEYS on the very first request, long before any of that. Started
+# plainly (as KARIRLINK's dev.mjs does), the service therefore saw no keys,
+# refused every caller with 503, and a healthy sensor submission of 266
+# intervals came home "module unavailable" (measured live, 4 Sep 2026). It
+# never surfaced before because the runbook happened to pass the key inline.
+# The path is explicit for the same reason kb_index.py's is: the automatic
+# search walks up from the CALLER's directory, not this file's.
+# `override=False` (the default): a key set in the real environment wins.
+load_dotenv(Path(__file__).resolve().parents[2] / ".env")
+
+from .routes import health, session  # noqa: E402
 
 log = logging.getLogger(__name__)
 
@@ -72,5 +92,4 @@ app.add_middleware(
 )
 
 app.include_router(health.router)
-app.include_router(timeline.router)
 app.include_router(session.router)

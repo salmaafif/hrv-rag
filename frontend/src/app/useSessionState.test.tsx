@@ -8,7 +8,7 @@
  *   - WHICH recording travels to the backend when both a sensor and an uploaded
  *     file are present;
  *   - whether the analysis is allowed to start at all, which hinges on knowing
- *     where the sensor was worn;
+ *     where the sensor was worn and on an interview having been run;
  *   - what survives a retry after a failure.
  *
  * None of those announce themselves on screen. Sending the wrong recording still
@@ -17,12 +17,18 @@
 
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { useSessionState } from './useSessionState'
-import { MODES } from './modes'
+import { INTERVIEW_REST_MINUTES, useSessionState } from './useSessionState'
 import type { DeviceConnection } from './useDeviceConnection'
+import type { QuestionTimelineEntry } from '../types/api'
 
-const V1 = MODES.v1
-const V3 = MODES.v3
+/** What an interview leaves behind: when each question was asked. */
+const TIMELINE: QuestionTimelineEntry[] = [
+  {
+    number: 1, text: 'Ceritakan tentang dirimu', type: 'behavioural',
+    answer_start_sec: 120, answer_end_sec: 210, gap_end_sec: 270,
+    is_difficult: false,
+  },
+]
 
 /** A disconnected sensor: the state every session starts from. */
 function noDevice(): DeviceConnection {
@@ -37,6 +43,7 @@ function noDevice(): DeviceConnection {
     bpm: null,
     sendsRrIntervals: null,
     rrIntervals: [],
+    bpmReadings: [],
     clearIntervals: () => {},
     scan: () => {},
     connect: () => {},
@@ -66,14 +73,12 @@ function recording(text = '856\n842\n871\n') {
 
 /** Capture what the API layer was asked to send. */
 function spyOnApi() {
-  const timeline = vi.fn().mockResolvedValue({ timeline: [], summary: {} })
   const session = vi.fn().mockResolvedValue({ questions: [] })
   vi.doMock('../api/client', () => ({
-    analyzeTimeline: timeline,
     analyzeSession: session,
     ApiError: class extends Error {},
   }))
-  return { timeline, session }
+  return { session }
 }
 
 beforeEach(() => {
@@ -122,6 +127,21 @@ describe('knowing whether analysis can start', () => {
     expect(result.current.isReady).toBe(true)
   })
 
+  it('cannot analyse a connected sensor before an interview has run', () => {
+    // The state "latihan lagi" leaves behind: sensor still on, timeline gone.
+    // Ready to record, yet nothing to score — the processing screen used to
+    // spin forever here waiting for a request that was never sent.
+    const { result } = renderHook(() => useSessionState(connectedDevice()))
+    expect(result.current.isReady).toBe(true)
+    expect(result.current.canAnalyse).toBe(false)
+  })
+
+  it('can analyse once the interview has left its timeline', () => {
+    const { result } = renderHook(() => useSessionState(connectedDevice()))
+    act(() => { result.current.setQuestionTimeline(TIMELINE) })
+    expect(result.current.canAnalyse).toBe(true)
+  })
+
   it('prefers the connected sensor over a stale uploaded file', () => {
     // Connecting a sensor is the later, more deliberate act. If a file from an
     // earlier attempt still sat in state, its wear location must not win.
@@ -134,32 +154,34 @@ describe('knowing whether analysis can start', () => {
   })
 })
 
-describe('choosing which recording to send', () => {
+describe('choosing what to send', () => {
   it('sends live beats when the sensor collected them', async () => {
-    const { timeline } = spyOnApi()
+    const { session } = spyOnApi()
     const { useSessionState: hook } = await import('./useSessionState')
 
     const device = connectedDevice({ rrIntervals: [856, 842, 871] })
     const { result } = renderHook(() => hook(device))
-    act(() => { result.current.run(V1) })
+    act(() => { result.current.setQuestionTimeline(TIMELINE) })
+    act(() => { result.current.run() })
 
-    await waitFor(() => expect(timeline).toHaveBeenCalled())
-    const sent = timeline.mock.calls[0]![0]
+    await waitFor(() => expect(session).toHaveBeenCalled())
+    const sent = session.mock.calls[0]![0]
     expect(sent.rr_ms).toEqual([856, 842, 871])
     expect(sent.csv).toBeUndefined()
   })
 
   it('sends the uploaded file when no sensor beats exist', async () => {
-    const { timeline } = spyOnApi()
+    const { session } = spyOnApi()
     const { useSessionState: hook } = await import('./useSessionState')
 
     const { result } = renderHook(() => hook(noDevice()))
     act(() => { result.current.setFile(recording('900\n910\n')) })
     act(() => { result.current.setFileWornAt('chest') })
-    act(() => { result.current.run(V1) })
+    act(() => { result.current.setQuestionTimeline(TIMELINE) })
+    act(() => { result.current.run() })
 
-    await waitFor(() => expect(timeline).toHaveBeenCalled())
-    const sent = timeline.mock.calls[0]![0]
+    await waitFor(() => expect(session).toHaveBeenCalled())
+    const sent = session.mock.calls[0]![0]
     expect(sent.csv).toBe('900\n910\n')
     expect(sent.rr_ms).toBeUndefined()
   })
@@ -167,95 +189,164 @@ describe('choosing which recording to send', () => {
   it('sends live beats rather than the file when both are present', async () => {
     // The dangerous case. Both are valid recordings, both produce a complete
     // report, and only one of them is the session the person just did.
-    const { timeline } = spyOnApi()
+    const { session } = spyOnApi()
     const { useSessionState: hook } = await import('./useSessionState')
 
     const device = connectedDevice({ rrIntervals: [800, 810] })
     const { result } = renderHook(() => hook(device))
     act(() => { result.current.setFile(recording('999\n998\n')) })
-    act(() => { result.current.run(V1) })
+    act(() => { result.current.setQuestionTimeline(TIMELINE) })
+    act(() => { result.current.run() })
 
-    await waitFor(() => expect(timeline).toHaveBeenCalled())
-    const sent = timeline.mock.calls[0]![0]
+    await waitFor(() => expect(session).toHaveBeenCalled())
+    const sent = session.mock.calls[0]![0]
     expect(sent.rr_ms).toEqual([800, 810])
     expect(sent.csv).toBeUndefined()
   })
 
-  it('always states the resting duration and the modality', async () => {
-    const { timeline } = spyOnApi()
+  it('sends the timeline the interview recorded', async () => {
+    const { session } = spyOnApi()
     const { useSessionState: hook } = await import('./useSessionState')
 
     const device = connectedDevice({ rrIntervals: [850] })
     const { result } = renderHook(() => hook(device))
-    act(() => { result.current.run(V1) })
+    act(() => { result.current.setQuestionTimeline(TIMELINE) })
+    act(() => { result.current.run() })
 
-    await waitFor(() => expect(timeline).toHaveBeenCalled())
-    const sent = timeline.mock.calls[0]![0]
-    // Without these the backend cannot say where the baseline ends, nor how much
-    // to trust the signal.
+    await waitFor(() => expect(session).toHaveBeenCalled())
+    const sent = session.mock.calls[0]![0]
+    // Times are already measured from the start of the recording.
+    expect(sent.questions).toEqual(TIMELINE)
+  })
+
+  it('states the resting period the session screen actually ran', async () => {
+    // One constant drives both the countdown and this field. A setting that
+    // could hold a different value is how the screen once waited four minutes
+    // while the backend was told two.
+    const { session } = spyOnApi()
+    const { useSessionState: hook } = await import('./useSessionState')
+
+    const device = connectedDevice({ rrIntervals: [850] })
+    const { result } = renderHook(() => hook(device))
+    act(() => { result.current.setQuestionTimeline(TIMELINE) })
+    act(() => { result.current.run() })
+
+    await waitFor(() => expect(session).toHaveBeenCalled())
+    const sent = session.mock.calls[0]![0]
+    expect(sent.baseline_minutes).toBe(INTERVIEW_REST_MINUTES)
     expect(sent.modality).toBe('ECG')
-    expect(sent.baseline_minutes).toBeGreaterThan(0)
   })
 
   it('refuses to run at all while the modality is unknown', async () => {
-    const { timeline } = spyOnApi()
+    const { session } = spyOnApi()
     const { useSessionState: hook } = await import('./useSessionState')
 
     const { result } = renderHook(() => hook(noDevice()))
-    act(() => { result.current.run(V1) })
+    act(() => { result.current.setQuestionTimeline(TIMELINE) })
+    act(() => { result.current.run() })
 
-    expect(timeline).not.toHaveBeenCalled()
+    expect(session).not.toHaveBeenCalled()
     expect(result.current.status).toBe('idle')
   })
 
-  it('routes the interview mode to the session endpoint with its timeline', async () => {
-    const { session, timeline } = spyOnApi()
+  it('refuses to run before an interview has produced a timeline', async () => {
+    // There is no question to score, and sending an empty list would come back
+    // looking valid while describing nothing.
+    const { session } = spyOnApi()
     const { useSessionState: hook } = await import('./useSessionState')
 
     const device = connectedDevice({ rrIntervals: [850] })
     const { result } = renderHook(() => hook(device))
-    act(() => {
-      result.current.setQuestionTimeline([
-        {
-          number: 1, text: 'Ceritakan tentang dirimu', type: 'behavioural',
-          answer_start_sec: 120, answer_end_sec: 210, gap_end_sec: 270,
-          is_difficult: false,
-        },
-      ])
-    })
-    act(() => { result.current.run(V3) })
+    act(() => { result.current.run() })
 
-    await waitFor(() => expect(session).toHaveBeenCalled())
-    expect(timeline).not.toHaveBeenCalled()
-    const sent = session.mock.calls[0]![0]
-    expect(sent.questions).toHaveLength(1)
-    // Times are already measured from the start of the recording.
-    expect(sent.questions[0].answer_start_sec).toBe(120)
+    expect(session).not.toHaveBeenCalled()
+    expect(result.current.status).toBe('idle')
   })
 })
 
-describe('the resting duration', () => {
-  it('refuses a value below the floor', () => {
-    // Below two minutes the backend gets no baseline windows at all, so the
-    // whole session becomes unscoreable. Clamping here stops that reaching it.
-    const { result } = renderHook(() => useSessionState(noDevice()))
-    act(() => { result.current.setBaselineMinutes(0) })
-    expect(result.current.baselineMinutes).toBeGreaterThanOrEqual(2)
+describe('a watch that reports heart rate only', () => {
+  /** One report a second, from the second the watch connected. */
+  const reports = (count: number, bpm = 72) =>
+    Array.from({ length: count }, (_, i) => ({ atSec: i, bpm }))
+
+  it('sends its heart-rate reports, and no intervals it never had', async () => {
+    const { session } = spyOnApi()
+    const { useSessionState: hook } = await import('./useSessionState')
+
+    const watch = connectedDevice({
+      sendsRrIntervals: false, rrIntervals: [], bpmReadings: reports(200),
+    })
+    const { result } = renderHook(() => hook(watch))
+    act(() => { result.current.setQuestionTimeline(TIMELINE) })
+    act(() => { result.current.run() })
+
+    await waitFor(() => expect(session).toHaveBeenCalled())
+    const sent = session.mock.calls[0]![0]
+    expect(sent.bpm_samples).toHaveLength(200)
+    expect(sent.bpm_samples[0]).toEqual({ at_sec: 0, bpm: 72 })
+    expect(sent.rr_ms).toBeUndefined()
+    expect(sent.csv).toBeUndefined()
+    expect(sent.rr_coverage).toBe(0)
   })
 
-  it('refuses an absurdly long value', () => {
-    const { result } = renderHook(() => useSessionState(noDevice()))
-    act(() => { result.current.setBaselineMinutes(600) })
-    expect(result.current.baselineMinutes).toBeLessThanOrEqual(8)
+  it('measures how long it streamed before the session on its own clock', async () => {
+    // THE BUG THIS PREVENTS. The interval buffer of a watch is empty, so an
+    // offset read from it is zero however long the watch had been streaming —
+    // and every question would land that many seconds early.
+    const { session } = spyOnApi()
+    const { useSessionState: hook } = await import('./useSessionState')
+
+    // 181 reports, one a second: 180 s of sitting still before pressing start.
+    const watch = connectedDevice({
+      sendsRrIntervals: false, rrIntervals: [], bpmReadings: reports(181),
+    })
+    const { result } = renderHook(() => hook(watch))
+    act(() => { result.current.markSessionStart() })
+    act(() => { result.current.setQuestionTimeline(TIMELINE) })
+    act(() => { result.current.run() })
+
+    await waitFor(() => expect(session).toHaveBeenCalled())
+    const sent = session.mock.calls[0]![0]
+    expect(sent.offset_sec).toBe(180)
+    expect(sent.bpm_offset_sec).toBe(180)
+    // Exposed too: the result screen places the watch's chart with it.
+    expect(result.current.sessionBpmOffsetSec).toBe(180)
   })
 
-  it('ignores a value that is not a number', () => {
-    // An empty number input yields NaN. Storing it would send NaN minutes to the
-    // backend and produce a baseline of nothing.
-    const { result } = renderHook(() => useSessionState(noDevice()))
-    const before = result.current.baselineMinutes
-    act(() => { result.current.setBaselineMinutes(Number.NaN) })
-    expect(result.current.baselineMinutes).toBe(before)
+  it('sends both streams from a strap, with the coverage that decides', async () => {
+    // The backend chooses the path. It can only choose with both in hand.
+    const { session } = spyOnApi()
+    const { useSessionState: hook } = await import('./useSessionState')
+
+    const strap = connectedDevice({
+      rrIntervals: Array.from({ length: 200 }, () => 900),   // 180 s
+      bpmReadings: reports(181),                             // 180 s span
+    })
+    const { result } = renderHook(() => hook(strap))
+    act(() => { result.current.setQuestionTimeline(TIMELINE) })
+    act(() => { result.current.run() })
+
+    await waitFor(() => expect(session).toHaveBeenCalled())
+    const sent = session.mock.calls[0]![0]
+    expect(sent.rr_ms).toHaveLength(200)
+    expect(sent.bpm_samples).toHaveLength(181)
+    expect(sent.rr_coverage).toBeCloseTo(1, 5)
+  })
+
+  it('does not send a single report as if it were a stream', async () => {
+    const { session } = spyOnApi()
+    const { useSessionState: hook } = await import('./useSessionState')
+
+    const strap = connectedDevice({ rrIntervals: [850, 860], bpmReadings: reports(1) })
+    const { result } = renderHook(() => hook(strap))
+    act(() => { result.current.setQuestionTimeline(TIMELINE) })
+    act(() => { result.current.run() })
+
+    await waitFor(() => expect(session).toHaveBeenCalled())
+    const sent = session.mock.calls[0]![0]
+    expect(sent.bpm_samples).toBeUndefined()
+    expect(sent.rr_coverage).toBeUndefined()
+    expect(sent.rr_ms).toEqual([850, 860])
   })
 })
 
@@ -302,9 +393,7 @@ describe('the two clocks', () => {
   // it — and the report stayed complete while describing different minutes.
 
   it('reports how much recording preceded the session', async () => {
-    const { analyzeSession } = await import('../api/client')
     const { session } = spyOnApi()
-    void analyzeSession
     const { useSessionState: hook } = await import('./useSessionState')
 
     // 200 beats of 900 ms = 180 seconds of sitting still before pressing start.
@@ -312,7 +401,8 @@ describe('the two clocks', () => {
     const { result } = renderHook(() => hook(connectedDevice({ rrIntervals: beats })))
 
     act(() => { result.current.markSessionStart() })
-    act(() => { result.current.run(V3) })
+    act(() => { result.current.setQuestionTimeline(TIMELINE) })
+    act(() => { result.current.run() })
 
     await waitFor(() => expect(session).toHaveBeenCalled())
     expect(session.mock.calls[0][0].offset_sec).toBeCloseTo(180, 1)
@@ -335,22 +425,24 @@ describe('the two clocks', () => {
         rrIntervals: Array.from({ length: 100 }, () => 900),
       }),
     })
-    act(() => { result.current.run(V3) })
+    act(() => { result.current.setQuestionTimeline(TIMELINE) })
+    act(() => { result.current.run() })
 
     await waitFor(() => expect(session).toHaveBeenCalled())
     expect(session.mock.calls[0][0].offset_sec).toBe(0)
   })
 
   it('sends zero for an uploaded file, where the clocks coincide', async () => {
-    const { timeline } = spyOnApi()
+    const { session } = spyOnApi()
     const { useSessionState: hook } = await import('./useSessionState')
     const { result } = renderHook(() => hook(noDevice()))
 
     act(() => { result.current.setFile(recording()) })
     act(() => { result.current.setFileWornAt('chest') })
-    act(() => { result.current.run(V1) })
+    act(() => { result.current.setQuestionTimeline(TIMELINE) })
+    act(() => { result.current.run() })
 
-    await waitFor(() => expect(timeline).toHaveBeenCalled())
-    expect(timeline.mock.calls[0][0].offset_sec).toBe(0)
+    await waitFor(() => expect(session).toHaveBeenCalled())
+    expect(session.mock.calls[0][0].offset_sec).toBe(0)
   })
 })

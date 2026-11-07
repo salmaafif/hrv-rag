@@ -29,6 +29,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { parseHeartRateMeasurement } from './heartRateProtocol'
+import { appendReading, type BpmReading } from '../lib/bpmReadings'
 import { mockDiscoveredDevices } from '../mocks/devices'
 import { DEMO_RR_MS, SIMULATION_SPEED } from '../mocks/recording'
 import { recogniseWearLocation, type WearLocation } from '../types/device'
@@ -99,7 +100,15 @@ export interface DeviceConnection {
   sendsRrIntervals: boolean | null
   /** Every interval collected since connecting, in milliseconds. */
   rrIntervals: number[]
-  /** Discard the collected intervals — used when a session restarts. */
+  /**
+   * Every heart-rate report since connecting, with the second it arrived.
+   *
+   * Kept from EVERY device, not only from watches: the backend decides from
+   * the coverage whether the session is scored from intervals or from heart
+   * rate, and it can only decide if both streams reach it.
+   */
+  bpmReadings: readonly BpmReading[]
+  /** Discard the collected intervals and reports — used when a session restarts. */
   clearIntervals: () => void
   scan: () => void
   connect: (deviceId: string) => void
@@ -146,14 +155,24 @@ function recordedInterval(index: number): number | undefined {
  *   the URL flag rather than an automatic fallback: silently inventing beats
  *   when a sensor fails to connect would produce a complete, confident report
  *   about a person from data that describes nobody.
+ *
+ * @param simulateHeartRateOnly  With `simulate`, behave like a smartwatch that
+ *   reports heart rate and never an interval (`?dev=1&sensor=bpm`), so the
+ *   heart-rate path can be demonstrated without owning such a watch.
  */
-export function useDeviceConnection(simulate = false): DeviceConnection {
+export function useDeviceConnection(
+  simulate = false,
+  simulateHeartRateOnly = false,
+): DeviceConnection {
   const [status, setStatus] = useState<ConnectionStatus>('idle')
   const [connected, setConnected] = useState<HeartDevice | null>(null)
   const [wornAt, setWornAtState] = useState<WearLocation | null>(null)
   const [bpm, setBpm] = useState<number | null>(null)
   const [sendsRrIntervals, setSendsRr] = useState<boolean | null>(null)
   const [rrIntervals, setRrIntervals] = useState<number[]>([])
+  const [bpmReadings, setBpmReadings] = useState<readonly BpmReading[]>([])
+  //: When the first report arrived; every reading is stamped relative to it.
+  const streamStartRef = useRef<number | null>(null)
   const [signalQuality, setSignalQuality] = useState<SignalQuality | null>(null)
 
   const [streamStalled, setStreamStalled] = useState(false)
@@ -168,9 +187,16 @@ export function useDeviceConnection(simulate = false): DeviceConnection {
     if (!characteristic.value) return
 
     const sample = parseHeartRateMeasurement(characteristic.value)
-    lastBeatAtRef.current = Date.now()
+    const now = Date.now()
+    lastBeatAtRef.current = now
     setStreamStalled(false)
     setBpm(sample.bpm)
+
+    // Stamped on arrival. The watch's own clock is never used: it can sit
+    // minutes off, and nothing on screen would reveal it.
+    if (streamStartRef.current === null) streamStartRef.current = now
+    const atSec = (now - streamStartRef.current) / 1000
+    setBpmReadings((kept) => appendReading(kept, atSec, sample.bpm))
     setSendsRr((known) => known ?? sample.hasRrIntervals)
 
     if (sample.rrMs.length) {
@@ -199,7 +225,7 @@ export function useDeviceConnection(simulate = false): DeviceConnection {
       const entry = mockDiscoveredDevices[0]!
       setConnected(entry)
       setWornAtState(entry.wornAt)
-      setSendsRr(true)
+      setSendsRr(!simulateHeartRateOnly)
       setStatus('connected')
       return
     }
@@ -249,7 +275,7 @@ export function useDeviceConnection(simulate = false): DeviceConnection {
       // most straps allow. None of these deserve a crash.
       setStatus('idle')
     }
-  }, [handleMeasurement, simulate])
+  }, [handleMeasurement, simulate, simulateHeartRateOnly])
 
   // Feed the simulation, once connected. One beat at a time, as a real sensor
   // notifies, rather than in bursts — the quality check reads the last few
@@ -273,6 +299,7 @@ export function useDeviceConnection(simulate = false): DeviceConnection {
     // signal, which is the exact failure this playback is supposed to make
     // visible. A test caught it.
     const played: number[] = []
+    let elapsedMs = 0
     let timer = 0
 
     const emit = () => {
@@ -285,17 +312,30 @@ export function useDeviceConnection(simulate = false): DeviceConnection {
         return
       }
       played.push(beat)
+      elapsedMs += beat
       lastBeatAtRef.current = Date.now()
       setStreamStalled(false)
-      setBpm(Math.round(60000 / beat))
-      setRrIntervals([...played])
-      setSignalQuality(judgeQuality(played.slice(-QUALITY_WINDOW)))
+      const bpmNow = Math.round(60000 / beat)
+      setBpm(bpmNow)
+      // Stamped on the RECORDING clock, as the intervals are, so the two
+      // streams and the sped-up session clock all describe the same moments.
+      //
+      // Frozen into a constant BEFORE the updater. React runs updaters when it
+      // renders, not when they are queued; reading the shared `elapsedMs` inside
+      // one gave every queued report the latest time, so all but the first were
+      // dropped as not moving forward. A test caught it.
+      const atSec = elapsedMs / 1000
+      setBpmReadings((kept) => appendReading(kept, atSec, bpmNow))
+      if (!simulateHeartRateOnly) {
+        setRrIntervals([...played])
+        setSignalQuality(judgeQuality(played.slice(-QUALITY_WINDOW)))
+      }
       timer = window.setTimeout(emit, beat / SIMULATION_SPEED)
     }
 
     emit()
     return () => window.clearTimeout(timer)
-  }, [simulate, status])
+  }, [simulate, status, simulateHeartRateOnly])
 
   // The watchdog. `gattserverdisconnected` covers a sensor that switches off;
   // it does NOT cover a sensor another app takes over — the connection stays
@@ -326,7 +366,11 @@ export function useDeviceConnection(simulate = false): DeviceConnection {
     setStatus('idle')
   }, [])
 
-  const clearIntervals = useCallback(() => setRrIntervals([]), [])
+  const clearIntervals = useCallback(() => {
+    setRrIntervals([])
+    setBpmReadings([])
+    streamStartRef.current = null
+  }, [])
 
   const setWornAt = useCallback((location: WearLocation) => {
     setWornAtState(location)
@@ -347,6 +391,7 @@ export function useDeviceConnection(simulate = false): DeviceConnection {
     streamStalled,
     sendsRrIntervals,
     rrIntervals,
+    bpmReadings,
     clearIntervals,
     scan: () => { void scan() },
     // The browser's own chooser already performed the selection, so there is

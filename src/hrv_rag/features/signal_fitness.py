@@ -44,21 +44,28 @@ class SignalFitness:
     rmssd_trusted: bool
     reasons: list[str] = field(default_factory=list)
 
-    quantization_step_ms: float = 0.0
-    noise_floor_ms: float = 0.0
-    rest_rmssd_ms: float = 0.0
-    missed_beat_ratio: float = 0.0
-    task_outlier_ratio: float = 0.0
+    # None means NOT COMPUTED, which is a different statement from zero. A
+    # heart-rate-only recording has no beat intervals to compute these from, and
+    # reporting 0.0 would claim a measured clock step of zero milliseconds.
+    quantization_step_ms: float | None = 0.0
+    noise_floor_ms: float | None = 0.0
+    rest_rmssd_ms: float | None = 0.0
+    missed_beat_ratio: float | None = 0.0
+    task_outlier_ratio: float | None = 0.0
 
     def block(self) -> dict:
         """The API representation. Instrument facts, not person facts."""
         return {
             "rmssd_trusted": self.rmssd_trusted,
             "reasons": list(self.reasons),
-            "quantization_step_ms": round(self.quantization_step_ms, 2),
-            "missed_beat_ratio": round(self.missed_beat_ratio, 4),
-            "task_outlier_ratio": round(self.task_outlier_ratio, 4),
+            "quantization_step_ms": _rounded(self.quantization_step_ms, 2),
+            "missed_beat_ratio": _rounded(self.missed_beat_ratio, 4),
+            "task_outlier_ratio": _rounded(self.task_outlier_ratio, 4),
         }
+
+
+def _rounded(value: float | None, digits: int) -> float | None:
+    return None if value is None else round(value, digits)
 
 
 def _quantization_step(rr_ms: np.ndarray) -> float:
@@ -140,4 +147,25 @@ def assess_signal(rest_rr_ms: np.ndarray, task_rr_ms: np.ndarray,
         rest_rmssd_ms=rest_rmssd,
         missed_beat_ratio=missed,
         task_outlier_ratio=float(task_outlier_ratio),
+    )
+
+
+#: Why a heart-rate-only recording never gives RMSSD a vote.
+BPM_ONLY_REASON = ("device reports heart rate (bpm) only, not beat-to-beat "
+                   "intervals, so variability was not measured")
+
+
+def bpm_only_fitness() -> SignalFitness:
+    """
+    The verdict for a recording that never contained beat intervals.
+
+    NOT `assess_signal` run on the rebuilt beats. Those beats are perfectly regular
+    by construction, so every check above would pass and declare RMSSD trustworthy —
+    the exact opposite of the truth. The instrument numbers are left uncomputed
+    rather than derived from beats that never happened.
+    """
+    return SignalFitness(
+        rmssd_trusted=False, reasons=[BPM_ONLY_REASON],
+        quantization_step_ms=None, noise_floor_ms=None, rest_rmssd_ms=None,
+        missed_beat_ratio=None, task_outlier_ratio=None,
     )

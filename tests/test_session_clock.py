@@ -28,7 +28,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from hrv_api.services.analysis import build_session, build_timeline, prepare
+from hrv_api.services.analysis import build_session, prepare
 from hrv_rag.core.types import Modality
 from hrv_rag.preprocessing.intervals import split_baseline_and_task
 
@@ -102,15 +102,6 @@ def test_the_shift_is_the_resting_period_not_the_requested_minutes():
     assert prepared.question_shift_sec == pytest.approx(-prepared.rest_end_sec)
     assert prepared.rest_end_sec == pytest.approx(120, abs=1.5)
     assert prepared.rest_end_sec != 120.0
-
-
-def test_timeline_windows_use_the_same_clock_as_question_windows():
-    # V1 reported recording seconds while V2 consumed task seconds. An API whose
-    # request and response disagree about the origin cannot be integrated against.
-    prepared = prepare(recording(), None, 2.0, Modality.ECG, "s")
-    body = build_timeline(prepared)
-    first = body["timeline"][0]
-    assert first["start_sec"] == pytest.approx(prepared.rest_end_sec, abs=1.0)
 
 
 # -------------------------------------------------------- bug 2: the offset

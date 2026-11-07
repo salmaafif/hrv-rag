@@ -41,6 +41,21 @@ def _score_feature(value: float, moderate: float, high: float,
     return 2 if value <= high else (1 if value <= moderate else 0)
 
 
+def _percent(value: float) -> str:
+    """
+    A measured change, written so it never claims to be no change at all.
+
+    Whole numbers everywhere is the right default: nobody reads "heart rate 4.7%
+    above baseline" more accurately than "5%". But below half a percent that
+    rounding prints `0%`, and this sentence is what the model is given as the
+    evidence behind a label — so a real measurement of -0.4% arrived as "heart
+    rate 0% below baseline", which is a statement that nothing moved. Seen on the
+    first real watch session, 17 September 2026. Small values therefore keep one
+    decimal, which is the smallest change that stops the sentence being false.
+    """
+    return f"{abs(value):.1f}" if abs(value) < 0.5 else f"{abs(value):.0f}"
+
+
 def classify(reactivity: dict[str, float],
              cfg: StressRuleConfig | None = None) -> StressVerdict:
     """
@@ -64,11 +79,11 @@ def classify(reactivity: dict[str, float],
     evidence: list[str] = []
     if rmssd == rmssd:
         direction = "below" if rmssd < 0 else "above"
-        evidence.append(f"RMSSD {abs(rmssd):.0f}% {direction} baseline "
+        evidence.append(f"RMSSD {_percent(rmssd)}% {direction} baseline "
                         f"({rmssd_points} pt)")
     if hr == hr:
         direction = "above" if hr > 0 else "below"
-        evidence.append(f"heart rate {abs(hr):.0f}% {direction} baseline "
+        evidence.append(f"heart rate {_percent(hr)}% {direction} baseline "
                         f"({hr_points} pt)")
     if not evidence:
         evidence.append("no usable measurement")

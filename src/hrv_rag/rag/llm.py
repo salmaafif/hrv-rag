@@ -26,6 +26,11 @@ What the split buys the thesis:
 - **Reproducibility.** Ollama pins weights by digest and accepts a seed. Gemini
   offers neither.
 
+A THIRD BACKEND, OPENROUTER (19 Oct 2026). The KARIRLINK AI Gateway moved its
+model tasks to DeepSeek through OpenRouter on 21 Sep 2026, and the HRV narrative
+was the last caller still on Gemini. `OpenRouterInterpreter` lets the deployed
+service follow through the same LLM_PROVIDER switch. Gemini stays the default.
+
 What it deliberately does NOT change: every classification figure already reported
 comes from the frozen scoring rule with no API call whatsoever
 (`scripts/run_holdout.py`). Only narrative, faithfulness and consistency depend on
@@ -44,7 +49,7 @@ from typing import Any
 
 from dotenv import load_dotenv
 
-from ..config.settings import LLMConfig, OllamaConfig, settings
+from ..config.settings import LLMConfig, OllamaConfig, OpenRouterConfig, settings
 from ..core.schemas import LLMResponse
 from .rate_limit import RateLimiter, call_with_retry
 
@@ -86,6 +91,46 @@ def _first_env(*names: str) -> str:
         if value:
             return value
     return ""
+
+
+class OpenRouterHTTPError(RuntimeError):
+    """
+    An error from OpenRouter, carrying its status as a number.
+
+    Same reasoning as `OllamaHTTPError`: the retry layer must tell a busy upstream
+    (429, 5xx) from a rejected key or an unknown model slug, and a status buried
+    in prose cannot be trusted for that. `status` is None for an error that came
+    back inside a 200 body, which OpenRouter does when an upstream fails mid-way.
+    """
+
+    def __init__(self, status: int | None, detail: str) -> None:
+        self.status = status
+        label = status if status is not None else "error in a 200 body"
+        super().__init__(f"OpenRouter HTTP {label}: {detail[:200]}")
+
+
+def _is_retryable_openrouter(exc: Exception) -> bool:
+    if isinstance(exc, OpenRouterHTTPError):
+        # An upstream that failed inside a 200 body is usually a transient
+        # provider fault, so it is tried again like a 502.
+        return exc.status is None or exc.status in _RETRYABLE_HTTP
+    return type(exc).__name__ in _RETRYABLE_TRANSPORT + ("ReadTimeout",)
+
+
+def _strip_code_fence(text: str) -> str:
+    """
+    Remove a ```json ... ``` wrapper if the model added one.
+
+    `response_format: json_object` should prevent it, but a fence around valid
+    JSON is a formatting slip, not an invented answer, and refusing it would throw
+    away a narrative the guards could still check.
+    """
+    stripped = text.strip()
+    if stripped.startswith("```") and stripped.endswith("```"):
+        stripped = stripped[3:-3].strip()
+        if stripped.lower().startswith("json"):
+            stripped = stripped[4:].strip()
+    return stripped
 
 
 def _is_retryable_ollama(exc: Exception) -> bool:
@@ -155,6 +200,9 @@ class GeminiInterpreter(BaseInterpreter):
                 "GEMINI_API_KEY not found. Fill in the .env file at the repo root."
             )
 
+        # HRV_GEMINI_MODEL, not GEMINI_MODEL: see `LLMConfig.model` for why.
+        self.model = _first_env("HRV_GEMINI_MODEL") or self.cfg.model
+
         from google import genai
         self._client = genai.Client(api_key=api_key)
 
@@ -164,7 +212,7 @@ class GeminiInterpreter(BaseInterpreter):
 
     @property
     def model_label(self) -> str:
-        return self.cfg.model
+        return self.model
 
     def interpret_as(self, prompt: str, schema: type,
                      temperature: float | None = None) -> Any:
@@ -180,7 +228,7 @@ class GeminiInterpreter(BaseInterpreter):
         self._limiter.wait()
         response = call_with_retry(
             lambda: self._client.models.generate_content(
-                model=self.cfg.model, contents=prompt, config=config,
+                model=self.model, contents=prompt, config=config,
             )
         )
         if response.parsed is None:
@@ -414,6 +462,164 @@ class OllamaInterpreter(BaseInterpreter):
             return str(getattr(response, "text", ""))
 
 
+class OpenRouterInterpreter(BaseInterpreter):
+    """
+    A hosted model (DeepSeek in KARIRLINK) reached through OpenRouter's
+    OpenAI-compatible chat completions.
+
+    **How the schema is kept.** Gemini receives the pydantic model as
+    `response_schema` and Ollama as `format`. OpenRouter is asked only for
+    `response_format: json_object`, the mode the AI Gateway already runs DeepSeek
+    with; full JSON Schema enforcement is not offered by every upstream, and
+    `require_parameters` would then refuse the request outright. So the schema
+    travels as a system message, and the reply is validated against the same
+    pydantic model. Malformed or half-filled JSON therefore fails here, loudly,
+    exactly where the other two backends would fail.
+
+    The prompt files are untouched: they already say "Return JSON matching the
+    required schema", and the system message is what supplies that schema on
+    this route. Editing a prompt would change what every earlier result was
+    produced with.
+
+    **What gets recorded.** `model_label` names the model OpenRouter reports
+    having answered, not the slug that was requested, once a call has been made.
+    """
+
+    def __init__(self, cfg: LLMConfig | None = None,
+                 openrouter_cfg: OpenRouterConfig | None = None,
+                 api_key: str | None = None,
+                 model: str | None = None,
+                 base_url: str | None = None,
+                 client: Any | None = None) -> None:
+        self.cfg = cfg or settings.llm
+        self.openrouter = openrouter_cfg or settings.openrouter
+
+        if api_key is None or model is None:
+            load_dotenv(_ENV_PATH)
+        api_key = api_key or _first_env("OPENROUTER_API_KEY")
+        model = (model or _first_env("HRV_OPENROUTER_MODEL")
+                 or self.openrouter.model)
+        base_url = (base_url or _first_env("OPENROUTER_BASE_URL")
+                    or self.openrouter.base_url)
+
+        if not api_key:
+            raise RuntimeError(
+                "OPENROUTER_API_KEY not found. Add it to .env; it is the same key "
+                "the KARIRLINK AI Gateway uses for DeepSeek."
+            )
+        if not model:
+            raise RuntimeError(
+                "HRV_OPENROUTER_MODEL not set. Use a versioned slug, e.g. "
+                "HRV_OPENROUTER_MODEL=deepseek/deepseek-v4.1-flash. There is no "
+                "default on purpose: the model is chosen in .env, never in code."
+            )
+
+        self.model = model
+        self.base_url = base_url.strip().rstrip("/")
+        self._answered_by: str | None = None
+
+        if client is None:
+            import httpx
+            client = httpx.Client(
+                base_url=self.base_url,
+                headers={"Authorization": f"Bearer {api_key}",
+                         "Content-Type": "application/json",
+                         "X-Title": "KarirLink HRV"},
+                timeout=self.openrouter.timeout_sec,
+            )
+        self._client = client
+        self._limiter = RateLimiter(self.openrouter.requests_per_minute)
+
+    @property
+    def model_label(self) -> str:
+        """`openrouter:<model that answered>`, or the requested slug before any call."""
+        return f"openrouter:{self._answered_by or self.model}"
+
+    def build_body(self, prompt: str, schema: type,
+                   temperature: float | None = None) -> dict:
+        """The request body. Separate so the tests can pin every field in it."""
+        instruction = (
+            "Reply with one JSON object and nothing else. It must validate "
+            "against this JSON Schema:\n"
+            + json.dumps(schema.model_json_schema(), ensure_ascii=False)
+        )
+        provider: dict[str, Any] = {"require_parameters": True}
+        if self.openrouter.data_collection:
+            provider["data_collection"] = self.openrouter.data_collection
+        if self.openrouter.provider_sort:
+            provider["sort"] = self.openrouter.provider_sort
+
+        body: dict[str, Any] = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": instruction},
+                {"role": "user", "content": prompt},
+            ],
+            "response_format": {"type": "json_object"},
+            "provider": provider,
+            "temperature": (temperature if temperature is not None
+                            else self.cfg.temperature),
+            "max_tokens": self.cfg.max_output_tokens,
+        }
+        if self.openrouter.reasoning_effort:
+            body["reasoning"] = {"effort": self.openrouter.reasoning_effort}
+        return body
+
+    def interpret_as(self, prompt: str, schema: type,
+                     temperature: float | None = None) -> Any:
+        body = self.build_body(prompt, schema, temperature)
+
+        self._limiter.wait()
+        response = call_with_retry(
+            lambda: self._post("/chat/completions", body),
+            is_retryable=_is_retryable_openrouter,
+        )
+
+        self._answered_by = response.get("model") or self._answered_by
+        choices = response.get("choices") or []
+        content = ""
+        if choices:
+            content = (choices[0].get("message") or {}).get("content") or ""
+        if not content.strip():
+            raise ValueError(
+                f"Model returned an empty response. Full reply: {response!r}"
+            )
+
+        text = _strip_code_fence(content)
+        try:
+            payload = json.loads(text)
+        except json.JSONDecodeError as exc:
+            raise ValueError(
+                f"Model did not return JSON even though `response_format` asked "
+                f"for it. Raw text: {content[:300]!r}"
+            ) from exc
+
+        return schema.model_validate(payload)
+
+    def _post(self, path: str, body: dict) -> dict:
+        """One request; HTTP errors and errors inside a 200 body both raise typed."""
+        response = self._client.post(path, json=body)
+        status = getattr(response, "status_code", 200)
+        if status >= 400:
+            raise OpenRouterHTTPError(status, self._detail(response))
+        data = response.json()
+        if isinstance(data, dict) and data.get("error"):
+            raise OpenRouterHTTPError(None, self._detail(response))
+        return data
+
+    @staticmethod
+    def _detail(response: Any) -> str:
+        """Only `error.message`: the body can echo the prompt, which holds session data."""
+        try:
+            data = response.json()
+        except Exception:                                        # noqa: BLE001
+            return str(getattr(response, "text", ""))[:200]
+        error = data.get("error") if isinstance(data, dict) else None
+        if isinstance(error, dict) and error.get("message"):
+            return str(error["message"])
+        return str(error or data)[:200]
+
+
 def make_interpreter(cfg: LLMConfig | None = None,
                      provider: str | None = None) -> BaseInterpreter:
     """
@@ -438,6 +644,9 @@ def make_interpreter(cfg: LLMConfig | None = None,
         return GeminiInterpreter(cfg)
     if provider == "ollama":
         return OllamaInterpreter(cfg)
+    if provider == "openrouter":
+        return OpenRouterInterpreter(cfg)
     raise ValueError(
-        f"Unknown LLM provider {provider!r}. Use 'gemini' or 'ollama'."
+        f"Unknown LLM provider {provider!r}. Use 'gemini', 'ollama' or "
+        f"'openrouter'."
     )
